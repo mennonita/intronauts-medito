@@ -9,6 +9,10 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get trackAudioUnavailable =>
+      'Esta meditación todavía no está disponible.';
+
+  @override
   String get appName => 'Medito';
 
   @override
@@ -525,7 +529,7 @@ class AppLocalizationsEs extends AppLocalizations {
       'Esto elimina tu cuenta de forma permanente, incluidas tus estadísticas y favoritos. No se puede deshacer.';
 
   @override
-  String get deleteAccountButtonText => 'Eliminar Cuenta';
+  String get deleteAccountButtonText => 'Borrar cuenta';
 
   @override
   String get accountMarkedForDeletion =>

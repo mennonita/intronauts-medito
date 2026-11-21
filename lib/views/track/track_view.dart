@@ -96,8 +96,7 @@ class _TrackViewState extends ConsumerState<TrackView>
 
                   return _buildPortraitLayout(
                     track,
-                    selection.voice,
-                    selection.file,
+                    selection,
                     useCompactLayout,
                   );
                 },
@@ -121,8 +120,7 @@ class _TrackViewState extends ConsumerState<TrackView>
 
   Widget _buildPortraitLayout(
     Track track,
-    TrackVoice activeVoice,
-    TrackAudioFile activeFile,
+    ({TrackVoice voice, TrackAudioFile file})? selection,
     bool useCompactLayout,
   ) {
     return Column(
@@ -132,8 +130,7 @@ class _TrackViewState extends ConsumerState<TrackView>
         const SizedBox(height: 24),
         _buildTrackContent(
           track,
-          activeVoice,
-          activeFile,
+          selection,
           useCompactLayout: useCompactLayout,
         ),
       ],
@@ -155,12 +152,16 @@ class _TrackViewState extends ConsumerState<TrackView>
 
   Widget _buildTrackContent(
     Track track,
-    TrackVoice activeVoice,
-    TrackAudioFile activeFile, {
+    ({TrackVoice voice, TrackAudioFile file})? selection, {
     required bool useCompactLayout,
   }) {
-    final showGuideNameDropdown = track.voices.first.guideName
-        .isNotNullAndNotEmpty();
+    final activeVoice = selection?.voice;
+    final activeFile = selection?.file;
+    final showGuideNameDropdown =
+        TrackVariantSelector.playableVoices(
+          track,
+        ).firstOrNull?.guideName.isNotNullAndNotEmpty() ??
+        false;
     final guideName = ref.watch(guideNamePreferenceProvider);
 
     return Column(
@@ -171,22 +172,26 @@ class _TrackViewState extends ConsumerState<TrackView>
         _getSubTitle(context, track.description),
         _tags(track),
         const SizedBox(height: 24),
-        if (useCompactLayout && showGuideNameDropdown)
-          _buildCompactPickers(track, activeVoice, activeFile, guideName)
+        if (activeVoice == null || activeFile == null)
+          Text(AppLocalizations.of(context)!.trackAudioUnavailable)
         else ...[
-          if (showGuideNameDropdown) ...[
-            _guideNameDropdown(
-              track,
-              activeVoice,
-              isLandscape: false,
-              guideNameState: guideName,
-            ),
-            const SizedBox(height: 12),
+          if (useCompactLayout && showGuideNameDropdown)
+            _buildCompactPickers(track, activeVoice, activeFile, guideName)
+          else ...[
+            if (showGuideNameDropdown) ...[
+              _guideNameDropdown(
+                track,
+                activeVoice,
+                isLandscape: false,
+                guideNameState: guideName,
+              ),
+              const SizedBox(height: 12),
+            ],
+            _durationDropdown(activeVoice, activeFile, isLandscape: false),
           ],
-          _durationDropdown(activeVoice, activeFile, isLandscape: false),
+          const SizedBox(height: 12),
+          _playBtn(ref, track, activeVoice, activeFile, isFullWidth: true),
         ],
-        const SizedBox(height: 12),
-        _playBtn(ref, track, activeVoice, activeFile, isFullWidth: true),
       ],
     );
   }
@@ -394,14 +399,14 @@ class _TrackViewState extends ConsumerState<TrackView>
         topRight: 7,
         bottomLeft: 7,
         disabledLabelText: '${activeVoice.guideName}',
-        items: track.voices.map<DropdownMenuItem<TrackVoice>>((
-          TrackVoice value,
-        ) {
-          return DropdownMenuItem<TrackVoice>(
-            value: value,
-            child: Text(value.guideName ?? ''),
-          );
-        }).toList(),
+        items: TrackVariantSelector.playableVoices(track)
+            .map<DropdownMenuItem<TrackVoice>>((TrackVoice value) {
+              return DropdownMenuItem<TrackVoice>(
+                value: value,
+                child: Text(value.guideName ?? ''),
+              );
+            })
+            .toList(),
         onChanged: _handleOnGuideNameChange,
         isLandscape: isLandscape,
       );

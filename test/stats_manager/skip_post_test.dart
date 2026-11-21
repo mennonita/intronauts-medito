@@ -32,8 +32,13 @@ void main() {
     statsManager.setCurrentDateForTesting(today);
 
     when(
-      mockStatsService.postStats(any),
-    ).thenAnswer((_) async => Future.value());
+      mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+    ).thenAnswer(
+      (invocation) async => (
+        applied: true,
+        clientSeq: invocation.namedArguments[#clientSeq] as int,
+      ),
+    );
 
     statsManager.setStatsForTesting(
       LocalAllStats.empty().copyWith(streakCurrent: 0, streakLongest: 0),
@@ -55,7 +60,9 @@ void main() {
         skipPost: true,
       );
 
-      verifyNever(mockStatsService.postStats(any));
+      verifyNever(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      );
     });
 
     test('still saves stats locally and recalculates streak', () async {
@@ -81,7 +88,9 @@ void main() {
         10 * 60 * 1000,
       );
 
-      verify(mockStatsService.postStats(any)).called(1);
+      verify(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).called(1);
     });
 
     test('many skipPost inserts produce zero network calls', () async {
@@ -92,7 +101,9 @@ void main() {
           skipPost: true,
         );
       }
-      verifyNever(mockStatsService.postStats(any));
+      verifyNever(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      );
       // …and all 30 entries are present locally.
       expect(statsManager.currentStats!.audioCompleted!.length, 30);
     });
@@ -101,7 +112,9 @@ void main() {
   group('flushPendingPost', () {
     test('is a no-op when no skipPost insert has happened', () async {
       await statsManager.flushPendingPost();
-      verifyNever(mockStatsService.postStats(any));
+      verifyNever(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      );
     });
 
     test('posts once after a batch of skipPost inserts', () async {
@@ -114,7 +127,9 @@ void main() {
       }
 
       await statsManager.flushPendingPost();
-      verify(mockStatsService.postStats(any)).called(1);
+      verify(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).called(1);
     });
 
     test('a second flush after the first does not re-post', () async {
@@ -126,7 +141,9 @@ void main() {
 
       await statsManager.flushPendingPost();
       await statsManager.flushPendingPost();
-      verify(mockStatsService.postStats(any)).called(1);
+      verify(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).called(1);
     });
 
     test('a non-skipPost insert after a flush still posts', () async {
@@ -142,7 +159,9 @@ void main() {
         entryAt(DateTime(2026, 4, 28, 12)),
         10 * 60 * 1000,
       );
-      verify(mockStatsService.postStats(any)).called(1);
+      verify(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).called(1);
     });
   });
 }

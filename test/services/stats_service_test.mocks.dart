@@ -5,9 +5,7 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'dart:async' as _i3;
 
-import 'package:medito/models/local_all_stats.dart' as _i5;
 import 'package:medito/services/network/http_api_service.dart' as _i2;
-import 'package:medito/services/stats_backup_service.dart' as _i4;
 import 'package:mockito/mockito.dart' as _i1;
 
 // ignore_for_file: type=lint
@@ -32,6 +30,11 @@ class MockHttpApiService extends _i1.Mock implements _i2.HttpApiService {
   MockHttpApiService() {
     _i1.throwOnMissingStub(this);
   }
+
+  @override
+  int get authEpoch =>
+      (super.noSuchMethod(Invocation.getter(#authEpoch), returnValue: 0)
+          as int);
 
   @override
   int get retryCountForTesting =>
@@ -69,10 +72,13 @@ class MockHttpApiService extends _i1.Mock implements _i2.HttpApiService {
       );
 
   @override
-  void notifyForceLogout() => super.noSuchMethod(
-    Invocation.method(#notifyForceLogout, []),
-    returnValueForMissingStub: null,
-  );
+  _i3.Future<void> recoverRejectedSession(int? epoch) =>
+      (super.noSuchMethod(
+            Invocation.method(#recoverRejectedSession, [epoch]),
+            returnValue: _i3.Future<void>.value(),
+            returnValueForMissingStub: _i3.Future<void>.value(),
+          )
+          as _i3.Future<void>);
 
   @override
   void setAuthHeader(String? accessToken) => super.noSuchMethod(
@@ -180,68 +186,4 @@ class MockHttpApiService extends _i1.Mock implements _i2.HttpApiService {
             ),
           )
           as _i3.Future<Map<String, dynamic>>);
-}
-
-/// A class which mocks [StatsBackupService].
-///
-/// See the documentation for Mockito's code generation for more information.
-class MockStatsBackupService extends _i1.Mock
-    implements _i4.StatsBackupService {
-  MockStatsBackupService() {
-    _i1.throwOnMissingStub(this);
-  }
-
-  @override
-  _i3.Future<bool> backupStats(_i5.LocalAllStats? stats, String? userId) =>
-      (super.noSuchMethod(
-            Invocation.method(#backupStats, [stats, userId]),
-            returnValue: _i3.Future<bool>.value(false),
-          )
-          as _i3.Future<bool>);
-
-  @override
-  _i3.Future<_i5.LocalAllStats?> getLatestBackup(String? userId) =>
-      (super.noSuchMethod(
-            Invocation.method(#getLatestBackup, [userId]),
-            returnValue: _i3.Future<_i5.LocalAllStats?>.value(),
-          )
-          as _i3.Future<_i5.LocalAllStats?>);
-
-  @override
-  _i3.Future<List<_i4.StatsBackup>> getAllBackups(String? userId) =>
-      (super.noSuchMethod(
-            Invocation.method(#getAllBackups, [userId]),
-            returnValue: _i3.Future<List<_i4.StatsBackup>>.value(
-              <_i4.StatsBackup>[],
-            ),
-          )
-          as _i3.Future<List<_i4.StatsBackup>>);
-
-  @override
-  _i3.Future<List<_i4.StatsBackup>> getAllBackupsAcrossUsers() =>
-      (super.noSuchMethod(
-            Invocation.method(#getAllBackupsAcrossUsers, []),
-            returnValue: _i3.Future<List<_i4.StatsBackup>>.value(
-              <_i4.StatsBackup>[],
-            ),
-          )
-          as _i3.Future<List<_i4.StatsBackup>>);
-
-  @override
-  _i3.Future<void> clearBackups(String? userId) =>
-      (super.noSuchMethod(
-            Invocation.method(#clearBackups, [userId]),
-            returnValue: _i3.Future<void>.value(),
-            returnValueForMissingStub: _i3.Future<void>.value(),
-          )
-          as _i3.Future<void>);
-
-  @override
-  _i3.Future<void> clearAll() =>
-      (super.noSuchMethod(
-            Invocation.method(#clearAll, []),
-            returnValue: _i3.Future<void>.value(),
-            returnValueForMissingStub: _i3.Future<void>.value(),
-          )
-          as _i3.Future<void>);
 }

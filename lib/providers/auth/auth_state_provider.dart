@@ -33,13 +33,14 @@ final authStateListenerProvider = Provider<void>((ref) {
   // every provider invalidation (every ref.watch rebuild added one more,
   // and a single forceLogout fired all of them). See audit P0-3.
   void onAuthEvent(AuthEvent event) {
-    if (event == AuthEvent.forceLogout) {
-      authRepository.resetAuthState();
-      // Whoever signs in next (possibly a new anonymous account) must not
-      // inherit and upload this account's favourites.
+    authRepository.resetAuthState();
+    if (event == AuthEvent.recoverSession) {
+      // La cuenta se recupera con el mismo identificador del dispositivo.
+      ref.read(favoritesNotifierProvider.notifier).pauseForSessionRecovery();
+    } else {
       unawaited(_clearLocalFavorites(ref));
-      _authStateController.add(AuthStateEvent.forceLogout);
     }
+    _authStateController.add(AuthStateEvent.forceLogout);
   }
 
   httpService.addAuthCallback(onAuthEvent);

@@ -249,8 +249,8 @@ final mockTracks = <String, Track>{
 // ---------------------------------------------------------------------------
 
 const mockMe = MeModel(
-  id: 'mock-user-001',
-  email: 'contributor@medito.app',
+  id: '00000000-0000-4000-8000-000000000001',
+  email: 'contributor@example.invalid',
 );
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,10 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
   // before either belongs to a superseded list (e.g. the previous account)
   // and must not write it back.
   int _generation = 0;
+  int _editRevision = 0;
+  ({List<FavoriteItem> favorites, int generation, Future<void> saved})?
+  _pendingPost;
+  Future<void>? _postInFlight;
 
   @override
   Future<List<FavoriteItem>> build() async {
@@ -30,13 +34,22 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
     // resolves, build() has already returned, so writing to `state` is
     // a normal post-build update that re-renders watchers if the merged
     // list differs from the local list.
-    unawaited(_fetchAndMergeFromServer());
+    if (_repository.hasPendingSync) {
+      unawaited(_queuePost(local));
+    } else {
+      unawaited(_fetchAndMergeFromServer());
+    }
     return local;
   }
 
   bool _isStale(int generation) => !ref.mounted || generation != _generation;
 
   Future<void> _fetchAndMergeFromServer() async {
+    if (_pendingPost != null) {
+      await _flushPosts();
+      return;
+    }
+    final revision = _editRevision;
     final fetchStartedAt = DateTime.now().millisecondsSinceEpoch;
     final generation = _generation;
     try {
@@ -44,7 +57,11 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
       if (_isStale(generation)) return;
       // Read after the fetch so removals made while it was in flight count.
       final removed = await _repository.loadRemovedFavorites();
-      if (_isStale(generation)) return;
+      if (_isStale(generation) ||
+          _pendingPost != null ||
+          revision != _editRevision) {
+        return;
+      }
       final currentLocalFavorites = state.value ?? [];
       final mergedFavorites = mergeFavoriteLists(
         currentLocalFavorites,
@@ -109,12 +126,18 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
   /// Pull-to-refresh entry point.
   Future<void> refreshFromServer() => _fetchAndMergeFromServer();
 
+  void pauseForSessionRecovery() {
+    _generation++;
+    _pendingPost = null;
+  }
+
   /// Drops the local favourites (sign-out, or signing in as a different
   /// account) so they can't be merged into, and uploaded to, whichever
   /// account signs in next. The server copy is left alone: it still belongs
   /// to the previous account and comes back when that account signs in.
   Future<void> clearLocal() async {
     _generation++;
+    _pendingPost = null;
     state = const AsyncValue.data([]);
     // Read directly: build() may not have run (or finished) yet.
     await ref.read(favoritesRepositoryProvider).clearLocal();
@@ -130,11 +153,44 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
     if (!state.hasValue) return;
     final currentFavorites = state.value!;
     if (currentFavorites.isEmpty && !allowEmpty) return;
-    try {
-      await _repository.syncWithServer(currentFavorites);
-    } catch (e) {
-      AppLogger.e('FAVORITES', 'Failed to sync favorites with server: $e');
-      // Keep local state on sync error. Merge logic will handle later.
+    await _queuePost(currentFavorites);
+  }
+
+  Future<void> _queuePost(List<FavoriteItem> favorites) {
+    if (_pendingPost?.generation == _generation &&
+        listEquals(_pendingPost?.favorites, favorites)) {
+      return _flushPosts();
+    }
+    _pendingPost = (
+      favorites: List.of(favorites),
+      generation: _generation,
+      saved: _repository.setPendingSync(true),
+    );
+    return _flushPosts();
+  }
+
+  Future<void> _flushPosts() =>
+      _postInFlight ??= _sendPending().whenComplete(() {
+        _postInFlight = null;
+      });
+
+  Future<void> _sendPending() async {
+    while (_pendingPost != null) {
+      final pending = _pendingPost!;
+      final repository = _repository;
+      try {
+        await pending.saved;
+        if (!identical(_pendingPost, pending)) continue;
+        if (_isStale(pending.generation)) return;
+        await repository.syncWithServer(pending.favorites);
+        if (!_isStale(pending.generation) && identical(_pendingPost, pending)) {
+          _pendingPost = null;
+          await repository.setPendingSync(false);
+        }
+      } catch (e) {
+        AppLogger.e('FAVORITES', 'Failed to sync favorites with server', e);
+        if (identical(_pendingPost, pending)) return;
+      }
     }
   }
 
@@ -142,10 +198,12 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
   /// state is reverted so the UI doesn't claim a save that never happened.
   /// Server sync is best-effort; its failure does not roll back local state.
   Future<void> addToFavorites(FavoriteItem item) async {
+    final generation = _generation;
     final previousFavorites = state.value ?? [];
     if (previousFavorites.any((fav) => fav.id == item.id)) return;
 
     final updatedFavorites = [...previousFavorites, item];
+    _editRevision++;
     state = AsyncValue.data(updatedFavorites);
 
     try {
@@ -155,19 +213,16 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
         'FAVORITES',
         'Failed to save after adding favorite, reverting: $e',
       );
-      state = AsyncValue.data(previousFavorites);
+      if (!_isStale(generation) && identical(state.value, updatedFavorites)) {
+        state = AsyncValue.data(previousFavorites);
+      }
       return;
     }
 
+    if (_isStale(generation)) return;
     await _updateRemoved((removed) => removed.remove(item.id));
 
-    try {
-      await syncWithServer();
-    } catch (e) {
-      // syncWithServer already logs; this catch is defensive in case it
-      // ever starts rethrowing.
-      AppLogger.e('FAVORITES', 'Sync after add failed: $e');
-    }
+    if (!_isStale(generation)) await syncWithServer(allowEmpty: true);
   }
 
   /// Removes the favorite with [id] optimistically. Same revert-on-local-
@@ -175,6 +230,7 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
   /// until the server confirms it, so a stale server copy can't bring the
   /// item back.
   Future<void> removeFromFavorites(String id) async {
+    final generation = _generation;
     final previousFavorites = state.value ?? [];
     final updatedFavorites = previousFavorites
         .where((item) => item.id != id)
@@ -182,6 +238,7 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
 
     if (updatedFavorites.length == previousFavorites.length) return;
 
+    _editRevision++;
     state = AsyncValue.data(updatedFavorites);
 
     try {
@@ -191,19 +248,18 @@ class FavoritesNotifier extends AsyncNotifier<List<FavoriteItem>> {
         'FAVORITES',
         'Failed to save after removing favorite, reverting: $e',
       );
-      state = AsyncValue.data(previousFavorites);
+      if (!_isStale(generation) && identical(state.value, updatedFavorites)) {
+        state = AsyncValue.data(previousFavorites);
+      }
       return;
     }
 
+    if (_isStale(generation)) return;
     await _updateRemoved(
       (removed) => removed[id] = DateTime.now().millisecondsSinceEpoch,
     );
 
-    try {
-      await syncWithServer(allowEmpty: true);
-    } catch (e) {
-      AppLogger.e('FAVORITES', 'Sync after remove failed: $e');
-    }
+    if (!_isStale(generation)) await syncWithServer(allowEmpty: true);
   }
 
   Future<void> _updateRemoved(void Function(Map<String, int>) change) async {

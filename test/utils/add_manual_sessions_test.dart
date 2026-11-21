@@ -40,8 +40,13 @@ void main() {
     statsManager.setCurrentDateForTesting(today);
 
     when(
-      mockStatsService.postStats(any),
-    ).thenAnswer((_) async => Future.value());
+      mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+    ).thenAnswer(
+      (invocation) async => (
+        applied: true,
+        clientSeq: invocation.namedArguments[#clientSeq] as int,
+      ),
+    );
 
     statsManager.setStatsForTesting(
       LocalAllStats.empty().copyWith(streakCurrent: 0, streakLongest: 0),
@@ -60,7 +65,9 @@ void main() {
         statsManager: statsManager,
       );
       expect(added, 0);
-      verifyNever(mockStatsService.postStats(any));
+      verifyNever(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      );
       expect(statsManager.currentStats!.audioCompleted ?? const [], isEmpty);
     });
 
@@ -75,7 +82,9 @@ void main() {
         statsManager: statsManager,
       );
       expect(added, 0);
-      verifyNever(mockStatsService.postStats(any));
+      verifyNever(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      );
       expect(statsManager.currentStats!.audioCompleted ?? const [], isEmpty);
     });
 
@@ -196,7 +205,9 @@ void main() {
         statsManager: statsManager,
       );
       expect(added, 30);
-      verify(mockStatsService.postStats(any)).called(1);
+      verify(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).called(1);
     });
 
     test('single-day add posts exactly once', () async {
@@ -206,7 +217,9 @@ void main() {
         statsManager: statsManager,
       );
       expect(added, 1);
-      verify(mockStatsService.postStats(any)).called(1);
+      verify(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).called(1);
     });
 
     test('all-future invocation does not post', () async {
@@ -216,7 +229,9 @@ void main() {
         statsManager: statsManager,
       );
       expect(added, 0);
-      verifyNever(mockStatsService.postStats(any));
+      verifyNever(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      );
     });
 
     test(
@@ -232,7 +247,9 @@ void main() {
           durationMinutes: 10,
           statsManager: statsManager,
         );
-        verify(mockStatsService.postStats(any)).called(2);
+        verify(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).called(2);
       },
     );
   });

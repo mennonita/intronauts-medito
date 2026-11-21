@@ -39,7 +39,7 @@ class _TagViewState extends ConsumerState<TagView> {
 
     return Scaffold(
       appBar: MeditoAppBarSmall(
-        title: tagLabel(context, widget.tag.id),
+        title: tagLabel(context, widget.tag.id, widget.tag.description),
         hasBackButton: false,
         actions: [
           IconButton(

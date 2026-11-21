@@ -276,18 +276,22 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         AnimatedEndScreenSection(child: _buildReminderPrompt()),
-                        AnimatedEndScreenSection(child: _buildAccountPrompt()),
+                        if (emailLoginEnabled)
+                          AnimatedEndScreenSection(
+                            child: _buildAccountPrompt(),
+                          ),
                       ],
                     ),
                   ),
                 ),
-                SlideTransition(
-                  position: _cardSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _cardFadeAnimation,
-                    child: _buildCard(),
+                if (donationsEnabled)
+                  SlideTransition(
+                    position: _cardSlideAnimation,
+                    child: FadeTransition(
+                      opacity: _cardFadeAnimation,
+                      child: _buildCard(),
+                    ),
                   ),
-                ),
                 // _buildFreezeRewardBanner(ref.watch(statsProvider).valueOrNull!),
               ],
             ),

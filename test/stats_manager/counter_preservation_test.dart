@@ -46,7 +46,14 @@ void main() {
   Future<void> boot(Map<String, Object> prefs) async {
     SharedPreferences.setMockInitialValues(prefs);
     mockStatsService = MockStatsService();
-    when(mockStatsService.postStats(any)).thenAnswer((_) async {});
+    when(
+      mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+    ).thenAnswer(
+      (invocation) async => (
+        applied: true,
+        clientSeq: invocation.namedArguments[#clientSeq] as int,
+      ),
+    );
     statsManager = StatsManager();
     statsManager.resetForTesting();
     statsManager.setStatsServiceForTesting(mockStatsService);
@@ -90,7 +97,12 @@ void main() {
       expect(result.streakLongest, greaterThanOrEqualTo(312));
 
       final posted =
-          verify(mockStatsService.postStats(captureAny)).captured.single
+          verify(
+                mockStatsService.postStats(
+                  captureAny,
+                  clientSeq: anyNamed('clientSeq'),
+                ),
+              ).captured.single
               as LocalAllStats;
       expect(posted.totalTracksCompleted, history.totalTracksCompleted + 1);
     });
@@ -146,7 +158,9 @@ void main() {
         updated: today.millisecondsSinceEpoch,
       );
       statsManager.setStatsForTesting(fresh);
-      when(mockStatsService.fetchAllStats()).thenAnswer((_) async => history);
+      when(
+        mockStatsService.fetchAllStats(),
+      ).thenAnswer((_) async => (stats: history, clientSeq: 0));
 
       await statsManager.sync(force: true);
 
@@ -175,7 +189,9 @@ void main() {
         updated: today.millisecondsSinceEpoch,
       );
       statsManager.setStatsForTesting(history);
-      when(mockStatsService.fetchAllStats()).thenAnswer((_) async => fresh);
+      when(
+        mockStatsService.fetchAllStats(),
+      ).thenAnswer((_) async => (stats: fresh, clientSeq: 0));
 
       await statsManager.sync(force: true);
 
@@ -189,7 +205,9 @@ void main() {
       await boot({});
       final history = historyStats().copyWith(totalTracksCompleted: 5);
       statsManager.setStatsForTesting(history);
-      when(mockStatsService.fetchAllStats()).thenAnswer((_) async => history);
+      when(
+        mockStatsService.fetchAllStats(),
+      ).thenAnswer((_) async => (stats: history, clientSeq: 0));
 
       await statsManager.sync(force: true);
 

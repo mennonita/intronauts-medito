@@ -33,6 +33,9 @@ class MockMeRepository extends Mock implements MeRepository {}
 class MockCrashlyticsService extends Mock implements CrashlyticsService {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   late AuthRepositoryImpl authRepository;
   late MockAuthApiService mockAuthApiService;
   late MockHttpApiService mockHttpApiService;
@@ -69,6 +72,10 @@ void main() {
 
     when(() => mockUuid.v4()).thenReturn('test-uuid-value-1234');
     when(() => mockHttpApiService.clearLocalAuth()).thenAnswer((_) async {});
+    when(() => mockHttpApiService.authEpoch).thenReturn(0);
+    when(
+      () => mockHttpApiService.recoverRejectedSession(any()),
+    ).thenAnswer((_) async {});
   });
 
   group('AuthRepositoryImpl', () {
@@ -124,6 +131,57 @@ void main() {
         ).called(1);
       },
     );
+
+    test('reuses a new client ID after a lost signin response', () async {
+      String? savedClientId;
+      when(
+        () => mockPreferences.getString(SharedPreferenceConstants.userId),
+      ).thenAnswer((_) => savedClientId);
+      when(
+        () =>
+            mockPreferences.setString(SharedPreferenceConstants.userId, any()),
+      ).thenAnswer((invocation) async {
+        savedClientId = invocation.positionalArguments[1] as String;
+        return true;
+      });
+      when(
+        () => mockCrashlyticsService.recordError(
+          any(),
+          any(),
+          reason: any(named: 'reason'),
+        ),
+      ).thenAnswer((_) async {});
+      when(
+        () =>
+            mockPreferences.setBool(SharedPreferenceConstants.isLoggedIn, true),
+      ).thenAnswer((_) async => true);
+      when(() => mockHttpApiService.setAuthHeader(any())).thenAnswer((_) {});
+      final requestedIds = <String>[];
+      when(
+        () => mockAuthApiService.signIn(clientId: any(named: 'clientId')),
+      ).thenAnswer((invocation) async {
+        final id = invocation.namedArguments[#clientId] as String;
+        expect(id, savedClientId);
+        requestedIds.add(id);
+        if (requestedIds.length == 1) throw const TimeoutError();
+        return AuthTokens(
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          expiresIn: 900,
+          clientId: id,
+        );
+      });
+
+      await expectLater(
+        authRepository.signInAnonymously(),
+        throwsA(isA<TimeoutError>()),
+      );
+      await authRepository.signInAnonymously();
+
+      expect(savedClientId, isNotEmpty);
+      expect(requestedIds, [savedClientId, savedClientId]);
+      verify(() => mockUuid.v4()).called(1);
+    });
 
     test(
       'signInAnonymously rethrows EmailExistsError and keeps the client ID',
@@ -708,15 +766,7 @@ void main() {
 
         // Verify
         verify(() => mockAuthApiService.refreshToken(refreshToken)).called(1);
-        verify(() => mockSecureStorageService.clearRefreshToken()).called(1);
-        verify(() => mockSecureStorageService.clearUserEmail()).called(1);
-        verify(() => mockHttpApiService.clearLocalAuth()).called(1);
-        verify(
-          () => mockPreferences.setBool(
-            SharedPreferenceConstants.isLoggedIn,
-            false,
-          ),
-        ).called(1);
+        verify(() => mockHttpApiService.recoverRejectedSession(0)).called(1);
       });
 
       test('getToken gives up after max retries', () async {

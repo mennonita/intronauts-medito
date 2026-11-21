@@ -1,6 +1,7 @@
 import 'package:medito/constants/http/http_constants.dart';
 import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/providers/device_and_app_info/device_and_app_info_provider.dart';
+import 'package:medito/providers/me/me_provider.dart';
 import 'package:medito/repositories/auth/auth_repository.dart';
 import 'package:medito/utils/stats_manager.dart';
 import 'package:medito/utils/logger.dart';
@@ -28,26 +29,14 @@ final userIdProvider = Provider<String?>((ref) {
 });
 
 final editStatsUrlProvider = FutureProvider<String>((ref) async {
-  var clientId = ref.watch(userIdProvider) ?? '';
-
-  // If clientId is empty, try to get it directly from SharedPreferences
-  if (clientId.isEmpty) {
-    clientId =
-        ref
-            .read(sharedPreferencesProvider)
-            .getString(SharedPreferenceConstants.userId) ??
-        '';
-    AppLogger.d(
-      'STATS_PROVIDER',
-      'Using fallback clientId from SharedPreferences: $clientId',
-    );
-  }
+  if (editStatsUrl.isEmpty) return '';
+  final userId = (await ref.watch(meProvider.future)).id;
 
   final stats = ref.watch(statsProvider).value;
   final deviceInfo = ref.watch(deviceAndAppInfoProvider).value;
 
   if (deviceInfo == null || stats == null) {
-    return '$editStatsUrl?clientid=$clientId';
+    return '$editStatsUrl?clientid=$userId';
   }
 
   final timeListened = (stats.totalTimeListened / 60000).round();
@@ -57,7 +46,7 @@ final editStatsUrlProvider = FutureProvider<String>((ref) async {
   final appVersion = deviceInfo.appVersion;
   final model = deviceInfo.model;
 
-  return '$editStatsUrl?clientid=$clientId'
+  return '$editStatsUrl?clientid=$userId'
       '&streakcurrent=${stats.streakCurrent}'
       '&streaklongest=${stats.streakLongest}'
       '&trackscompleted=${stats.totalTracksCompleted}'

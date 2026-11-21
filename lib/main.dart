@@ -153,7 +153,7 @@ void main() async {
     isGranted: () async => (await Permission.notification.status).isGranted,
   );
 
-  if (!isMockMode) {
+  if (!(isMockMode || !firebaseEnabled)) {
     // Initialize Firebase (non-blocking when offline).
     // On iOS, FirebaseApp.configure() may have already been called natively
     // from AppDelegate, so guard against the duplicate-app error.
@@ -180,9 +180,10 @@ void main() async {
       AppLogger.e('MAIN', 'Firebase initialization failed: $e');
       // Continue without Firebase - app should still work offline
     }
+  }
 
-    // Initialize Stripe
-    await _configureStripe();
+  if (!isMockMode) {
+    if (donationsEnabled) await _configureStripe();
 
     // Initialize Meta (Facebook) App Events
     // init() now checks the analyticsMetaEnabled preference internally
@@ -347,7 +348,8 @@ class _ParentWidgetState extends ConsumerState<ParentWidget>
           (_, state) => state.whenData((event) {
             switch (event) {
               case AuthStateEvent.forceLogout:
-                _handleForceLogout(context);
+                ref.invalidate(meProvider);
+                _handleForceLogout();
                 break;
             }
           }),
@@ -382,9 +384,17 @@ class _ParentWidgetState extends ConsumerState<ParentWidget>
               initialRoute: '/',
               routes: {
                 '/': (context) => const SplashView(),
-                SignUpLogInPage.routeName: (context) => const SignUpLogInPage(
-                  source: AnalyticsEventConstants.sourceDeeplink,
-                ),
+                if (emailLoginEnabled)
+                  SignUpLogInPage.routeName: (context) => const SignUpLogInPage(
+                    source: AnalyticsEventConstants.sourceDeeplink,
+                  ),
+              },
+              onGenerateRoute: (settings) {
+                if (settings.name != SignUpLogInPage.routeName) return null;
+                return MaterialPageRoute<void>(
+                  settings: const RouteSettings(name: '/'),
+                  builder: (_) => const SplashView(),
+                );
               },
             ),
           ),
@@ -410,6 +420,13 @@ class _ParentWidgetState extends ConsumerState<ParentWidget>
 
   void _onAppForegrounded() async {
     ref.read(firebaseMessagingProvider).ref.read(reminderProvider).clearBadge();
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (prefs.getBool(SharedPreferenceConstants.isLoggedIn) == true &&
+        !prefs.containsKey(SharedPreferenceConstants.serverUserId)) {
+      ref.invalidate(meProvider);
+      await ref.read(meProvider.future);
+      if (!mounted) return;
+    }
     ref.read(statsProvider.notifier).refresh();
 
     // Diagnose token state for debug purposes
@@ -460,41 +477,18 @@ class _ParentWidgetState extends ConsumerState<ParentWidget>
   }
 
   // Handle force logout in UI layer
-  void _handleForceLogout(BuildContext context) {
-    // Add a small delay to ensure we're not in the middle of another operation
-    Future.delayed(const Duration(milliseconds: 500), () {
-      // Always reset the completer so deep links arriving during re-authentication
-      // will wait for the app to be ready again rather than bypassing the check.
-      appReadyCompleter = Completer<void>();
-      // Check if we're already showing the SplashView by examining current route
-      final currentRoute = ModalRoute.of(context);
-      final isAlreadyOnSplash =
-          currentRoute != null &&
-          currentRoute.settings.name == SplashView.routeName;
-
-      if (isAlreadyOnSplash) {
-        AppLogger.d(
-          'NAVIGATION',
-          'Already on splash screen, refreshing instead of navigating',
-        );
-        // If already on splash, just reset state without navigating
-        if (context.mounted) {
-          final splash = context.findAncestorStateOfType<SplashViewState>();
-          if (splash != null) {
-            splash.checkAuthAndInitialize();
-          }
-        }
-        return;
-      }
-
-      // If not on splash, navigate to it
+  void _handleForceLogout() {
+    appReadyCompleter = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       navigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(
-          builder: (context) => const SplashView(),
-          settings: RouteSettings(name: SplashView.routeName),
+          builder: (_) => const SplashView(recoverSession: true),
+          settings: const RouteSettings(name: SplashView.routeName),
         ),
-        (route) => false,
+        (_) => false,
       );
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 }

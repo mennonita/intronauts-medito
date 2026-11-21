@@ -116,6 +116,16 @@ void main() {
       );
     });
 
+    test('throws AccountDeletedError on 403 with ACCOUNT_DELETED code', () {
+      expect(
+        () => authService.handleErrorResponse(
+          HttpStatus.forbidden,
+          jsonEncode({'error': 'Account deleted', 'code': 'ACCOUNT_DELETED'}),
+        ),
+        throwsA(isA<AccountDeletedError>()),
+      );
+    });
+
     test('throws EmailExistsError on 403 with EMAIL_ASSOCIATED code', () {
       final errorContent = jsonEncode({
         'message': 'Device already associated with an email',

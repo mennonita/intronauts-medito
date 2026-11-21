@@ -1,3 +1,4 @@
+import 'package:medito/constants/http/http_constants.dart';
 import 'package:medito/widgets/adaptive/adaptive_page_body.dart';
 import 'dart:io';
 
@@ -6,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
-import 'package:medito/routes/routes.dart';
 import 'package:medito/services/analytics/crashlytics_service.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/services/analytics/meta_sdk_service.dart';
@@ -49,68 +49,62 @@ class AnalyticsSettingsScreen extends ConsumerWidget {
                   const SizedBox(height: 12),
                   Text(AppLocalizations.of(context)!.analyticsTrackingContent),
                   const SizedBox(height: 24),
-                  _SwitchTile(
-                    label: 'Firebase Analytics',
-                    provider: _firebaseEnabledProvider,
-                    onConfirmDisableMessage: Platform.isIOS
-                        ? AppLocalizations.of(context)!.iosTrackingDialogContent
-                        : AppLocalizations.of(
-                            context,
-                          )!.analyticsTrackingContent,
-                    onChanged: (value) async {
-                      await ref
-                          .read(sharedPreferencesProvider)
-                          .setBool(
-                            SharedPreferenceConstants.analyticsFirebaseEnabled,
-                            value,
-                          );
-                      // Disable/enable the SDKs at the native level
-                      await FirebaseAnalyticsService().setCollectionEnabled(
-                        value,
-                      );
-                      await CrashlyticsService().setCollectionEnabled(value);
-                      ref.invalidate(_firebaseEnabledProvider);
-                    },
-                  ),
-                  _SwitchTile(
-                    label: 'Meta (Facebook) App Events',
-                    provider: _metaEnabledProvider,
-                    onConfirmDisableMessage: Platform.isIOS
-                        ? AppLocalizations.of(context)!.iosTrackingDialogContent
-                        : AppLocalizations.of(
-                            context,
-                          )!.analyticsTrackingContent,
-                    onChanged: (value) async {
-                      await ref
-                          .read(sharedPreferencesProvider)
-                          .setBool(
-                            SharedPreferenceConstants.analyticsMetaEnabled,
-                            value,
-                          );
-                      // Disable/enable the Meta SDK at runtime
-                      await MetaSdkService.instance.setEnabled(value);
-                      ref.invalidate(_metaEnabledProvider);
-                    },
-                  ),
+                  if (firebaseEnabled && !isMockMode)
+                    _SwitchTile(
+                      label: 'Firebase Analytics',
+                      provider: _firebaseEnabledProvider,
+                      onConfirmDisableMessage: Platform.isIOS
+                          ? AppLocalizations.of(
+                              context,
+                            )!.iosTrackingDialogContent
+                          : AppLocalizations.of(
+                              context,
+                            )!.analyticsTrackingContent,
+                      onChanged: (value) async {
+                        await ref
+                            .read(sharedPreferencesProvider)
+                            .setBool(
+                              SharedPreferenceConstants
+                                  .analyticsFirebaseEnabled,
+                              value,
+                            );
+                        // Disable/enable the SDKs at the native level
+                        await FirebaseAnalyticsService().setCollectionEnabled(
+                          value,
+                        );
+                        await CrashlyticsService().setCollectionEnabled(value);
+                        ref.invalidate(_firebaseEnabledProvider);
+                      },
+                    ),
+                  if (facebookAppId.isNotEmpty && !isMockMode)
+                    _SwitchTile(
+                      label: 'Meta (Facebook) App Events',
+                      provider: _metaEnabledProvider,
+                      onConfirmDisableMessage: Platform.isIOS
+                          ? AppLocalizations.of(
+                              context,
+                            )!.iosTrackingDialogContent
+                          : AppLocalizations.of(
+                              context,
+                            )!.analyticsTrackingContent,
+                      onChanged: (value) async {
+                        await ref
+                            .read(sharedPreferencesProvider)
+                            .setBool(
+                              SharedPreferenceConstants.analyticsMetaEnabled,
+                              value,
+                            );
+                        // Disable/enable the Meta SDK at runtime
+                        await MetaSdkService.instance.setEnabled(value);
+                        ref.invalidate(_metaEnabledProvider);
+                      },
+                    ),
                   if (Platform.isIOS) ...[
                     const SizedBox(height: 24),
                     Text(
                       AppLocalizations.of(context)!.iosTrackingDialogContent,
                     ),
                   ],
-                  const SizedBox(height: 24),
-                  TextButton.icon(
-                    onPressed: () {
-                      handleNavigation(
-                        'url',
-                        ['https://meditofoundation.org/privacy'],
-                        context,
-                        ref: ref,
-                      );
-                    },
-                    icon: const Icon(Icons.privacy_tip_outlined),
-                    label: Text(AppLocalizations.of(context)!.privacyPolicy),
-                  ),
                 ],
               ),
             ),

@@ -2,7 +2,6 @@ import 'package:medito/constants/colors/color_constants.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io' show Platform;
-import 'package:share_plus/share_plus.dart';
 
 import 'package:medito/constants/icons/medito_icons.dart';
 import 'dart:async';
@@ -43,76 +42,6 @@ class _PackViewBottomBarState extends ConsumerState<PackViewBottomBar> {
   void dispose() {
     _favoriteController.dispose();
     super.dispose();
-  }
-
-  void _sharePack(BuildContext context) {
-    final deepLink = 'https://medito.app/packs/${widget.packId}';
-    final shareText = AppLocalizations.of(
-      context,
-    )!.sharePackText(widget.packName, deepLink);
-    SharePlus.instance.share(ShareParams(text: shareText));
-  }
-
-  void _showBottomSheet(BuildContext context) {
-    showModalBottomSheet(
-      showDragHandle: true,
-      context: context,
-      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (Platform.isIOS)
-              _buildBottomSheetTile(
-                context,
-                iconAsset: MeditoIcons.siri,
-                title: AppLocalizations.of(context)!.addToSiri,
-                onTap: () {
-                  addToSiri(
-                    title:
-                        '${AppLocalizations.of(context)!.open} ${widget.packName}',
-                    id: widget.packId,
-                    url: 'org.meditofoundation://packs/${widget.packId}',
-                  );
-                  Navigator.pop(context);
-                },
-              ),
-            _buildBottomSheetTile(
-              context,
-              iconAsset: Platform.isIOS
-                  ? MeditoIcons.shareIos
-                  : MeditoIcons.shareAndroid,
-              title: AppLocalizations.of(context)!.share,
-              onTap: () {
-                _sharePack(context);
-                Navigator.pop(context);
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  ListTile _buildBottomSheetTile(
-    BuildContext context, {
-    required String iconAsset,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: MeditoIcon(
-        assetName: iconAsset,
-        color: Theme.of(context).colorScheme.onSurface,
-        size: 20,
-      ),
-      title: Text(
-        title,
-        style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-      ),
-      onTap: onTap,
-    );
   }
 
   void _toggleFavorite(bool isFavorite, PackModel pack) {
@@ -198,18 +127,20 @@ class _PackViewBottomBarState extends ConsumerState<PackViewBottomBar> {
         onTap: widget.onBackPressed,
         semanticLabel: l10n.goBack,
       ),
-      rightCenterItem: BottomActionBarItem(
-        child: MeditoIcon(
-          assetName: Platform.isIOS
-              ? MeditoIcons.shareIos
-              : MeditoIcons.shareAndroid,
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
-        onTap: Platform.isIOS
-            ? () => _showBottomSheet(context)
-            : () => _sharePack(context),
-        semanticLabel: l10n.share,
-      ),
+      rightCenterItem: Platform.isIOS
+          ? BottomActionBarItem(
+              child: MeditoIcon(
+                assetName: MeditoIcons.siri,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+              onTap: () => addToSiri(
+                title: '${l10n.open} ${widget.packName}',
+                id: widget.packId,
+                url: 'org.meditofoundation://packs/${widget.packId}',
+              ),
+              semanticLabel: l10n.addToSiri,
+            )
+          : null,
       rightItem: BottomActionBarItem(
         child: AnimatedFavouriteIcon(
           isFavorite: isFavorite,

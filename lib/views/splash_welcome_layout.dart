@@ -199,24 +199,26 @@ class SplashWelcomeLayout extends StatelessWidget {
                                             ),
                                     ),
                                   ),
-                                  const SizedBox(height: 8),
-                                  // Secondary: quiet link for returning
-                                  // users to sign in.
-                                  TextButton(
-                                    onPressed: isSigningIn ? null : onSignIn,
-                                    child: Text(
-                                      AppLocalizations.of(
-                                        context,
-                                      )!.splashSignInOrSignUp,
-                                      style: TextStyle(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.8,
+                                  if (emailLoginEnabled) ...[
+                                    const SizedBox(height: 8),
+                                    // Secondary: quiet link for returning
+                                    // users to sign in.
+                                    TextButton(
+                                      onPressed: isSigningIn ? null : onSignIn,
+                                      child: Text(
+                                        AppLocalizations.of(
+                                          context,
+                                        )!.splashSignInOrSignUp,
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
                                         ),
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ],
                               ),
                             ),

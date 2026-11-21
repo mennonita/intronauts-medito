@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart'; // Import for visibleForTesting
 import 'package:medito/constants/constants.dart' hide AuthTokens;
 import 'package:medito/constants/network_constants.dart';
@@ -56,7 +55,7 @@ class AuthApiService {
   }) async {
     AppLogger.i(
       'AUTH',
-      'Attempting sign in. Email: ${email != null}, OTP: ${otp != null}, ClientId: $clientId',
+      'Attempting sign in. Email: ${email != null}, OTP: ${otp != null}, HasClientId: ${clientId.isNotEmpty}',
     );
 
     final response = await _post(
@@ -66,7 +65,7 @@ class AuthApiService {
 
     AppLogger.i(
       'AUTH',
-      'Sign in successful. ClientId: ${response['client_id']}, HasEmail: ${response['email'] != null}',
+      'Sign in successful. HasClientId: ${response['client_id'] != null}, HasEmail: ${response['email'] != null}',
     );
 
     final tokens = AuthTokens(
@@ -84,7 +83,7 @@ class AuthApiService {
   Future<void> requestOtp(String email, String clientId) async {
     AppLogger.i(
       'AUTH',
-      'Requesting OTP for email: $email, ClientId: $clientId',
+      'Requesting OTP. HasEmail: ${email.isNotEmpty}, HasClientId: ${clientId.isNotEmpty}',
     );
 
     await _post(
@@ -92,7 +91,7 @@ class AuthApiService {
       body: {'email': email, 'client_id': clientId},
     );
 
-    AppLogger.i('AUTH', 'OTP request successful for email: $email');
+    AppLogger.i('AUTH', 'OTP request successful');
   }
 
   // The refresh currently in flight, keyed by the refresh token it uses.
@@ -132,7 +131,7 @@ class AuthApiService {
     AppLogger.i('AUTH_API', 'Starting token refresh');
     AppLogger.d(
       'AUTH_API',
-      'Attempting token refresh. TokenLength: ${refreshToken.length}, Prefix: ${refreshToken.substring(0, min(10, refreshToken.length))}',
+      'Attempting token refresh. HasRefreshToken: ${refreshToken.isNotEmpty}',
     );
 
     try {
@@ -145,16 +144,11 @@ class AuthApiService {
         body: {'refresh_token': refreshToken},
       );
 
-      AppLogger.d(
-        'AUTH_API',
-        'Raw refresh token response: ${jsonEncode(response)}',
-      );
-
       // Check explicitly if email is present in response
       final emailInResponse = response['email'] as String?;
       AppLogger.d(
         'AUTH_API',
-        'Email in token refresh response: $emailInResponse',
+        'HasEmail in token refresh response: ${emailInResponse != null}',
       );
 
       final clientId =
@@ -182,7 +176,7 @@ class AuthApiService {
       // Log what email value we're using
       AppLogger.d(
         'AUTH_API',
-        'Final email used in refreshed tokens: ${tokens.email}',
+        'Refreshed tokens have email: ${tokens.email != null}',
       );
       AppLogger.d(
         'AUTH_API',
@@ -194,20 +188,19 @@ class AuthApiService {
 
       AppLogger.i(
         'AUTH_API',
-        'Token refresh successful. ExpiresIn: ${tokens.expiresIn}, Email: ${tokens.email}, ClientId: ${tokens.clientId}',
+        'Token refresh successful. ExpiresIn: ${tokens.expiresIn}, HasEmail: ${tokens.email != null}, HasClientId: ${tokens.clientId.isNotEmpty}',
       );
 
       return tokens;
+    } on UnauthorizedError {
+      throw const RefreshTokenError();
     } catch (e, stackTrace) {
-      AppLogger.e('AUTH_API', 'Token refresh failed', e, stackTrace);
-
-      // If we get an error response indicating invalid/expired refresh token,
-      // clear the stored tokens to force a new login
-      if (e is RefreshTokenError) {
-        AppLogger.w('AUTH_API', 'Clearing tokens due to RefreshTokenError');
-        await clearAuthTokens();
-      }
-
+      AppLogger.e(
+        'AUTH_API',
+        'Token refresh failed: ${e.runtimeType}',
+        null,
+        stackTrace,
+      );
       rethrow;
     }
   }
@@ -218,7 +211,7 @@ class AuthApiService {
 
     AppLogger.d(
       'AUTH_API',
-      'setAuthTokens called. PreviousEmail: $previousEmail, NewEmail: ${tokens.email}',
+      'setAuthTokens called. HadEmail: ${previousEmail != null}, HasEmail: ${tokens.email != null}',
     );
 
     if (tokens.refreshToken.isNotEmpty) {
@@ -266,7 +259,7 @@ class AuthApiService {
 
     AppLogger.d(
       'AUTH_API',
-      'Tokens updated. HasRefreshToken: ${tokens.refreshToken.isNotEmpty}, Email: ${tokens.email}, ExpiresIn: ${tokens.expiresIn}',
+      'Tokens updated. HasRefreshToken: ${tokens.refreshToken.isNotEmpty}, HasEmail: ${tokens.email != null}, ExpiresIn: ${tokens.expiresIn}',
     );
   }
 
@@ -279,14 +272,7 @@ class AuthApiService {
   Future<String?> getStoredRefreshToken() async {
     AppLogger.d('AUTH', 'Getting stored refresh token');
     final token = await _secureStorage.getRefreshToken();
-    if (token != null) {
-      AppLogger.d(
-        'AUTH',
-        'Found stored refresh token. Length: ${token.length}, Prefix: ${token.substring(0, min(10, token.length))}',
-      );
-    } else {
-      AppLogger.d('AUTH', 'No stored refresh token found');
-    }
+    AppLogger.d('AUTH', 'Has stored refresh token: ${token != null}');
     return token;
   }
 
@@ -295,18 +281,12 @@ class AuthApiService {
       // Ensure the path is properly combined with base URL
       final uri = Uri.parse('$_baseUrl$path');
 
-      AppLogger.d('AUTH', 'API Key Length: ${_apiKey.length}');
+      AppLogger.d('AUTH', 'Has API key: ${_apiKey.isNotEmpty}');
 
       final request = await _client.postUrl(uri);
 
       // Add headers
       _headers.forEach(request.headers.set);
-
-      // Log complete headers map
-      var headersMap = {};
-      request.headers.forEach((name, values) {
-        headersMap[name] = values;
-      });
 
       AppLogger.d(
         'AUTH',
@@ -318,17 +298,10 @@ class AuthApiService {
         // add() with explicit UTF-8: write() encodes as Latin-1 unless the
         // content-type carries a charset, and throws on any char > U+00FF.
         request.add(utf8.encode(encodedBody));
-        AppLogger.d('AUTH', 'Request Body: $encodedBody');
       }
 
       final response = await request.close().timeout(kTimeoutDuration);
       final content = await utf8.decodeStream(response);
-
-      // Log response with all headers
-      var responseHeadersMap = {};
-      response.headers.forEach((name, values) {
-        responseHeadersMap[name] = values;
-      });
 
       // Add specific logging for email in auth responses
       final parsedContent = content.isNotEmpty ? jsonDecode(content) : null;
@@ -338,20 +311,13 @@ class AuthApiService {
           parsedContent.containsKey('email');
 
       AppLogger.d('AUTH_API', 'Response contains email: $hasEmail');
-      if (hasEmail) {
-        AppLogger.d('AUTH_API', 'Email in response: ${parsedContent['email']}');
-      }
-
       AppLogger.d(
         'AUTH_API',
         'Response Status: ${response.statusCode}, Content Length: ${content.length}',
       );
 
       if (response.statusCode >= HttpStatus.badRequest) {
-        AppLogger.w(
-          'AUTH',
-          'Request failed. Status: ${response.statusCode}, Content: $content',
-        );
+        AppLogger.w('AUTH', 'Request failed. Status: ${response.statusCode}');
         handleErrorResponse(response.statusCode, content);
         throw Exception('handleErrorResponse did not throw');
       }
@@ -371,7 +337,13 @@ class AuthApiService {
       AppLogger.e('AUTH', 'Request timeout', e, stackTrace);
       throw const TimeoutError();
     } catch (e, stackTrace) {
-      AppLogger.e('AUTH', 'Unexpected error in _post', e, stackTrace);
+      AppLogger.e(
+        'AUTH',
+        'Unexpected error in _post: ${e.runtimeType}',
+        null,
+        stackTrace,
+      );
+      if (e is FormatException) throw const ServerError();
       rethrow;
     }
   }
@@ -410,6 +382,11 @@ class AuthApiService {
           );
         }
 
+        if (statusCode == HttpStatus.forbidden &&
+            errorCode == 'ACCOUNT_DELETED') {
+          throw const AccountDeletedError();
+        }
+
         // Handle Email Exists specifically using the new AppError type
         if (errorCode == 'EMAIL_ASSOCIATED' &&
             statusCode == HttpStatus.forbidden) {
@@ -445,6 +422,7 @@ class AuthApiService {
         }
       } catch (e) {
         if (e is RateLimitError ||
+            e is AccountDeletedError ||
             e is EmailExistsError ||
             e is EmailMismatchError ||
             e is RefreshTokenError ||
@@ -453,8 +431,7 @@ class AuthApiService {
         }
         AppLogger.e(
           'AUTH',
-          'Error parsing error response content: $content',
-          e,
+          'Error parsing auth error response: ${e.runtimeType}',
         );
         // Fall through to default handling if parsing failed
       }

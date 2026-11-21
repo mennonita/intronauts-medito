@@ -246,12 +246,14 @@ Future<bool> handleRepeatPlaythrough(
 }) async {
   final timestamp = payload[TypeConstants.timestampIdKey] as int;
   if (!_recordedRepeatTimestamps.add(timestamp)) return true;
+  statsManager ??= StatsManager();
+  final generation = statsManager.localGeneration;
   try {
     await _syncHealthKit(payload).catchError((e) {
       AppLogger.e('STATS', 'HealthKit sync error', e);
     });
 
-    statsManager ??= StatsManager()..initialize();
+    if (generation != statsManager.localGeneration) return true;
     await statsManager.addRepeatListeningTime(
       payload[TypeConstants.durationIdKey] as int,
     );
@@ -298,6 +300,7 @@ Future<int> processPendingCompletedTracks([SharedPreferences? prefs]) async {
         ? CompletedTracksStorage(prefs)
         : await CompletedTracksStorage.create();
 
+    final generation = StatsManager().localGeneration;
     final pendingTracksJson = storage.getPendingTracks();
     if (pendingTracksJson.isEmpty) {
       _isProcessingPendingTracks = false;
@@ -309,6 +312,7 @@ Future<int> processPendingCompletedTracks([SharedPreferences? prefs]) async {
 
     // Process each pending track
     for (var trackJson in pendingTracksJson) {
+      if (generation != StatsManager().localGeneration) return successCount;
       try {
         final payload = Map<String, dynamic>.from(
           jsonDecode(trackJson) as Map<dynamic, dynamic>,
@@ -327,7 +331,9 @@ Future<int> processPendingCompletedTracks([SharedPreferences? prefs]) async {
     }
 
     // Update storage with the tracks that failed to process
-    await storage.updatePendingTracks(failedTracks);
+    if (generation == StatsManager().localGeneration) {
+      await storage.updatePendingTracks(failedTracks);
+    }
 
     return successCount;
   } catch (e) {

@@ -84,8 +84,31 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
         meditoAudioApi = MeditoAudioServiceCallbackApi(flutterEngine.dartExecutor.binaryMessenger)
         WatchPresence.register(flutterEngine.dartExecutor.binaryMessenger, this)
         InstallReferrer.register(flutterEngine.dartExecutor.binaryMessenger, this)
-        checkAndSendCompletionData()
-        
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "intronauts/playback_account")
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "bind" -> {
+                            val clientId = requireNotNull(call.argument<String>("clientId"))
+                            val userId = call.argument<String>("userId")
+                            if (SharedPreferencesManager.bindAccount(this, clientId, userId)) {
+                                stopService(Intent(this, AudioPlayerService::class.java))
+                            }
+                            result.success(null)
+                            checkAndSendCompletionData()
+                        }
+                        "clear" -> {
+                            SharedPreferencesManager.clearAccount(this)
+                            stopService(Intent(this, AudioPlayerService::class.java))
+                            result.success(null)
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (error: Exception) {
+                    result.error("PLAYBACK_ACCOUNT", error.message, null)
+                }
+            }
+
         // Set up platform channel for widget updates
         val widgetChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "medito.app/widget")
         widgetChannel.setMethodCallHandler { call, result ->
@@ -345,41 +368,24 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
     }
 
     private fun checkAndSendCompletionData() {
-        activityScope.launch(Dispatchers.IO) {
-            val completionData = SharedPreferencesManager.getCompletionData(this@MainActivity)
-            if (completionData != null) {
-                try {
-                    withContext(Dispatchers.Main) {
-                        meditoAudioApi?.handleCompletedTrack(completionData) {
-                            if (it.isSuccess) {
-                                activityScope.launch(Dispatchers.IO) {
-                                    SharedPreferencesManager.clearCompletionData(this@MainActivity)
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    println("Error parsing completion data: ${e.message}")
+        val generation = SharedPreferencesManager.currentGeneration()
+        if (!SharedPreferencesManager.isCurrent(generation, requireVerified = true)) return
+
+        SharedPreferencesManager.getCompletionData(this)?.let { completion ->
+            meditoAudioApi?.handleCompletedTrack(completion) {
+                if (it.getOrNull() == true) {
+                    SharedPreferencesManager.clearCompletionData(this, completion, generation)
                 }
             }
-
-            val pendingRepeats = SharedPreferencesManager.getPendingRepeats(this@MainActivity)
-            if (pendingRepeats.isNotEmpty()) {
-                withContext(Dispatchers.Main) {
-                    pendingRepeats.forEach { repeat ->
-                        meditoAudioApi?.handleRepeatPlaythrough(repeat) {
-                            if (it.getOrNull() == true) {
-                                activityScope.launch(Dispatchers.IO) {
-                                    SharedPreferencesManager.removePendingRepeat(this@MainActivity, repeat)
-                                }
-                            }
-                        }
-                    }
+        }
+        SharedPreferencesManager.getPendingRepeats(this).forEach { repeat ->
+            meditoAudioApi?.handleRepeatPlaythrough(repeat) {
+                if (it.getOrNull() == true) {
+                    SharedPreferencesManager.removePendingRepeat(this, repeat, generation)
                 }
             }
         }
     }
-
 
     companion object {
         const val ENGINE_ID = "medito_flutter_engine"

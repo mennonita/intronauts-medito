@@ -17,13 +17,16 @@ class MockAuthApiService extends AuthApiService {
     String? otp,
     required String clientId,
   }) async {
-    AppLogger.d('MOCK_AUTH', 'Sign in (mock) for clientId: $clientId');
+    AppLogger.d(
+      'MOCK_AUTH',
+      'Sign in (mock). HasClientId: ${clientId.isNotEmpty}',
+    );
     final tokens = AuthTokens(
       accessToken: 'mock-access-token-${DateTime.now().millisecondsSinceEpoch}',
       refreshToken: 'mock-refresh-token',
       expiresIn: 3600,
       clientId: clientId,
-      email: email ?? 'contributor@medito.app',
+      email: email ?? 'contributor@example.invalid',
     );
     await setAuthTokens(tokens);
     return tokens;

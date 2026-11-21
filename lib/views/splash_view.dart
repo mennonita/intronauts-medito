@@ -11,11 +11,13 @@ import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/exceptions/app_error.dart';
 import 'package:medito/firebase_options.dart';
 import 'package:medito/l10n/app_localizations.dart';
+import 'package:medito/providers/favorites/favorites_provider.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/root/root_combine_provider.dart';
 import 'package:medito/providers/stripe/payment_service_provider.dart';
-import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/repositories/auth/auth_repository.dart';
+import 'package:medito/services/account/account_service.dart';
+import 'package:medito/services/account/playback_account.dart';
 import 'package:medito/services/analytics/apple_ads_attribution_service.dart';
 import 'package:medito/services/analytics/crashlytics_service.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
@@ -35,7 +37,9 @@ import 'package:medito/widgets/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SplashView extends ConsumerStatefulWidget {
-  const SplashView({super.key});
+  const SplashView({super.key, this.recoverSession = false});
+
+  final bool recoverSession;
 
   // Static route name for navigation
   static const routeName = 'SplashView';
@@ -49,6 +53,7 @@ class SplashViewState extends ConsumerState<SplashView>
   var _showAccountButtons = false;
   var _isLoading = true;
   var _isSigningIn = false;
+  bool _recoveryAttempted = false;
 
   @override
   void initState() {
@@ -156,6 +161,7 @@ class SplashViewState extends ConsumerState<SplashView>
   }
 
   Future<void> _initializeFirebase() async {
+    if (isMockMode || !firebaseEnabled) return;
     AppLogger.i('SPLASH', 'Initializing Firebase...');
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
@@ -175,24 +181,28 @@ class SplashViewState extends ConsumerState<SplashView>
 
   Future<void> _initializeAnalytics() async {
     try {
-      // Initialize Firebase Analytics with consent enabled using consent mode v2
-      // Don't request ATT permission yet - we'll do that later for better UX
-      await FirebaseAnalyticsService()
-          .initialize(requestAttPermissionImmediately: false)
-          .timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              AppLogger.w(
-                'SPLASH',
-                'Firebase Analytics initialization timed out',
-              );
-              throw Exception('Firebase Analytics initialization timeout');
-            },
-          );
-      AppLogger.i(
-        'SPLASH',
-        'Firebase Analytics initialized with consent mode v2',
-      );
+      if (!(isMockMode || !firebaseEnabled)) {
+        // Initialize Firebase Analytics with consent enabled using consent mode v2
+        // Don't request ATT permission yet - we'll do that later for better UX
+        await FirebaseAnalyticsService()
+            .initialize(requestAttPermissionImmediately: false)
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () {
+                AppLogger.w(
+                  'SPLASH',
+                  'Firebase Analytics initialization timed out',
+                );
+                throw Exception('Firebase Analytics initialization timeout');
+              },
+            );
+        AppLogger.i(
+          'SPLASH',
+          'Firebase Analytics initialized with consent mode v2',
+        );
+      }
+
+      if (isMockMode || facebookAppId.isEmpty) return;
 
       // Initialize Meta SDK and log first open once
       await MetaSdkService.instance.init().timeout(
@@ -230,30 +240,26 @@ class SplashViewState extends ConsumerState<SplashView>
 
     try {
       AppLogger.i('SPLASH', 'Starting auth initialization');
-      await auth.initializeUser();
+      final account = ref.read(accountServiceProvider);
+      if (!account.needsReplacement) await auth.initializeUser();
+      if ((widget.recoverSession || account.needsReplacement) &&
+          !_recoveryAttempted) {
+        _recoveryAttempted = true;
+        if (account.needsReplacement || !await auth.isLoggedIn()) {
+          try {
+            await account.signInAnonymously();
+          } catch (error) {
+            AppLogger.w(
+              'SPLASH',
+              'Session recovery failed: ${error.runtimeType}',
+            );
+          }
+        }
+      }
       AppLogger.i(
         'SPLASH',
-        'Auth initialized, current user: ${auth.currentUser}',
+        'Auth initialized, has user: ${auth.currentUser != null}',
       );
-      AppLogger.i('SPLASH', 'User email from auth: ${auth.getUserEmail()}');
-
-      // Set user ID for analytics immediately after user initialization
-      // This ensures user ID is set before any events are logged
-      try {
-        final userId = ref.read(userIdProvider);
-        if (userId != null && userId.isNotEmpty) {
-          await FirebaseAnalyticsService().setUserId(userId);
-          await MetaSdkService.instance.setUserId(userId);
-          AppLogger.i('SPLASH', 'User ID set for analytics: $userId');
-        }
-      } catch (e, stackTrace) {
-        AppLogger.e(
-          'SPLASH',
-          'Error setting user ID for analytics',
-          e,
-          stackTrace,
-        );
-      }
 
       // Wait for the initial deep link check to complete before applying UTM
       // parameters. On a fresh install from Apple Search Ads the deferred deep
@@ -305,6 +311,7 @@ class SplashViewState extends ConsumerState<SplashView>
         AppLogger.e('SPLASH', 'Error applying stored zen mode', e, stackTrace);
       }
 
+      if (!mounted) return;
       final currentUser = auth.currentUser;
       final isLoggedIn = await auth.isLoggedIn();
       AppLogger.i(
@@ -326,6 +333,7 @@ class SplashViewState extends ConsumerState<SplashView>
           AppLogger.i('SPLASH', 'Services initialized');
 
           if (!mounted) return;
+          if (_recoveryAttempted) ref.invalidate(favoritesNotifierProvider);
 
           AppLogger.i('SPLASH', 'Navigation to main app...');
           if (!appReadyCompleter.isCompleted) appReadyCompleter.complete();
@@ -394,33 +402,17 @@ class SplashViewState extends ConsumerState<SplashView>
 
   Future<void> _handleAnonymousSignIn() async {
     setState(() => _isSigningIn = true);
-    var auth = ref.read(authRepositorySyncProvider);
+    final account = ref.read(accountServiceProvider);
 
     try {
-      await auth.signInAnonymously();
+      await account.signInAnonymously();
 
-      // Set user ID for analytics immediately after anonymous sign in
-      try {
-        final userId = ref.read(userIdProvider);
-        if (userId != null && userId.isNotEmpty) {
-          await FirebaseAnalyticsService().setUserId(userId);
-          await MetaSdkService.instance.setUserId(userId);
-          AppLogger.i(
-            'SPLASH',
-            'User ID set for analytics after anonymous sign in: $userId',
-          );
-        }
-      } catch (e, stackTrace) {
-        AppLogger.e(
-          'SPLASH',
-          'Error setting user ID for analytics after anonymous sign in',
-          e,
-          stackTrace,
-        );
+      if (widget.recoverSession) {
+        if (mounted) await _checkAuthAndInitialize();
+        return;
       }
 
       await _initializeServices().timeout(const Duration(seconds: 20));
-      ref.read(meRefreshProvider)();
 
       if (!mounted) return;
 
@@ -429,6 +421,11 @@ class SplashViewState extends ConsumerState<SplashView>
       );
     } on EmailExistsError catch (_) {
       if (!mounted) return;
+
+      if (!emailLoginEnabled) {
+        await _showOfflineDownloads();
+        return;
+      }
 
       final shouldUseExistingAccount = await showDialog<bool>(
         context: context,
@@ -455,7 +452,7 @@ class SplashViewState extends ConsumerState<SplashView>
 
       if (!mounted) return;
 
-      if (shouldUseExistingAccount == true) {
+      if (emailLoginEnabled && shouldUseExistingAccount == true) {
         await Navigator.of(context)
             .push(
               MaterialPageRoute(
@@ -491,13 +488,7 @@ class SplashViewState extends ConsumerState<SplashView>
       );
       if (!mounted) return;
 
-      showSnackBar(context, AppLocalizations.of(context)!.offlineMode);
-
-      await Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => const DownloadsView(isRoot: true),
-        ),
-      );
+      await _showOfflineDownloads();
     } finally {
       if (mounted) {
         setState(() => _isSigningIn = false);
@@ -505,8 +496,23 @@ class SplashViewState extends ConsumerState<SplashView>
     }
   }
 
+  Future<void> _showOfflineDownloads() async {
+    showSnackBar(context, AppLocalizations.of(context)!.offlineMode);
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => const DownloadsView(isRoot: true),
+      ),
+    );
+  }
+
   Future<void> _initializeServices() async {
     try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      final clientId = prefs.getString(SharedPreferenceConstants.userId);
+      if (clientId != null) {
+        await PlaybackAccount.bind(clientId);
+      }
+
       AppLogger.i('SPLASH', 'Starting services initialization');
 
       // Initialize device info and headers (which now includes user's language preference)
@@ -517,13 +523,16 @@ class SplashViewState extends ConsumerState<SplashView>
 
       // Kick off payment config fetch in the background so it is ready before
       // the donation screen opens. Errors are handled inside the provider.
-      ref.read(paymentConfigProvider.future).ignore();
+      if (donationsEnabled) ref.read(paymentConfigProvider.future).ignore();
 
       // Initialize user data (don't fail if network is unavailable)
       try {
         AppLogger.i('SPLASH', 'Fetching user data...');
-        final userData = await ref.read(meProvider.future);
-        AppLogger.d('SPLASH', 'User data fetched: ${userData.toString()}');
+        final userData = await ref.refresh(meProvider.future);
+        if (userData.id.isNotEmpty) {
+          await FirebaseAnalyticsService().setUserId(userData.id);
+          await MetaSdkService.instance.setUserId(userData.id);
+        }
       } catch (e, stackTrace) {
         // Check if this is a network error - if so, don't prevent app initialization
         if (e is NetworkConnectionError || e is TimeoutError) {

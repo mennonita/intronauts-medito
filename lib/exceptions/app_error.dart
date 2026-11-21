@@ -138,6 +138,10 @@ final class RateLimitError extends AppError {
   });
 }
 
+final class AccountDeletedError extends AppError {
+  const AccountDeletedError();
+}
+
 final class EmailExistsError extends AppError {
   final String? email;
 

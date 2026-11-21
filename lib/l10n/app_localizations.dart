@@ -100,6 +100,12 @@ abstract class AppLocalizations {
     Locale('es'),
   ];
 
+  /// No description provided for @trackAudioUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This meditation is not available yet.'**
+  String get trackAudioUnavailable;
+
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:

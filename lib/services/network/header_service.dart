@@ -14,7 +14,7 @@ class HeaderService {
   }
 
   void _initFcmTokenListener() {
-    if (isMockMode) return;
+    if (isMockMode || !firebaseEnabled) return;
     FirebaseMessaging.instance.onTokenRefresh.listen((fcmToken) {
       _fcmToken = fcmToken;
       _updateHeaders();
@@ -22,7 +22,7 @@ class HeaderService {
   }
 
   Future<void> initialise() async {
-    if (isMockMode) {
+    if (isMockMode || !firebaseEnabled) {
       _updateHeaders();
       return;
     }

@@ -41,11 +41,8 @@ class FirebaseMessagingHandler {
   FirebaseMessagingHandler(this.ref);
 
   Future<void> initialize(BuildContext context, WidgetRef ref) async {
-    if (isMockMode) {
-      AppLogger.d(
-        'FIREBASE_NOTIFICATIONS',
-        'Mock mode: skipping Firebase Messaging init',
-      );
+    if (isMockMode || !firebaseEnabled) {
+      AppLogger.d('FIREBASE_NOTIFICATIONS', 'Firebase Messaging is disabled');
       return;
     }
     try {
@@ -363,6 +360,7 @@ class FirebaseMessagingHandler {
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  if (isMockMode || !firebaseEnabled) return;
   // Initialize Firebase if needed (for background isolates)
   try {
     await Firebase.initializeApp(

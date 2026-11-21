@@ -16,7 +16,7 @@ import 'dart:io';
 import 'package:medito/services/analytics/crashlytics_service.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/services/analytics/meta_sdk_service.dart';
-import 'package:medito/services/history/app_history_service.dart';
+import 'package:medito/utils/stats_manager.dart';
 import 'package:medito/utils/logger.dart';
 
 class User {
@@ -28,7 +28,7 @@ class User {
 
   @override
   String toString() {
-    return 'User{id: $id, email: $email, metadata: $metadata}';
+    return 'User(hasId: ${id.isNotEmpty}, hasEmail: ${email != null})';
   }
 }
 
@@ -132,7 +132,7 @@ class AuthRepositoryImpl extends AuthRepository {
       dev.log('🔍 [AUTH_REPO] Starting initializeUser', level: 100);
       var clientId = _preferences.getString(SharedPreferenceConstants.userId);
       dev.log(
-        '[AUTH_REPO] Retrieved clientId from preferences: $clientId',
+        '[AUTH_REPO] Has stored clientId: ${clientId != null}',
         level: 800,
       );
 
@@ -143,7 +143,7 @@ class AuthRepositoryImpl extends AuthRepository {
           SharedPreferenceConstants.userId,
           clientId,
         );
-        dev.log('[AUTH_REPO] Generated new clientId: $clientId', level: 800);
+        dev.log('[AUTH_REPO] Generated new clientId', level: 800);
       }
 
       // Check if the user is logged in
@@ -203,7 +203,7 @@ class AuthRepositoryImpl extends AuthRepository {
               information: [
                 'os: ${Platform.operatingSystem}',
                 'os_version: ${Platform.operatingSystemVersion}',
-                'client_id: $clientId',
+                'has_client_id: ${clientId.isNotEmpty}',
                 'app_version: ${await PackageInfo.fromPlatform().then((info) => info.buildNumber)}',
                 'timestamp: ${DateTime.now().toIso8601String()}',
                 'stored_email_present: ${(storedEmail != null && storedEmail.isNotEmpty)}',
@@ -222,7 +222,7 @@ class AuthRepositoryImpl extends AuthRepository {
             );
           }
 
-          await _resetAuth();
+          await _resetAuth(preservePendingStats: true);
           // Inconsistent state: logged in flag true, but no token. Reset.
         }
       } else {
@@ -248,6 +248,7 @@ class AuthRepositoryImpl extends AuthRepository {
   Future<String> getToken() async {
     dev.log('[AUTH_REPO] getToken called', level: 800);
     final generation = _authGeneration;
+    final httpEpoch = _httpApiService.authEpoch;
 
     // If we have a valid token that isn't expired, return it immediately
     if (_tokens != null && !_tokens!.isExpired) {
@@ -270,13 +271,7 @@ class AuthRepositoryImpl extends AuthRepository {
       try {
         dev.log('[AUTH_REPO] Refreshing expired token', level: 800);
 
-        // Store existing tokens details before refresh for debugging
         var oldEmail = _tokens?.email;
-        var oldClientId = _tokens?.clientId;
-        dev.log(
-          '[AUTH_REPO] Before refresh - Email: $oldEmail, ClientId: $oldClientId',
-          level: 800,
-        );
 
         // Get stored email as additional fallback
         var storedEmail = await _secureStorage.getUserEmail();
@@ -398,7 +393,7 @@ class AuthRepositoryImpl extends AuthRepository {
         _tokens = refreshed;
 
         dev.log(
-          '[AUTH_REPO] After refresh - Email: ${_tokens?.email}, ClientId: ${_tokens?.clientId}',
+          '[AUTH_REPO] After refresh - HasEmail: ${_tokens?.email != null}, HasClientId: ${_tokens?.clientId.isNotEmpty == true}',
           level: 800,
         );
 
@@ -492,19 +487,7 @@ class AuthRepositoryImpl extends AuthRepository {
           error: e,
           level: 800,
         );
-        // This specific RefreshTokenError is critical as it leads to _resetAuth.
-        // It might have already been logged by the inner catch, but this ensures it's logged if it came from a different path.
-        _crashlyticsService.recordError(
-          e,
-          StackTrace.current,
-          reason: 'AuthRepo: RefreshTokenError leading to auth reset',
-        );
-        await _resetAuth();
-        // Involuntary logout (dead refresh token). Notify so the app root
-        // routes the user to the splash screen to re-authenticate — the
-        // HttpApiService force-logout path does this via _forceLogout, but
-        // this repository path bypasses it.
-        _httpApiService.notifyForceLogout();
+        await _httpApiService.recoverRejectedSession(httpEpoch);
         rethrow;
       } catch (e, stackTrace) {
         dev.log('[AUTH_REPO] Error refreshing token', error: e, level: 800);
@@ -519,6 +502,9 @@ class AuthRepositoryImpl extends AuthRepository {
       }
     }
 
+    if (_preferences.getBool(SharedPreferenceConstants.isLoggedIn) == true) {
+      await _httpApiService.recoverRejectedSession(httpEpoch);
+    }
     throw const UnauthorizedError();
   }
 
@@ -641,7 +627,7 @@ class AuthRepositoryImpl extends AuthRepository {
       );
 
       dev.log(
-        '[AUTH_REPO] OTP verification successful. Token details - Email: ${_tokens?.email}, ClientId: ${_tokens?.clientId}',
+        '[AUTH_REPO] OTP verification successful. Token details - HasEmail: ${_tokens?.email != null}, HasClientId: ${_tokens?.clientId.isNotEmpty == true}',
         level: 500,
       );
 
@@ -663,17 +649,6 @@ class AuthRepositoryImpl extends AuthRepository {
 
       // Mark user as logged in
       await _preferences.setBool(SharedPreferenceConstants.isLoggedIn, true);
-
-      // Record sign-in event in local history (for debug info)
-      try {
-        await AppHistoryService.recordSignIn(
-          _preferences,
-          userId: _tokens!.clientId,
-          email: _tokens!.email ?? email,
-        );
-      } catch (e) {
-        dev.log('[AUTH_REPO] Failed to record sign-in history: $e', level: 800);
-      }
 
       // Store email in secure storage for persistence
       if (_tokens!.email != null) {
@@ -765,9 +740,19 @@ class AuthRepositoryImpl extends AuthRepository {
   @override
   Future<void> signInAnonymously() async {
     try {
-      var clientId =
-          _preferences.getString(SharedPreferenceConstants.userId) ??
-          _generateClientId();
+      final storedClientId = _preferences.getString(
+        SharedPreferenceConstants.userId,
+      );
+      final clientId = storedClientId ?? _generateClientId();
+      if (storedClientId == null) {
+        // Reutiliza la credencial si se pierde la respuesta del servidor.
+        if (!await _preferences.setString(
+          SharedPreferenceConstants.userId,
+          clientId,
+        )) {
+          throw StateError('Could not save the client ID');
+        }
+      }
 
       // Call the service. It will throw EmailExistsError if applicable.
       _tokens = await _authService.signIn(clientId: clientId);
@@ -778,24 +763,15 @@ class AuthRepositoryImpl extends AuthRepository {
       // Update HTTP service with the new token
       _httpApiService.setAuthHeader(_tokens!.accessToken);
 
-      // Save client ID (might be different from the one we sent)
-      await _preferences.setString(
-        SharedPreferenceConstants.userId,
-        _tokens!.clientId,
-      );
+      if (storedClientId != null || _tokens!.clientId != clientId) {
+        await _preferences.setString(
+          SharedPreferenceConstants.userId,
+          _tokens!.clientId,
+        );
+      }
 
       // Mark user as logged in
       await _preferences.setBool(SharedPreferenceConstants.isLoggedIn, true);
-
-      try {
-        await AppHistoryService.recordSignIn(
-          _preferences,
-          userId: _tokens!.clientId,
-          email: null,
-        );
-      } catch (e) {
-        dev.log('[AUTH_REPO] Failed to record sign-in history: $e', level: 800);
-      }
 
       dev.log('[AUTH_REPO] Anonymous sign in successful');
     } on EmailExistsError {
@@ -810,17 +786,20 @@ class AuthRepositoryImpl extends AuthRepository {
         StackTrace.current,
         reason: 'AuthRepo: Error signing in anonymously',
       );
-      // Don't rethrow, this should not crash the app
+      rethrow;
     }
   }
 
   @override
   void resetAuthState() {
-    _resetAuth();
+    // La recuperación por HTTP ya borró la sesión persistida.
+    _authGeneration++;
+    _tokens = null;
+    _currentUser = null;
   }
 
   // Helper method to reset auth state
-  Future<void> _resetAuth() async {
+  Future<void> _resetAuth({bool preservePendingStats = false}) async {
     dev.log('[AUTH_REPO] Resetting auth state', level: 500);
 
     // Synchronous part first: nothing that starts after this point may see
@@ -835,6 +814,9 @@ class AuthRepositoryImpl extends AuthRepository {
 
     // Mark user as logged out
     await _preferences.setBool(SharedPreferenceConstants.isLoggedIn, false);
+    if (preservePendingStats) {
+      await StatsManager().clearAllStats(preservePending: true);
+    }
 
     // Clear tokens
     await _secureStorage.clearRefreshToken();

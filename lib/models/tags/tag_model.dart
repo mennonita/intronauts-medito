@@ -1,8 +1,6 @@
 /// One content tag, e.g. `sleep` in group `goal`.
 ///
-/// The server sends the tag's English classifier text as `description`; the
-/// user-facing label comes from the app's own translations, see
-/// `tagLabel` in `lib/utils/tag_labels.dart`.
+/// El catálogo puede incluir el nombre visible en `description`.
 class TagModel {
   const TagModel({
     required this.id,

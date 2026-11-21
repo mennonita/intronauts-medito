@@ -14,7 +14,6 @@ import 'package:medito/widgets/medito_icon.dart';
 import 'package:medito/views/home/widgets/bottom_sheet/row_item_widget.dart';
 import 'package:medito/views/player/widgets/bottom_actions/single_back_action_bar.dart';
 import 'package:medito/widgets/headers/medito_app_bar_small.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:medito/utils/utils.dart';
 import 'package:medito/views/home/widgets/bottom_sheet/stats/meditation_calendar_widget.dart';
 import 'package:medito/views/settings/restore_stats_screen.dart';
@@ -294,36 +293,6 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
                 hasUnderline: false,
               ),
             ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => SharePlus.instance.share(
-                ShareParams(text: AppLocalizations.of(context)!.shareStatsText),
-              ),
-              icon: MeditoIcon(
-                assetName: MeditoIcons.shareAndroid,
-                size: 20,
-                color: Theme.of(context).colorScheme.onPrimary,
-              ),
-              label: Text(
-                AppLocalizations.of(context)!.share,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onPrimary,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
           ),
         ),
         _buildStreakCircleDisplayPreference(context, ref),

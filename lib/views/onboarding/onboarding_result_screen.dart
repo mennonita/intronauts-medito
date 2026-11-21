@@ -7,6 +7,7 @@ import 'package:medito/constants/colors/color_constants.dart';
 import 'package:medito/constants/icons/medito_icons.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/constants/styles/widget_styles.dart';
+import 'package:medito/constants/types/type_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/player/playback_request.dart';
 import 'package:medito/providers/meditation/track_provider.dart';
@@ -95,15 +96,6 @@ class OnboardingResultScreen extends ConsumerStatefulWidget {
 
 class _OnboardingResultScreenState
     extends ConsumerState<OnboardingResultScreen> {
-  // The 3-min "What is Mindfulness" (Will) — the best beginner first session in
-  // the data (~79% 2nd-session return). A/B `onboarding_first_meditation`
-  // concluded 2026-07-14: shipping it to beginners lifts first-session
-  // activation +6-7pp on both platforms, so it's now the default rather than an
-  // experiment arm. The selector picks the closest duration to the target.
-  static const _meditationTrackId = 'yz7XKNm0iaM4kkeI';
-  static const _meditationGuideName = 'Will';
-  static const _meditationTargetDurationMs = 180000; // ~3 min
-
   bool _started = false;
   bool _loading = false;
   bool _done = false;
@@ -146,7 +138,7 @@ class _OnboardingResultScreenState
     }
   }
 
-  Future<void> _begin() async {
+  Future<void> _begin(PlaybackRequest request) async {
     unawaited(
       ref
           .read(analyticsServiceProvider)
@@ -160,25 +152,17 @@ class _OnboardingResultScreenState
       _loading = true;
     });
     try {
-      final track = await ref.read(
-        tracksProvider(trackId: _meditationTrackId).future,
-      );
-      final selection = TrackVariantSelector.resolve(
-        track,
-        guideName: _meditationGuideName,
-        durationMs: _meditationTargetDurationMs,
-      );
-      final request = PlaybackRequest.fromTrack(
-        track,
-        selection.voice,
-        selection.file,
-      );
       await ref.read(playerProvider.notifier).play(request);
       if (!mounted) return;
       setState(() => _loading = false);
     } catch (e, st) {
       AppLogger.e('ONBOARDING', 'Failed to start first meditation', e, st);
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _started = false;
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -216,6 +200,22 @@ class _OnboardingResultScreenState
     final onSurface = theme.colorScheme.onSurface;
     final l10n = AppLocalizations.of(context)!;
 
+    final firstPack = widget.showMeditation
+        ? ref.watch(onboardingPackProvider).value
+        : null;
+    final firstTrack = firstPack?.items
+        .where((item) => item.type == TypeConstants.track)
+        .firstOrNull;
+    final track = firstTrack == null
+        ? null
+        : ref.watch(tracksProvider(trackId: firstTrack.id)).value;
+    final selection = track == null
+        ? null
+        : TrackVariantSelector.resolve(track);
+    final request = selection == null
+        ? null
+        : PlaybackRequest.fromTrack(track!, selection.voice, selection.file);
+
     // Flip to the streak reveal the moment the inline session completes.
     ref.listen(audioStateProvider.select((s) => s.isCompleted), (
       prev,
@@ -233,7 +233,7 @@ class _OnboardingResultScreenState
     // In the meditation arm the heading is a hook that sells the payoff (a
     // moment of calm) to draw them into pressing play, rather than the generic
     // personalised payoff line used on the control screen.
-    final heading = widget.showMeditation
+    final heading = request != null
         ? l10n.onboardingFirstMeditationHook
         : switch (widget.state) {
             OnboardingResultState.stateA => l10n.onboardingResultLearnHeading,
@@ -275,7 +275,7 @@ class _OnboardingResultScreenState
                   // When the meditation card is shown the screen leads with action, not
                   // reading, so the longer personalised body is dropped — the card's
                   // own one-liner carries the reassurance.
-                  if (!widget.showMeditation) ...[
+                  if (request == null) ...[
                     const SizedBox(height: 12),
                     Text(
                       body,
@@ -285,16 +285,16 @@ class _OnboardingResultScreenState
                       ),
                     ),
                   ],
-                  if (widget.showMeditation) ...[
+                  if (request != null) ...[
                     const SizedBox(height: 24),
-                    _buildMeditation(context, l10n),
+                    _buildMeditation(context, l10n, request),
                   ],
                   const SizedBox(height: 24),
                   // While the session is the focus (meditation shown, not yet finished)
                   // the play button is the hero, so "Get started" steps back to a quiet
                   // skip link. It returns as the prominent CTA once the session is done
                   // (or for the control arm, where there's no session to compete with).
-                  if (!widget.showMeditation || _done)
+                  if (request == null || _done)
                     _GetStartedButton(
                       label: l10n.onboardingResultCta,
                       onPressed: _handleGetStarted,
@@ -323,7 +323,11 @@ class _OnboardingResultScreenState
     );
   }
 
-  Widget _buildMeditation(BuildContext context, AppLocalizations l10n) {
+  Widget _buildMeditation(
+    BuildContext context,
+    AppLocalizations l10n,
+    PlaybackRequest request,
+  ) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     return Container(
       width: double.infinity,
@@ -332,11 +336,17 @@ class _OnboardingResultScreenState
         color: onSurface.withOpacityValue(0.05),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: _done ? _buildStreak(context, l10n) : _buildPlayer(context, l10n),
+      child: _done
+          ? _buildStreak(context, l10n)
+          : _buildPlayer(context, l10n, request),
     );
   }
 
-  Widget _buildPlayer(BuildContext context, AppLocalizations l10n) {
+  Widget _buildPlayer(
+    BuildContext context,
+    AppLocalizations l10n,
+    PlaybackRequest request,
+  ) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final audio = ref.watch(audioStateProvider);
     final busy = _loading || audio.isBuffering;
@@ -361,7 +371,7 @@ class _OnboardingResultScreenState
         ],
         // Duration cue only matters before they commit; once playing it's
         // noise, so hide it (and the time readout below).
-        if (!_started) ...[
+        if (!_started && request.duration > 0) ...[
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -372,7 +382,7 @@ class _OnboardingResultScreenState
               ),
               const SizedBox(width: 5),
               Text(
-                l10n.onboardingFirstMeditationDuration,
+                '${convertDurationToMinutes(milliseconds: request.duration)} ${l10n.min}',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                   color: onSurface.withOpacityValue(0.7),
@@ -416,7 +426,9 @@ class _OnboardingResultScreenState
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              onPressed: busy ? null : (_started ? _togglePlayPause : _begin),
+              onPressed: busy
+                  ? null
+                  : (_started ? _togglePlayPause : () => _begin(request)),
               icon: busy
                   ? const SizedBox(
                       width: 22,
@@ -443,7 +455,9 @@ class _OnboardingResultScreenState
                 shape: const CircleBorder(),
                 padding: EdgeInsets.zero,
               ),
-              onPressed: busy ? null : (_started ? _togglePlayPause : _begin),
+              onPressed: busy
+                  ? null
+                  : (_started ? _togglePlayPause : () => _begin(request)),
               child: busy
                   ? SizedBox(
                       width: 22,

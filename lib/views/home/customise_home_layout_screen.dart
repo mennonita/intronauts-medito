@@ -1,3 +1,4 @@
+import 'package:medito/constants/http/http_constants.dart';
 import 'package:medito/widgets/adaptive/adaptive_page_body.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
@@ -37,7 +38,10 @@ class CustomiseHomeLayoutScreenState
 
   @override
   Widget build(BuildContext context) {
-    var order = ref.watch(homeWidgetOrderProvider);
+    var order = ref
+        .watch(homeWidgetOrderProvider)
+        .where((type) => donationsEnabled || type != HomeWidgetType.products)
+        .toList();
     var notifier = ref.read(homeWidgetOrderProvider.notifier);
 
     return PopScope(

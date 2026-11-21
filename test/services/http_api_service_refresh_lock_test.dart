@@ -22,6 +22,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/constants/constants.dart' hide AuthTokens;
 import 'package:medito/models/auth/auth_tokens.dart';
+import 'package:medito/exceptions/app_error.dart';
 import 'package:medito/services/network/auth_api_service.dart';
 import 'package:medito/services/network/http_api_service.dart';
 import 'package:mocktail/mocktail.dart';
@@ -30,6 +31,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _MockAuthApiService extends Mock implements AuthApiService {}
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() {
     registerFallbackValue('fallback-token');
   });
@@ -44,6 +46,7 @@ void main() {
       // bails early if this is false.
       SharedPreferences.setMockInitialValues({
         SharedPreferenceConstants.isLoggedIn: true,
+        SharedPreferenceConstants.userId: 'saved-device',
       });
 
       // Pre-init the static instance so the call inside the function
@@ -91,15 +94,62 @@ void main() {
       verify(() => mockAuthService.refreshToken(any())).called(1);
     });
 
-    // NOTE: we'd like a 'after a failed refresh, the lock releases and a
-    // subsequent caller can try again' test here, but it can't be written
-    // cleanly with the current production code: when no concurrent caller
-    // is waiting, `_refreshTokenCompleter.completeError(e)` produces an
-    // unhandled async error (no listener), which `flutter_test` surfaces
-    // as a test failure. In production this just logs as an unhandled
-    // future error — minor and not user-visible — but worth knowing if we
-    // ever refactor the locking to use `Future<void>?` instead of
-    // `Completer<void>` (which would also fix the test-ability gap).
+    test(
+      'one definitive rejection starts recovery for all waiting calls',
+      () async {
+        final rejection = Completer<AuthTokens>();
+        final started = Completer<void>();
+        when(() => mockAuthService.refreshToken(any())).thenAnswer((_) {
+          started.complete();
+          return rejection.future;
+        });
+        when(() => mockAuthService.clearAuthTokens()).thenAnswer((_) async {});
+        final service = HttpApiService.internal(authService: mockAuthService);
+        final events = <AuthEvent>[];
+        service.addAuthCallback(events.add);
+
+        final checks = List.generate(
+          3,
+          (_) => expectLater(
+            service.refreshTokenForTesting(),
+            throwsA(isA<RefreshTokenError>()),
+          ),
+        );
+        await started.future;
+        rejection.completeError(const RefreshTokenError());
+        await Future.wait(checks);
+
+        verify(() => mockAuthService.refreshToken(any())).called(1);
+        expect(events, [AuthEvent.recoverSession]);
+        expect(
+          (await SharedPreferences.getInstance()).getBool(
+            SharedPreferenceConstants.isLoggedIn,
+          ),
+          false,
+        );
+      },
+    );
+
+    test('a transient failure allows the next request to retry', () async {
+      when(
+        () => mockAuthService.refreshToken(any()),
+      ).thenThrow(const ServerError());
+      final service = HttpApiService.internal(authService: mockAuthService);
+      var recoveries = 0;
+      service.addAuthCallback((_) => recoveries++);
+
+      await expectLater(
+        service.refreshTokenForTesting(),
+        throwsA(isA<ServerError>()),
+      );
+      await expectLater(
+        service.refreshTokenForTesting(),
+        throwsA(isA<ServerError>()),
+      );
+
+      verify(() => mockAuthService.refreshToken(any())).called(2);
+      expect(recoveries, 0);
+    });
 
     test('a successful refresh sets the auth header so subsequent requests '
         'are authorised', () async {

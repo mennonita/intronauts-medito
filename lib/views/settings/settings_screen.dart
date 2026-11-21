@@ -84,36 +84,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final List<SettingsItem> settingsItems = [
-      SettingsItem(
-        section: AppLocalizations.of(context)!.helpLegalSection,
-        type: TypeConstants.url,
-        title: AppLocalizations.of(context)!.helpTitle,
-        icon: MeditoIcon(
-          assetName: MeditoIcons.help,
-          color: Theme.of(context).colorScheme.onSurface,
+      if (donationsEnabled)
+        SettingsItem(
+          section: AppLocalizations.of(context)!.supportCommunitySection,
+          type: TypeConstants.route,
+          title: AppLocalizations.of(context)!.donateTitle,
+          icon: MeditoIcon(
+            assetName: MeditoIcons.heart,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+          path: RouteConstants.donation,
         ),
-        path: 'https://medito.support.site/',
-      ),
-      SettingsItem(
-        section: AppLocalizations.of(context)!.supportCommunitySection,
-        type: TypeConstants.route,
-        title: AppLocalizations.of(context)!.donateTitle,
-        icon: MeditoIcon(
-          assetName: MeditoIcons.heart,
-          color: Theme.of(context).colorScheme.onSurface,
+      if (donationsEnabled)
+        SettingsItem(
+          section: AppLocalizations.of(context)!.supportCommunitySection,
+          type: TypeConstants.route,
+          title: AppLocalizations.of(context)!.shopTitle,
+          icon: MeditoIcon(
+            assetName: MeditoIcons.shop,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+          path: RouteConstants.shop,
         ),
-        path: RouteConstants.donation,
-      ),
-      SettingsItem(
-        section: AppLocalizations.of(context)!.supportCommunitySection,
-        type: TypeConstants.route,
-        title: AppLocalizations.of(context)!.shopTitle,
-        icon: MeditoIcon(
-          assetName: MeditoIcons.shop,
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
-        path: RouteConstants.shop,
-      ),
       SettingsItem(
         section: AppLocalizations.of(context)!.helpLegalSection,
         type: TypeConstants.route,
@@ -123,26 +115,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           color: Theme.of(context).colorScheme.onSurface,
         ),
         path: '${RouteConstants.stats}:history',
-      ),
-      SettingsItem(
-        section: AppLocalizations.of(context)!.supportCommunitySection,
-        type: TypeConstants.url,
-        title: AppLocalizations.of(context)!.telegramTitle,
-        icon: MeditoIcon(
-          assetName: MeditoIcons.telegram,
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
-        path: 'https://t.me/meditoapp',
-      ),
-      SettingsItem(
-        section: AppLocalizations.of(context)!.supportCommunitySection,
-        type: TypeConstants.url,
-        title: AppLocalizations.of(context)!.whatsappTitle,
-        icon: MeditoIcon(
-          assetName: MeditoIcons.whatsapp,
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
-        path: 'https://whatsapp.com/channel/0029Vaov2lZ5kg77zmTZfd2X',
       ),
       SettingsItem(
         section: AppLocalizations.of(context)!.customizationSection,
@@ -401,6 +373,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ) {
     final authRepository = ref.watch(authRepositorySyncProvider);
     final user = authRepository.currentUser;
+    final hasSession =
+        ref
+            .watch(sharedPreferencesProvider)
+            .getBool(SharedPreferenceConstants.isLoggedIn) ==
+        true;
     final isEffectivelySignedIn =
         user != null && user.email != null && user.email!.isNotEmpty;
 
@@ -463,23 +440,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       sliver: SliverList(
         delegate: SliverChildListDelegate([
           const ReminderTile(),
-          if (!isEffectivelySignedIn) ...[
+          if (!isEffectivelySignedIn && (emailLoginEnabled || hasSession)) ...[
             _buildSectionTitle(context, AppLocalizations.of(context)!.account),
             _buildSectionCard([const AccountSectionWidget(inCard: true)]),
           ],
-          _buildSectionTitle(
-            context,
-            AppLocalizations.of(context)!.supportCommunity,
-          ),
-          _buildSectionCard([
-            for (var i = 0; i < communityItems.length; i++)
-              _buildMenuItemTile(
-                context,
-                ref,
-                communityItems[i],
-                isLast: i == communityItems.length - 1,
-              ),
-          ]),
+          if (communityItems.isNotEmpty)
+            _buildSectionTitle(
+              context,
+              AppLocalizations.of(context)!.supportCommunity,
+            ),
+          if (communityItems.isNotEmpty)
+            _buildSectionCard([
+              for (var i = 0; i < communityItems.length; i++)
+                _buildMenuItemTile(
+                  context,
+                  ref,
+                  communityItems[i],
+                  isLast: i == communityItems.length - 1,
+                ),
+            ]),
           _buildSectionTitle(
             context,
             AppLocalizations.of(context)!.customization,

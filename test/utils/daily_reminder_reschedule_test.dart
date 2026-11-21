@@ -44,8 +44,13 @@ void main() {
     statsManager.setCurrentDateForTesting(today);
 
     when(
-      mockStatsService.postStats(any),
-    ).thenAnswer((_) async => Future.value());
+      mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+    ).thenAnswer(
+      (invocation) async => (
+        applied: true,
+        clientSeq: invocation.namedArguments[#clientSeq] as int,
+      ),
+    );
 
     statsManager.setStatsForTesting(
       LocalAllStats.empty().copyWith(streakCurrent: 0, streakLongest: 0),

@@ -15,6 +15,15 @@ import 'package:flutter/services.dart';
 bool get isMockMode =>
     const String.fromEnvironment('MOCK_MODE', defaultValue: 'false') == 'true';
 
+bool get donationsEnabled => donationBaseUrl.isNotEmpty;
+
+// El inicio de sesión por correo llegará en una etapa posterior.
+bool get emailLoginEnabled => false;
+
+bool get firebaseEnabled =>
+    const String.fromEnvironment('FIREBASE_ENABLED', defaultValue: 'false') ==
+    'true';
+
 /// True for builds made with `--flavor dev` (simulator/emulator and internal
 /// dev builds). These share the prod Firebase app ID and bundle ID, so any
 /// analytics they send lands in the prod GA4/Meta data; gate on this to keep
@@ -98,8 +107,8 @@ const _prodEnv = ProdEnv(
     'PAYWALL_URL',
     defaultValue: 'https://paywall.meditofoundation.org/',
   ),
-  facebookAppId: String.fromEnvironment('FACEBOOK_APP_ID'),
-  facebookClientToken: String.fromEnvironment('FACEBOOK_CLIENT_TOKEN'),
+  facebookAppId: '',
+  facebookClientToken: '',
 );
 
 const _stagingEnv = StagingEnv(
@@ -114,8 +123,8 @@ const _stagingEnv = StagingEnv(
     'PAYWALL_URL',
     defaultValue: 'https://test.meditofoundation.org/',
   ),
-  facebookAppId: String.fromEnvironment('FACEBOOK_APP_ID'),
-  facebookClientToken: String.fromEnvironment('FACEBOOK_CLIENT_TOKEN'),
+  facebookAppId: '',
+  facebookClientToken: '',
 );
 
 // Resolve the active env config from the loaded `.prod.json` / `.staging.json`

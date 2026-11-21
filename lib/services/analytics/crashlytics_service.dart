@@ -45,6 +45,7 @@ class CrashlyticsService {
   /// Only call when the user has Firebase analytics enabled in settings.
   /// When disabled, main() skips this so the SDK is never initialised.
   Future<void> initialize() async {
+    if (isMockMode || !firebaseEnabled) return;
     _analyticsEnabled = true;
 
     if (kDebugMode) {
@@ -349,6 +350,7 @@ class CrashlyticsService {
   /// Enable or disable Crashlytics collection at runtime.
   /// Call this when the user toggles the Firebase analytics setting.
   Future<void> setCollectionEnabled(bool enabled) async {
+    if (isMockMode || !firebaseEnabled) return;
     _analyticsEnabled = enabled;
     try {
       await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(

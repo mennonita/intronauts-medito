@@ -14,8 +14,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'stats_service_test.mocks.dart';
 
 class _FakeAuthRepository implements AuthRepository {
+  Future<void> Function()? signIn;
   int signOutLocallyCalls = 0;
   int signOutCalls = 0;
+
+  @override
+  Future<void> signInAnonymously() async => signIn?.call();
 
   @override
   Future<void> signOutLocally() async => signOutLocallyCalls++;
@@ -34,7 +38,8 @@ class _FakeStatsManager implements StatsManager {
   int clearCalls = 0;
 
   @override
-  Future<void> clearAllStats() async => clearCalls++;
+  Future<void> clearAllStats({bool preservePending = false}) async =>
+      clearCalls++;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -46,6 +51,7 @@ void main() {
   late _FakeStatsManager stats;
   late SharedPreferences prefs;
   late AccountService service;
+  late int nativeClears;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({
@@ -66,11 +72,20 @@ void main() {
     http = MockHttpApiService();
     auth = _FakeAuthRepository();
     stats = _FakeStatsManager();
+    nativeClears = 0;
     service = AccountService(
       httpApiService: http,
       authRepository: auth,
       preferences: prefs,
       statsManager: stats,
+      clearPlayback: () async {
+        nativeClears++;
+        expect(stats.clearCalls, 0);
+        expect(
+          prefs.containsKey(CompletedTracksStorage.completedTracksKey),
+          true,
+        );
+      },
       retryDelay: Duration.zero,
     );
   });
@@ -101,6 +116,7 @@ void main() {
     expect(auth.signOutLocallyCalls, 1);
     expect(auth.signOutCalls, 0, reason: 'session is already gone');
     expect(stats.clearCalls, 1);
+    expect(nativeClears, 1);
     expect(prefs.getString(SharedPreferenceConstants.userId), isNull);
     expect(prefs.getString(SharedPreferenceConstants.favorites), isNull);
     expect(prefs.getString(SharedPreferenceConstants.themePreference), 'dark');
@@ -167,6 +183,70 @@ void main() {
       http.deleteRequest(HTTPConstants.me, body: anyNamed('body')),
     ).called(1);
     expect(auth.signOutLocallyCalls, 0);
+  });
+
+  test(
+    'resumes local deletion on startup after a lost DELETE response',
+    () async {
+      when(
+        http.deleteRequest(HTTPConstants.me, body: anyNamed('body')),
+      ).thenAnswer((_) async {
+        expect(prefs.getBool('account_deletion_requested'), true);
+        throw const TimeoutError();
+      });
+      await expectLater(
+        service.deleteAccount(),
+        throwsA(isA<AccountDeletionUnconfirmed>()),
+      );
+      expect(service.needsReplacement, true);
+      expect(stats.clearCalls, 0);
+
+      auth.signIn = () async {
+        expect(prefs.containsKey(SharedPreferenceConstants.userId), false);
+        expect(prefs.containsKey('account_deletion_requested'), false);
+        expect(stats.clearCalls, 1);
+        expect(nativeClears, 1);
+        await prefs.setString(
+          SharedPreferenceConstants.userId,
+          'new-client-id',
+        );
+      };
+      final restarted = AccountService(
+        httpApiService: http,
+        authRepository: auth,
+        preferences: prefs,
+        statsManager: stats,
+        clearPlayback: () async => nativeClears++,
+      );
+      await restarted.signInAnonymously();
+
+      expect(restarted.needsReplacement, false);
+      expect(
+        prefs.getString(SharedPreferenceConstants.userId),
+        'new-client-id',
+      );
+      verify(http.deleteRequest(HTTPConstants.me, body: null)).called(3);
+    },
+  );
+
+  test('a tombstoned client ID is cleared before a fresh signin', () async {
+    final clientIds = <String?>[];
+    auth.signIn = () async {
+      final clientId = prefs.getString(SharedPreferenceConstants.userId);
+      clientIds.add(clientId);
+      if (clientId == 'old-client-id') throw const AccountDeletedError();
+      expect(clientId, isNull);
+      await prefs.setString(SharedPreferenceConstants.userId, 'new-client-id');
+    };
+
+    await service.signInAnonymously();
+
+    expect(clientIds, ['old-client-id', null]);
+    expect(auth.signOutLocallyCalls, 1);
+    expect(stats.clearCalls, 1);
+    expect(nativeClears, 1);
+    expect(service.needsReplacement, false);
+    verifyNever(http.deleteRequest(HTTPConstants.me));
   });
 
   test('sends no body when nothing was picked', () async {

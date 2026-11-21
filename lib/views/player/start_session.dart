@@ -13,6 +13,7 @@ import 'package:medito/routes/routes.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/track_variant_selector.dart';
 import 'package:medito/views/player/player_view.dart';
+import 'package:medito/views/track/track_view.dart';
 
 /// Gets the user into [trackId] as fast as possible: straight into the player
 /// with their preferred guide and duration when both are known, otherwise via
@@ -39,6 +40,15 @@ Future<void> startSession(
       guideName: guideName,
       durationMs: preferredDuration,
     );
+    if (!context.mounted) return;
+    if (selection == null) {
+      unawaited(
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => TrackView(trackId: trackId))),
+      );
+      return;
+    }
     final request = PlaybackRequest.fromTrack(
       track,
       selection.voice,

@@ -1,0 +1,14 @@
+{
+  "ENVIRONMENT": "staging",
+  "CONTENT_BASE_URL": "http://127.0.0.1:8787/medito/v1/",
+  "AUTH_URL": "http://127.0.0.1:8787/medito/auth/",
+  "APP_KEY": "<replace-with-MEDITO_APP_KEY>",
+  "DONATION_BASE_URL": "",
+  "DONATION_TOKEN": "",
+  "PAYWALL_URL": "",
+  "EDIT_STATS_URL": "",
+  "FACEBOOK_APP_ID": "",
+  "FACEBOOK_CLIENT_TOKEN": "",
+  "FIREBASE_ENABLED": false,
+  "MOCK_MODE": false
+}

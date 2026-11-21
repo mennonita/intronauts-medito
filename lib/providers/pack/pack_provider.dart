@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/constants.dart';
 import 'package:medito/models/models.dart';
 import 'package:medito/providers/stats_provider.dart';
@@ -6,12 +7,20 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'pack_provider.g.dart';
 
+final packCatalogProvider = FutureProvider<List<PackModel>>((ref) {
+  return ref.watch(packRepositoryProvider).fetchAllPacks();
+});
+
+final onboardingPackProvider = FutureProvider<PackModel?>((ref) async {
+  final packs = await ref.watch(packCatalogProvider.future);
+  return packs.firstOrNull;
+});
+
 @Riverpod(keepAlive: true)
 Future<List<PackItemsModel>> fetchAllPacks(Ref ref) {
-  var packRepository = ref.watch(packRepositoryProvider);
-  return packRepository.fetchAllPacks().then(
-    (packs) => packs.expand((pack) => pack.items).toList(),
-  );
+  return ref
+      .watch(packCatalogProvider.future)
+      .then((packs) => packs.expand((pack) => pack.items).toList());
 }
 
 /// Every pack's track ids (sub-packs included), from `GET /packs/tracks`.

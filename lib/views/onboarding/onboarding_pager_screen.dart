@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/constants.dart';
-import 'package:medito/constants/pack_sequence.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/providers/onboarding/onboarding_experienced_meditation_experiment.dart';
@@ -133,18 +132,6 @@ class OnboardingPagerScreenState extends ConsumerState<OnboardingPagerScreen> {
           .read(sharedPreferencesProvider)
           .setInt(SharedPreferenceConstants.onboardingExperienceLevel, index),
     );
-    // Pin every new user onto the path — this is also how the legacy megapack
-    // retires: it stays the no-pin fallback, so pre-change users keep their
-    // place in it and no backfill is needed.
-    final startingPackId = index == 2
-        ? PackSequence.experiencedEntryPackId
-        : PackSequence.beginnerEntryPackId;
-    unawaited(
-      ref
-          .read(sharedPreferencesProvider)
-          .setString(SharedPreferenceConstants.upNextPackId, startingPackId),
-    );
-    ref.invalidate(upNextPackIdProvider);
     // Experience is now the only question in the onboarding flow — the
     // follow-up "intent" question was removed because its answer added a
     // screen of friction with almost no predictive value beyond this one.
@@ -167,16 +154,22 @@ class OnboardingPagerScreenState extends ConsumerState<OnboardingPagerScreen> {
     );
   }
 
+  List<OnboardingStep> _steps() {
+    return OnboardingDonationTimingExperiment.steps(
+          variant: _donationTimingVariant,
+          showBattery: _showBatteryScreen,
+          showTracking: ref.watch(onboardingTrackingStepProvider),
+        )
+        .where((step) => donationsEnabled || step != OnboardingStep.donation)
+        .toList();
+  }
+
   List<Widget> _buildPages(AppLocalizations l10n) {
     final resultState = deriveOnboardingState(
       experienceIndex: _experienceIndex ?? 0,
     );
 
-    final steps = OnboardingDonationTimingExperiment.steps(
-      variant: _donationTimingVariant,
-      showBattery: _showBatteryScreen,
-      showTracking: ref.watch(onboardingTrackingStepProvider),
-    );
+    final steps = _steps();
     return [
       for (final step in steps)
         switch (step) {
@@ -242,6 +235,22 @@ class OnboardingPagerScreenState extends ConsumerState<OnboardingPagerScreen> {
             true,
           ),
     );
+    try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      final firstPack = await ref
+          .read(onboardingPackProvider.future)
+          .timeout(const Duration(seconds: 4));
+      if (!mounted) return;
+      if (firstPack != null) {
+        await prefs.setString(
+          SharedPreferenceConstants.upNextPackId,
+          firstPack.id,
+        );
+        if (mounted) ref.invalidate(upNextPackIdProvider);
+      }
+    } catch (_) {
+      // El usuario puede continuar cuando el catálogo no está disponible.
+    }
     await _finishToHome();
   }
 
@@ -311,11 +320,7 @@ class OnboardingPagerScreenState extends ConsumerState<OnboardingPagerScreen> {
     final pages = _buildPages(l10n);
     // The result is not a setup step, including when the experiment places
     // the donation step after it.
-    final steps = OnboardingDonationTimingExperiment.steps(
-      variant: _donationTimingVariant,
-      showBattery: _showBatteryScreen,
-      showTracking: ref.watch(onboardingTrackingStepProvider),
-    );
+    final steps = _steps();
     final totalSteps = steps
         .where((step) => step != OnboardingStep.result)
         .length;

@@ -2,6 +2,7 @@ import 'package:medito/widgets/adaptive/adaptive_page_body.dart';
 // ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
+import 'package:medito/utils/track_variant_selector.dart';
 
 import 'package:medito/exceptions/app_error.dart';
 import 'package:medito/l10n/app_localizations.dart';
@@ -98,7 +99,13 @@ class _DownloadsViewState extends ConsumerState<DownloadsView>
     final pending = _pendingDelete;
     final visible = pending == null
         ? tracks
-        : tracks.where((t) => _fileId(t) != _fileId(pending.track)).toList();
+        : tracks
+              .where(
+                (t) =>
+                    t.id != pending.track.id ||
+                    _fileId(t) != _fileId(pending.track),
+              )
+              .toList();
     if (visible.isEmpty) return _getEmptyWidget();
 
     return ReorderableListView(
@@ -178,7 +185,8 @@ class _DownloadsViewState extends ConsumerState<DownloadsView>
     ),
   );
 
-  String _fileId(Track track) => track.voices.first.audioFiles.first.id;
+  String _fileId(Track track) =>
+      TrackVariantSelector.resolve(track)?.file.id ?? '';
 
   Widget _getSlidingItem(Track item, int index) {
     return Padding(
@@ -226,8 +234,17 @@ class _DownloadsViewState extends ConsumerState<DownloadsView>
   }
 
   DownloadListItemWidget _getListItemWidget(Track item, int index) {
-    final firstVoice = item.voices.first;
-    final firstFile = firstVoice.audioFiles.first;
+    final selection = TrackVariantSelector.resolve(item);
+    if (selection == null) {
+      return DownloadListItemWidget(
+        title: item.title,
+        subtitle: AppLocalizations.of(context)!.trackAudioUnavailable,
+        coverUrl: item.coverUrl,
+        index: index,
+      );
+    }
+    final firstVoice = selection.voice;
+    final firstFile = selection.file;
     var audioLength = Duration(
       milliseconds: firstFile.duration,
     ).inMinutes.toString();
@@ -246,9 +263,13 @@ class _DownloadsViewState extends ConsumerState<DownloadsView>
   String _getDuration(String? length) => formatTrackLength(length);
 
   void _openPlayer(WidgetRef ref, Track track) {
-    final voice = track.voices.first;
-    final file = voice.audioFiles.first;
-    final request = PlaybackRequest.fromTrack(track, voice, file);
+    final selection = TrackVariantSelector.resolve(track);
+    if (selection == null) return;
+    final request = PlaybackRequest.fromTrack(
+      track,
+      selection.voice,
+      selection.file,
+    );
     // Prepare + open the player immediately; PlayerView starts playback and
     // shows its own loading state (no wait on this screen).
     ref.read(playerProvider.notifier).prepare(request);
@@ -304,23 +325,28 @@ class _DownloadsViewState extends ConsumerState<DownloadsView>
     ProviderContainer container,
     Track item,
   ) async {
-    final firstFile = item.voices.first.audioFiles.first;
-    final fileName =
-        '${item.id}-${firstFile.id}${getAudioFileExtension(firstFile.path)}';
+    final firstFile = TrackVariantSelector.resolve(item)?.file;
+    if (firstFile != null) {
+      final fileName =
+          '${item.id}-${firstFile.id}${getAudioFileExtension(firstFile.path)}';
 
-    final isDownloaded = await container
-        .read(downloaderRepositoryProvider)
-        .isFileDownloaded(fileName);
-    if (isDownloaded) {
-      await container
-          .read(audioDownloaderProvider.notifier)
-          .deleteTrackAudio(fileName);
+      final isDownloaded = await container
+          .read(downloaderRepositoryProvider)
+          .isFileDownloaded(fileName);
+      if (isDownloaded) {
+        await container
+            .read(audioDownloaderProvider.notifier)
+            .deleteTrackAudio(fileName);
+      }
     }
-
     final trackRepository = container.read(trackRepositoryProvider);
     final trackList = await trackRepository.fetchTrackFromPreference();
     trackList.removeWhere(
-      (t) => t.voices.first.audioFiles.any((f) => f.id == firstFile.id),
+      (t) => firstFile == null
+          ? t == item
+          : t.voices.any(
+              (voice) => voice.audioFiles.any((f) => f.id == firstFile.id),
+            ),
     );
     await trackRepository.addTrackInPreference(trackList);
 

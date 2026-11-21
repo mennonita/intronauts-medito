@@ -225,14 +225,18 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
     }
 
+    private var playbackGeneration = -1L
+
     private fun saveAndSendRepeatPlaythrough(completionData: CompletionData) {
         // Persisted like a completion so MainActivity replays it if Dart
         // doesn't acknowledge (engine frozen or killed).
-        SharedPreferencesManager.addPendingRepeat(this@AudioPlayerService, completionData)
+        val generation = playbackGeneration
+        if (!SharedPreferencesManager.addPendingRepeat(this, completionData, generation)) return
         CoroutineScope(Dispatchers.Main).launch {
+            if (!SharedPreferencesManager.isCurrent(generation)) return@launch
             meditoAudioApi?.handleRepeatPlaythrough(completionData) { result ->
                 if (result.getOrNull() == true) {
-                    SharedPreferencesManager.removePendingRepeat(this@AudioPlayerService, completionData)
+                    SharedPreferencesManager.removePendingRepeat(this@AudioPlayerService, completionData, generation)
                 }
             }
         }
@@ -255,20 +259,23 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private fun saveAndSendCompletionData(completionData: CompletionData, finish: Boolean = true) {
         // Persist first: completion is replayed by MainActivity on next launch if
         // the app is killed before Dart records it, so nothing is lost.
-        SharedPreferencesManager.saveCompletionData(this@AudioPlayerService, completionData)
+        val generation = playbackGeneration
+        val saved = SharedPreferencesManager.saveCompletionData(this, completionData, generation)
 
         // Tear down the foreground service + notification immediately and natively.
         // Teardown must NOT depend on the Dart reply below — on devices that freeze
         // the app in the background (e.g. MIUI/Xiaomi) the reply may never arrive,
         // which previously left the player notification stuck until reboot.
         if (finish) finishPlayback()
+        if (!saved) return
 
         // Fire-and-forget the analytics callback. If it completes we can clear the
         // persisted record; if it doesn't, the replay path handles it next launch.
         CoroutineScope(Dispatchers.Main).launch {
+            if (!SharedPreferencesManager.isCurrent(generation)) return@launch
             meditoAudioApi?.handleCompletedTrack(completionData) { result ->
-                if (result.isSuccess) {
-                    SharedPreferencesManager.clearCompletionData(this@AudioPlayerService)
+                if (result.getOrNull() == true) {
+                    SharedPreferencesManager.clearCompletionData(this@AudioPlayerService, completionData, generation)
                 }
             }
         }
@@ -789,6 +796,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
 
         isCompletionHandled = false
+        playbackGeneration = SharedPreferencesManager.currentGeneration()
         completedPlaythroughs = 0
         sessionBells.reset()
 

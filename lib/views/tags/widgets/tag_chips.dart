@@ -63,7 +63,7 @@ class ExploreTagChips extends ConsumerWidget {
             final tag = tags[index];
             return TagChip(
               key: ValueKey('tag_chip_${tag.id}'),
-              label: tagLabel(context, tag.id),
+              label: tagLabel(context, tag.id, tag.description),
               onTap: () => openTag(context, tag),
             );
           },
@@ -105,7 +105,7 @@ class TagChipsWrap extends StatelessWidget {
           for (final tag in visible)
             TagChip(
               key: ValueKey('tag_chip_${tag.id}'),
-              label: tagLabel(context, tag.id),
+              label: tagLabel(context, tag.id, tag.description),
               onTap: () => openTag(context, tag),
             ),
         ],

@@ -41,12 +41,12 @@ class AppHistoryService {
   }) async {
     final list = getSignInHistory(prefs);
     final alreadyRecorded = list.any(
-      (e) => e['userId'] == userId && e['email'] == email,
+      (e) => e['serverUserId'] == userId && e['email'] == email,
     );
     if (alreadyRecorded) return;
 
     list.add({
-      'userId': userId,
+      'serverUserId': userId,
       'email': email,
       'signedInAt': DateTime.now().toIso8601String(),
     });
@@ -58,7 +58,7 @@ class AppHistoryService {
 
   static List<Map<String, dynamic>> getSignInHistory(SharedPreferences prefs) {
     final raw = prefs.getString(SharedPreferenceConstants.signedInUserHistory);
-    return _decodeList(raw);
+    return _decodeList(raw)..forEach((entry) => entry.remove('userId'));
   }
 
   static String getVersionHistoryBase64(SharedPreferences prefs) =>

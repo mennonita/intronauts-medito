@@ -1,3 +1,5 @@
+import 'package:medito/constants/http/http_constants.dart';
+import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/icons/medito_icons.dart';
@@ -22,12 +24,21 @@ class AccountSectionWidget extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authRepository = ref.watch(authRepositorySyncProvider);
     final user = authRepository.currentUser;
+    final hasSession =
+        ref
+            .watch(sharedPreferencesProvider)
+            .getBool(SharedPreferenceConstants.isLoggedIn) ==
+        true;
 
-    if (user != null && user.email != null && user.email!.isNotEmpty) {
-      return _buildSignedInUserSection(context, ref, user.email!);
-    } else {
-      return _buildSignedOutUserSection(context, ref);
+    if (hasSession && user?.email?.isNotEmpty == true) {
+      return _buildSignedInUserSection(context, ref, user!.email!);
     }
+    return Column(
+      children: [
+        if (emailLoginEnabled) _buildSignedOutUserSection(context, ref),
+        if (hasSession) _buildDeleteAccountRow(context),
+      ],
+    );
   }
 
   Widget _buildSignedInUserSection(
@@ -100,23 +111,25 @@ class AccountSectionWidget extends ConsumerWidget {
               }
             },
           ),
-          RowItemWidget(
-            icon: MeditoIcon(
-              assetName: MeditoIcons.xmark,
-              color: Theme.of(context).colorScheme.onSurface,
-              size: 24,
-            ),
-            title: AppLocalizations.of(context)!.deleteAccountButtonText,
-            titleStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-            hasUnderline: !inCard,
-            onTap: () => startDeleteAccountFlow(context),
-          ),
+          _buildDeleteAccountRow(context),
         ],
       ),
     );
   }
+
+  Widget _buildDeleteAccountRow(BuildContext context) => RowItemWidget(
+    icon: MeditoIcon(
+      assetName: MeditoIcons.xmark,
+      color: Theme.of(context).colorScheme.onSurface,
+      size: 24,
+    ),
+    title: AppLocalizations.of(context)!.deleteAccountButtonText,
+    titleStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+      color: Theme.of(context).colorScheme.onSurface,
+    ),
+    hasUnderline: !inCard,
+    onTap: () => startDeleteAccountFlow(context),
+  );
 
   Widget _buildSignedOutUserSection(BuildContext context, WidgetRef ref) {
     return Column(

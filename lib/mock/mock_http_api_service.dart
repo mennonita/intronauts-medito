@@ -18,6 +18,8 @@ class MockHttpApiService extends HttpApiService {
     return jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
   }
 
+  Map<String, dynamic>? _stats;
+
   @override
   Future<Map<String, dynamic>> getRequest(
     String path, {
@@ -32,6 +34,13 @@ class MockHttpApiService extends HttpApiService {
   Future<Map<String, dynamic>> postRequest(String path, {dynamic body}) async {
     await Future.delayed(const Duration(milliseconds: 100));
     AppLogger.d('MOCK_HTTP', 'POST $path');
+    if (path == HTTPConstants.allStats && body is Map<String, dynamic>) {
+      final seq = body['client_seq'] as int;
+      final previousSeq = _stats?['client_seq'] as int? ?? -1;
+      final applied = seq > previousSeq;
+      if (applied) _stats = body;
+      return {'applied': applied, 'client_seq': applied ? seq : previousSeq};
+    }
     return _toJsonMap(_matchResponse(path));
   }
 
@@ -42,7 +51,10 @@ class MockHttpApiService extends HttpApiService {
   }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     AppLogger.d('MOCK_HTTP', 'DELETE $path');
-    if (path == HTTPConstants.me) return {'deleted': true};
+    if (path == HTTPConstants.me) {
+      _stats = null;
+      return {'deleted': true};
+    }
     return {};
   }
 
@@ -100,7 +112,7 @@ class MockHttpApiService extends HttpApiService {
 
     // Stats
     if (cleanPath == HTTPConstants.allStats) {
-      return mockStats.toJson();
+      return _stats ?? {...mockStats.toJson(), 'client_seq': 0};
     }
 
     // Favorites

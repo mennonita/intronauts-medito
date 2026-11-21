@@ -497,7 +497,7 @@ class DebugInfoScreen extends ConsumerWidget {
     final df = DateFormat('yyyy-MM-dd HH:mm');
     return history
         .map((e) {
-          final userId = e['userId'] ?? '';
+          final userId = e['serverUserId'] ?? '';
           final email = (e['email'] as String?) ?? '';
           final at = _parseDateOrEmpty(e['signedInAt'], df);
           final emailPart = email.isEmpty ? '' : ' — $email';

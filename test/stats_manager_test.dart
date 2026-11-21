@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/models/local_all_stats.dart';
@@ -455,8 +456,15 @@ void main() {
 
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => remoteStats);
-      when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+      ).thenAnswer((_) async => (stats: remoteStats, clientSeq: 0));
+      when(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).thenAnswer(
+        (invocation) async => (
+          applied: true,
+          clientSeq: invocation.namedArguments[#clientSeq] as int,
+        ),
+      );
 
       // Act - sync with force
       await statsManager.sync(force: true);
@@ -478,8 +486,17 @@ void main() {
         statsManager.setStatsForTesting(LocalAllStats.empty());
 
         final remote = Completer<LocalAllStats>();
-        when(mockStatsService.fetchAllStats()).thenAnswer((_) => remote.future);
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.fetchAllStats(),
+        ).thenAnswer((_) async => (stats: await remote.future, clientSeq: 0));
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         final sync = statsManager.sync(force: true);
         await pumpEventQueue();
@@ -501,8 +518,12 @@ void main() {
         expect(result.totalTracksCompleted, 0);
         expect(result.audioCompleted ?? [], isEmpty);
         final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('local_all_stats'), isNull);
-        verifyNever(mockStatsService.postStats(any));
+        final saved = jsonDecode(prefs.getString('local_all_stats')!) as Map;
+        expect(saved['audioCompleted'], isEmpty);
+        expect(saved['stats_pending_sync'], false);
+        verifyNever(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        );
       },
     );
 
@@ -535,8 +556,15 @@ void main() {
 
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => remoteStats);
-      when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+      ).thenAnswer((_) async => (stats: remoteStats, clientSeq: 0));
+      when(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).thenAnswer(
+        (invocation) async => (
+          applied: true,
+          clientSeq: invocation.namedArguments[#clientSeq] as int,
+        ),
+      );
 
       // Act - sync without force, should make network call when outside TTL
       await statsManager.sync();
@@ -616,8 +644,17 @@ void main() {
 
       // Set up test
       testStatsManager.setStatsForTesting(localStats);
-      when(mockService.fetchAllStats()).thenAnswer((_) async => remoteStats);
-      when(mockService.postStats(any)).thenAnswer((_) async => {});
+      when(
+        mockService.fetchAllStats(),
+      ).thenAnswer((_) async => (stats: remoteStats, clientSeq: 0));
+      when(
+        mockService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).thenAnswer(
+        (invocation) async => (
+          applied: true,
+          clientSeq: invocation.namedArguments[#clientSeq] as int,
+        ),
+      );
 
       // Execute sync
       await testStatsManager.sync();
@@ -697,7 +734,14 @@ void main() {
       // Arrange
       var stats = LocalAllStats.empty();
       statsManager.setStatsForTesting(stats);
-      when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+      when(
+        mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+      ).thenAnswer(
+        (invocation) async => (
+          applied: true,
+          clientSeq: invocation.namedArguments[#clientSeq] as int,
+        ),
+      );
 
       var audio = LocalAudioCompleted(
         id: '1',
@@ -719,7 +763,14 @@ void main() {
       'addRepeatListeningTime - adds minutes of every repetition, one session',
       () async {
         statsManager.setStatsForTesting(LocalAllStats.empty());
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         final audio = LocalAudioCompleted(
           id: '1',
@@ -744,7 +795,9 @@ void main() {
         statsManager.setStatsForTesting(
           LocalAllStats.empty().copyWith(totalTimeListened: 300),
         );
-        when(mockStatsService.postStats(any)).thenThrow(Exception('offline'));
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenThrow(Exception('offline'));
 
         await statsManager.addRepeatListeningTime(300);
 
@@ -805,7 +858,14 @@ void main() {
         // Arrange
         var stats = LocalAllStats.empty();
         statsManager.setStatsForTesting(stats);
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         var audio = LocalAudioCompleted(
           id: '1',
@@ -856,7 +916,14 @@ void main() {
         // Arrange
         var stats = LocalAllStats.empty();
         statsManager.setStatsForTesting(stats);
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Act
         await statsManager.addTrackChecked('track1');
@@ -872,7 +939,14 @@ void main() {
           tracksChecked: ['track1', 'track2'],
         );
         statsManager.setStatsForTesting(stats);
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Act
         await statsManager.removeTrackChecked('track1');
@@ -891,7 +965,14 @@ void main() {
           // Arrange
           var stats = LocalAllStats.empty();
           statsManager.setStatsForTesting(stats);
-          when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+          when(
+            mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+          ).thenAnswer(
+            (invocation) async => (
+              applied: true,
+              clientSeq: invocation.namedArguments[#clientSeq] as int,
+            ),
+          );
 
           // Act
           await statsManager.addTrackChecked('track1');
@@ -1150,7 +1231,14 @@ void main() {
         // Arrange
         var stats = LocalAllStats.empty();
         statsManager.setStatsForTesting(stats);
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Act & Assert
         await expectLater(
@@ -1357,7 +1445,7 @@ void main() {
         // Mock the remote fetch to return our remote stats
         when(
           mockStatsService.fetchAllStats(),
-        ).thenAnswer((_) async => remoteStats);
+        ).thenAnswer((_) async => (stats: remoteStats, clientSeq: 0));
 
         // Act
         await statsManager.sync();
@@ -1420,7 +1508,7 @@ void main() {
       // Mock the remote fetch to return our remote stats
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => remoteStats);
+      ).thenAnswer((_) async => (stats: remoteStats, clientSeq: 0));
 
       // Act
       await statsManager.sync();
@@ -1478,7 +1566,7 @@ void main() {
       // Mock the remote fetch to return our first day remote stats
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => firstDayRemoteStats);
+      ).thenAnswer((_) async => (stats: firstDayRemoteStats, clientSeq: 0));
 
       // Sync on first day
       await statsManager.sync();
@@ -1518,7 +1606,7 @@ void main() {
       // Mock the remote fetch to return our second day remote stats
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => secondDayRemoteStats);
+      ).thenAnswer((_) async => (stats: secondDayRemoteStats, clientSeq: 0));
 
       // Sync on second day
       await statsManager.sync();
@@ -1567,7 +1655,7 @@ void main() {
       // Mock the remote fetch to return our first edit remote stats
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => firstEditRemoteStats);
+      ).thenAnswer((_) async => (stats: firstEditRemoteStats, clientSeq: 0));
 
       // Sync after first edit
       await statsManager.sync();
@@ -1613,7 +1701,7 @@ void main() {
       // Mock the remote fetch to return our second edit remote stats
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => secondEditRemoteStats);
+      ).thenAnswer((_) async => (stats: secondEditRemoteStats, clientSeq: 0));
 
       // Sync after second edit
       await statsManager.sync();
@@ -1679,7 +1767,7 @@ void main() {
       // Setup mock to return first edit stats on first call and second edit stats on second call
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => firstEditRemoteStats);
+      ).thenAnswer((_) async => (stats: firstEditRemoteStats, clientSeq: 0));
 
       // First sync to process first edit
       await statsManager.sync();
@@ -1687,7 +1775,7 @@ void main() {
       // Now change mock to return second edit stats
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => secondEditRemoteStats);
+      ).thenAnswer((_) async => (stats: secondEditRemoteStats, clientSeq: 0));
 
       // Move time forward to be outside TTL
       statsManager.setCurrentDateForTesting(
@@ -1739,7 +1827,7 @@ void main() {
       statsManager.setStatsForTesting(localStats);
       when(
         mockStatsService.fetchAllStats(),
-      ).thenAnswer((_) async => remoteStats);
+      ).thenAnswer((_) async => (stats: remoteStats, clientSeq: 0));
 
       await statsManager.sync();
       var result = await statsManager.localAllStats;

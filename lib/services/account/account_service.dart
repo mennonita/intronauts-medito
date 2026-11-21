@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/http/http_constants.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/exceptions/app_error.dart';
+import 'package:medito/providers/favorites/favorites_provider.dart';
+import 'package:medito/services/account/playback_account.dart';
 import 'package:medito/providers/network/http_api_service_provider.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
 import 'package:medito/providers/stats_provider.dart';
@@ -31,6 +33,9 @@ enum DeleteAccountReason {
   final String code;
 }
 
+const _deletionRequestedKey = 'account_deletion_requested';
+const _replacementPendingKey = 'account_replacement_pending';
+
 /// Account-scoped local data wiped after a deletion. Device preferences
 /// (theme, reminders, downloads, onboarding) are kept.
 const _accountPrefKeys = [
@@ -39,6 +44,7 @@ const _accountPrefKeys = [
   SecureStorageService.userEmailPrefsKey,
   SharedPreferenceConstants.favorites,
   SharedPreferenceConstants.removedFavorites,
+  SharedPreferenceConstants.favoritesPendingSync,
   SharedPreferenceConstants.favoritePacks,
   SharedPreferenceConstants.consistencyScoreHistory,
   SharedPreferenceConstants.emailAddressForReceipt,
@@ -72,6 +78,8 @@ class AccountService {
   final AuthRepository _authRepository;
   final SharedPreferences _preferences;
   final StatsManager _statsManager;
+  final Future<void> Function() _clearPlayback;
+  final Future<void> Function()? _clearFavorites;
 
   /// Base delay between DELETE retries (multiplied by the attempt number).
   final Duration retryDelay;
@@ -81,17 +89,48 @@ class AccountService {
     required AuthRepository authRepository,
     required SharedPreferences preferences,
     required StatsManager statsManager,
+    Future<void> Function() clearPlayback = PlaybackAccount.clear,
+    Future<void> Function()? clearFavorites,
     this.retryDelay = const Duration(seconds: 1),
   }) : _httpApiService = httpApiService,
        _authRepository = authRepository,
        _preferences = preferences,
-       _statsManager = statsManager;
+       _statsManager = statsManager,
+       _clearPlayback = clearPlayback,
+       _clearFavorites = clearFavorites;
 
-  /// Deletes the account server-side, then signs out and wipes local data.
+  bool get needsReplacement =>
+      _preferences.getBool(_deletionRequestedKey) == true ||
+      _preferences.getBool(_replacementPendingKey) == true;
+
+  Future<void> _setAccountFlag(String key, bool value) async {
+    final saved = value
+        ? await _preferences.setBool(key, true)
+        : await _preferences.remove(key);
+    if (!saved) throw StateError('Could not persist the account change');
+  }
+
+  Future<void> signInAnonymously() async {
+    if (_preferences.getBool(_deletionRequestedKey) == true) {
+      await _finishLocalDeletion();
+    }
+
+    try {
+      await _authRepository.signInAnonymously();
+    } on AccountDeletedError {
+      await _setAccountFlag(_deletionRequestedKey, true);
+      await _finishLocalDeletion();
+      await _authRepository.signInAnonymously();
+    }
+
+    if (_preferences.getBool(_replacementPendingKey) == true) {
+      await _setAccountFlag(_replacementPendingKey, false);
+    }
+  }
+
+  /// Guarda la solicitud antes de borrar la cuenta y limpiar los datos locales.
   ///
-  /// Throws if the server didn't confirm the deletion; the user stays signed
-  /// in and can retry (the endpoint is idempotent). Throws
-  /// [AccountDeletionUnconfirmed] when no definite answer arrived.
+  /// Si el servidor no confirma, el siguiente inicio completa la limpieza.
   Future<void> deleteAccount({
     DeleteAccountReason? reason,
     String? details,
@@ -103,13 +142,14 @@ class AccountService {
         'details': trimmedDetails,
     };
 
+    await _setAccountFlag(_deletionRequestedKey, true);
     final response = await _deleteWithRetry(body.isEmpty ? null : body);
     if (response['deleted'] != true) {
       throw Exception('Account deletion was not confirmed');
     }
     dev.log('[ACCOUNT_SERVICE] Account deleted', level: 500);
 
-    await _clearLocalAccount();
+    await _finishLocalDeletion();
   }
 
   /// DELETE me is idempotent (an already-deleted account still gets 200), so
@@ -146,14 +186,20 @@ class AccountService {
   /// The access token stays valid for up to 2 hours after deletion and any
   /// authenticated call would recreate a profile, so drop it before anything
   /// else can fire. The server session is already gone, so no tokens/signout.
-  Future<void> _clearLocalAccount() async {
+  Future<void> _finishLocalDeletion() async {
+    await _setAccountFlag(_replacementPendingKey, true);
     _httpApiService.clearAuthHeader();
     await _authRepository.signOutLocally();
-    await _statsManager.clearAllStats();
+    await _clearPlayback();
+    await _clearFavorites?.call();
+    await _statsManager.clearAllStats(preservePending: false);
     await StatsBackupService(prefs: _preferences).clearAll();
     for (final key in _accountPrefKeys) {
-      await _preferences.remove(key);
+      if (!await _preferences.remove(key)) {
+        throw StateError('Could not remove account data');
+      }
     }
+    await _setAccountFlag(_deletionRequestedKey, false);
   }
 }
 
@@ -163,5 +209,7 @@ final accountServiceProvider = Provider<AccountService>((ref) {
     authRepository: ref.watch(authRepositorySyncProvider),
     preferences: ref.watch(sharedPreferencesProvider),
     statsManager: ref.watch(statsManagerProvider),
+    clearFavorites: () =>
+        ref.read(favoritesNotifierProvider.notifier).clearLocal(),
   );
 });

@@ -163,7 +163,9 @@ class MeditoErrorWidget extends ConsumerWidget {
                           authRepositorySyncProvider,
                         );
                         await authRepository.signOut();
-                        await ref.read(statsManagerProvider).clearAllStats();
+                        await ref
+                            .read(statsManagerProvider)
+                            .clearAllStats(preservePending: true);
                         if (context.mounted) {
                           ref.read(meRefreshProvider)();
 

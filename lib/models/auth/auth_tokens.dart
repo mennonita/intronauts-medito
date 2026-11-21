@@ -20,22 +20,7 @@ class AuthTokens {
     required this.clientId,
     this.email,
     DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now() {
-    // One-line debug log (already kDebugMode-gated by AppLogger). Use
-    // `toString()` for the detailed dump when needed at a callsite.
-    dev.log(
-      'Created tokens (accessToken: ${_safeSubstring(accessToken, 0, 10)}…, '
-      'expiresIn: ${expiresIn}s, clientId: $clientId, email: $email)',
-      level: 1000,
-    );
-  }
-
-  // Helper method to safely get a substring
-  static String _safeSubstring(String text, int start, int end) {
-    if (text.isEmpty) return '';
-    int safeEnd = end > text.length ? text.length : end;
-    return text.substring(start, safeEnd);
-  }
+  }) : createdAt = createdAt ?? DateTime.now();
 
   // Convert from API response
   factory AuthTokens.fromJson(Map<String, dynamic> json) {
@@ -104,60 +89,16 @@ class AuthTokens {
       (email?.hashCode ?? 0);
 
   @override
-  String toString() {
-    return 'AuthTokens{accessToken: ${_safeSubstring(accessToken, 0, 10)}..., '
-        'refreshToken: ${_safeSubstring(refreshToken, 0, 5)}..., '
-        'expiresIn: $expiresIn, '
-        'createdAt: $createdAt, '
-        'clientId: $clientId, '
-        'email: $email}';
-  }
+  String toString() =>
+      'AuthTokens(hasAccessToken: ${accessToken.isNotEmpty}, '
+      'hasRefreshToken: ${refreshToken.isNotEmpty}, '
+      'hasClientId: ${clientId.isNotEmpty}, hasEmail: ${email != null})';
 
-  // Static method to help with debugging token refresh
   static void logTokenDifferences(AuthTokens? oldTokens, AuthTokens newTokens) {
-    if (oldTokens == null) {
-      dev.log('[AUTH_TOKENS] No old tokens to compare with', level: 1000);
-      return;
-    }
-
-    dev.log('[AUTH_TOKENS] Comparing tokens', level: 1000);
-
-    // Check if email changed
-    if (oldTokens.email != newTokens.email) {
-      dev.log(
-        '[AUTH_TOKENS] ⚠️ EMAIL CHANGED from ${oldTokens.email} to ${newTokens.email}',
-        level: 1000,
-      );
-    } else {
-      dev.log('[AUTH_TOKENS] Email unchanged: ${newTokens.email}', level: 1000);
-    }
-
-    // Check if client ID changed
-    if (oldTokens.clientId != newTokens.clientId) {
-      dev.log(
-        '[AUTH_TOKENS] ⚠️ CLIENT ID CHANGED from ${oldTokens.clientId} to ${newTokens.clientId}',
-        level: 1000,
-      );
-    } else {
-      dev.log(
-        '[AUTH_TOKENS] Client ID unchanged: ${newTokens.clientId}',
-        level: 1000,
-      );
-    }
-
-    // Access token always changes in a refresh
     dev.log(
-      '[AUTH_TOKENS] New access token prefix: ${_safeSubstring(newTokens.accessToken, 0, 10)}...',
-      level: 1000,
-    );
-
-    // Check expiration time
-    dev.log(
-      '[AUTH_TOKENS] New expiration: ${newTokens.expiresIn} seconds',
-      level: 1000,
-    );
-    dev.log(
-      '[AUTH_TOKENS] Creation timestamp: ${newTokens.createdAt}',
+      'Refreshed tokens. HadOldTokens: ${oldTokens != null}, '
+      'EmailChanged: ${oldTokens?.email != newTokens.email}, '
+      'ClientIdChanged: ${oldTokens?.clientId != newTokens.clientId}',
       level: 1000,
     );
   }

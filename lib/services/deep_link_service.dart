@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
+import 'package:medito/constants/types/type_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/app_globals.dart' show appReadyCompleter;
 import 'package:medito/providers/providers.dart';
 import 'package:medito/routes/routes.dart';
+import 'package:medito/services/shop/fourthwall_service.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/widgets/snackbar_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -42,7 +44,6 @@ class DeepLinkService {
 
     _linkSubscription = _appLinks.uriLinkStream.listen(
       (uri) {
-        AppLogger.d('DEEPLINK', 'Got deep link: $uri');
         handleDeepLink(uri);
       },
       onError: (err) {
@@ -55,7 +56,6 @@ class DeepLinkService {
     try {
       final initialUri = await _appLinks.getInitialLink();
       if (initialUri != null) {
-        AppLogger.d('DEEPLINK', 'Got initial deep link: $initialUri');
         await handleDeepLink(initialUri);
       }
     } catch (e) {
@@ -85,18 +85,13 @@ class DeepLinkService {
   }
 
   Future<void> handleDeepLink(Uri uri) async {
-    AppLogger.d('DEEPLINK', 'Handling deep link: ${uri.toString()}');
-    AppLogger.d('DEEPLINK', 'Scheme: ${uri.scheme}');
-    AppLogger.d('DEEPLINK', 'Host: ${uri.host}');
-    AppLogger.d('DEEPLINK', 'Path: ${uri.path}');
-
     final now = DateTime.now();
     if (_lastHandledUri == uri &&
         _lastHandledAt != null &&
         now.difference(_lastHandledAt!) < _dedupeWindow) {
       AppLogger.d(
         'DEEPLINK',
-        'Ignoring duplicate deep link within dedupe window: $uri',
+        'Ignoring duplicate deep link within dedupe window',
       );
       return;
     }
@@ -122,6 +117,10 @@ class DeepLinkService {
         } else {
           pathSegments = [uri.host, ...uri.pathSegments];
         }
+      } else if (uri.scheme == 'https' &&
+          uri.host == FourthwallService.shopDomain) {
+        unawaited(_navigateWhenReady(TypeConstants.url, uri.toString()));
+        return;
       } else if (uri.scheme == 'https' && uri.host == 'medito.app') {
         pathSegments = uri.pathSegments;
       } else {
@@ -152,8 +151,6 @@ class DeepLinkService {
       // Handle other navigation links
       var path = pathSegments[0];
       var id = pathSegments.length > 1 ? pathSegments[1] : '';
-
-      AppLogger.d('DEEPLINK', 'Navigating to: $path with id: $id');
 
       _navigateWhenReady(path, id);
     } catch (e) {
@@ -209,7 +206,6 @@ class DeepLinkService {
   Future<void> _storeUtmParameters(Uri uri) async {
     try {
       final queryParameters = uri.queryParameters;
-      AppLogger.d('DEEPLINK', 'Query parameters: $queryParameters');
 
       if (queryParameters.isEmpty) {
         AppLogger.d('DEEPLINK', 'No query parameters found in deep link');
@@ -232,7 +228,6 @@ class DeepLinkService {
         if (value != null && value.isNotEmpty) {
           await prefs.setString(paramKey, value);
           storedCount++;
-          AppLogger.d('DEEPLINK', 'Stored UTM parameter: $paramKey = $value');
         }
       }
 

@@ -26,6 +26,13 @@ class _FakeRepository implements FavoritesRepository {
   /// When set, GET waits on this and returns the server list as it was
   /// when the request started (a slow fetch racing a removal).
   Completer<void>? holdGet;
+  Completer<void>? holdPost;
+  Completer<void>? firstPost;
+
+  @override
+  bool hasPendingSync = false;
+  @override
+  Future<void> setPendingSync(bool pending) async => hasPendingSync = pending;
 
   @override
   Future<List<FavoriteItem>> loadFavorites() async => [...local];
@@ -43,6 +50,12 @@ class _FakeRepository implements FavoritesRepository {
 
   @override
   Future<void> syncWithServer(List<FavoriteItem> favorites) async {
+    final waiting = holdPost;
+    if (waiting != null) {
+      holdPost = null;
+      firstPost?.complete();
+      await waiting.future;
+    }
     if (failPosts) throw Exception('Contains invalid characters');
     posts.add(favorites.map((f) => f.id).toList());
     server = [...favorites];
@@ -59,6 +72,7 @@ class _FakeRepository implements FavoritesRepository {
   Future<void> clearLocal() async {
     local = [];
     removed = {};
+    hasPendingSync = false;
   }
 }
 
@@ -77,6 +91,33 @@ List<String> _ids(ProviderContainer c) =>
     c.read(favoritesNotifierProvider).value!.map((f) => f.id).toList();
 
 void main() {
+  test('coalesces edits while one favorites POST is in flight', () async {
+    final repo = _FakeRepository(local: [], server: []);
+    final container = await _start(repo);
+    await _settle();
+    final notifier = container.read(favoritesNotifierProvider.notifier);
+
+    final held = Completer<void>();
+    repo.holdPost = held;
+    repo.firstPost = Completer<void>();
+    final add = notifier.addToFavorites(_item('a', 1));
+    await repo.firstPost!.future;
+    final remove = notifier.removeFromFavorites('a');
+    await _settle();
+
+    expect(repo.posts, isEmpty);
+    expect(repo.hasPendingSync, true);
+    held.complete();
+    await Future.wait([add, remove]);
+
+    expect(repo.posts, [
+      ['a'],
+      <String>[],
+    ]);
+    expect(repo.server, isEmpty);
+    expect(repo.hasPendingSync, false);
+  });
+
   test(
     'removal during a slow fetch is not undone by the stale response',
     () async {
@@ -113,6 +154,7 @@ void main() {
           .read(favoritesNotifierProvider.notifier)
           .removeFromFavorites('a');
       expect(repo.server.map((f) => f.id), containsAll(['a', 'b']));
+      expect(repo.hasPendingSync, true);
 
       // Next launch, uploads working again.
       container.dispose();

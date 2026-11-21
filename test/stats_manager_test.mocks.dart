@@ -3,11 +3,10 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i4;
+import 'dart:async' as _i3;
 
-import 'package:medito/models/local_all_stats.dart' as _i2;
-import 'package:medito/services/stats_backup_service.dart' as _i5;
-import 'package:medito/services/stats_service.dart' as _i3;
+import 'package:medito/models/local_all_stats.dart' as _i4;
+import 'package:medito/services/stats_service.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
 
 // ignore_for_file: type=lint
@@ -25,50 +24,39 @@ import 'package:mockito/mockito.dart' as _i1;
 // ignore_for_file: subtype_of_sealed_class
 // ignore_for_file: invalid_use_of_internal_member
 
-class _FakeLocalAllStats_0 extends _i1.SmartFake implements _i2.LocalAllStats {
-  _FakeLocalAllStats_0(Object parent, Invocation parentInvocation)
-    : super(parent, parentInvocation);
-}
-
 /// A class which mocks [StatsService].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockStatsService extends _i1.Mock implements _i3.StatsService {
+class MockStatsService extends _i1.Mock implements _i2.StatsService {
   MockStatsService() {
     _i1.throwOnMissingStub(this);
   }
 
   @override
-  _i4.Future<bool> hasRecentlySync() =>
+  _i3.Future<bool> hasRecentlySync() =>
       (super.noSuchMethod(
             Invocation.method(#hasRecentlySync, []),
-            returnValue: _i4.Future<bool>.value(false),
+            returnValue: _i3.Future<bool>.value(false),
           )
-          as _i4.Future<bool>);
+          as _i3.Future<bool>);
 
   @override
-  _i4.Future<_i2.LocalAllStats> fetchAllStats() =>
+  _i3.Future<({int clientSeq, _i4.LocalAllStats stats})?> fetchAllStats() =>
       (super.noSuchMethod(
             Invocation.method(#fetchAllStats, []),
-            returnValue: _i4.Future<_i2.LocalAllStats>.value(
-              _FakeLocalAllStats_0(this, Invocation.method(#fetchAllStats, [])),
-            ),
+            returnValue:
+                _i3.Future<({int clientSeq, _i4.LocalAllStats stats})?>.value(),
           )
-          as _i4.Future<_i2.LocalAllStats>);
+          as _i3.Future<({int clientSeq, _i4.LocalAllStats stats})?>);
 
   @override
-  _i4.Future<void> postStats(_i2.LocalAllStats? stats) =>
+  _i3.Future<({bool applied, int clientSeq})?> postStats(
+    _i4.LocalAllStats? stats, {
+    required int? clientSeq,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#postStats, [stats]),
-            returnValue: _i4.Future<void>.value(),
-            returnValueForMissingStub: _i4.Future<void>.value(),
+            Invocation.method(#postStats, [stats], {#clientSeq: clientSeq}),
+            returnValue: _i3.Future<({bool applied, int clientSeq})?>.value(),
           )
-          as _i4.Future<void>);
-
-  @override
-  void setBackupServiceForTesting(_i5.StatsBackupService? backupService) =>
-      super.noSuchMethod(
-        Invocation.method(#setBackupServiceForTesting, [backupService]),
-        returnValueForMissingStub: null,
-      );
+          as _i3.Future<({bool applied, int clientSeq})?>);
 }

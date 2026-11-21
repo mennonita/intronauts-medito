@@ -138,7 +138,7 @@ class FirebaseAnalyticsService {
 
     try {
       // Initialize the analytics instance now that Firebase should be ready
-      if (_runningInTest || isMockMode) {
+      if (_runningInTest || isMockMode || !firebaseEnabled) {
         _analytics = _NoopAnalytics() as dynamic; // cast to satisfy type
       } else if (isDevFlavor) {
         // Dev builds must never post to prod analytics. Disabling collection

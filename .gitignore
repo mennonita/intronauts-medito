@@ -156,3 +156,5 @@ docs/experiments/*
 
 # Local release adoption snapshot
 /docs/RELEASE_ADOPTION.md
+
+.intronauts.dev.json

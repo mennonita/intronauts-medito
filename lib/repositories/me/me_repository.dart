@@ -29,7 +29,10 @@ class MeRepositoryImpl extends MeRepository {
     try {
       AppLogger.d('ME_REPO', 'Making request to /me endpoint');
       var response = await client.getRequest(HTTPConstants.me);
-      AppLogger.d('ME_REPO', 'Got response from /me endpoint: $response');
+      AppLogger.d(
+        'ME_REPO',
+        'Got response from /me endpoint. HasId: ${response['id'] != null}',
+      );
 
       return MeModel.fromJson(response);
     } catch (error) {

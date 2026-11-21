@@ -49,6 +49,23 @@ Future<void> handleNavigation(
 
   if (type == null) return;
 
+  final shopRoute =
+      type == RouteConstants.shop ||
+      (type == TypeConstants.route && ids.any(_isShopRoute));
+  final accountRoute =
+      type == TypeConstants.account ||
+      type == SignUpLogInPage.routeName.sanitisePath() ||
+      (type == TypeConstants.route &&
+          ids.any(
+            (id) =>
+                id?.sanitisePath() == 'signup' || id == TypeConstants.account,
+          ));
+  if ((!donationsEnabled && (shopRoute || _isDonationRoute(type, ids))) ||
+      (!emailLoginEnabled && accountRoute)) {
+    redirectToHome();
+    return;
+  }
+
   if (type.contains('tracks') || type.contains('track')) {
     await _handleTrackNavigation(ids, ref, timerSource: timerSource);
   } else if (type.contains('pack')) {
@@ -64,13 +81,29 @@ Future<void> handleNavigation(
       await _pushRoute(PackView(id: packId), ref);
     }
   } else if (type == TypeConstants.url || type == TypeConstants.link) {
-    final url = ids.last ?? 'https://meditofoundation.org/';
-    final uri = Uri.parse(url);
-    final shopRoute = _nativeShopRoute(uri);
-    if (shopRoute != null) {
-      await _pushRoute(shopRoute, ref);
+    final url = ids.lastOrNull;
+    final uri = url == null ? null : Uri.tryParse(url);
+    if (uri == null) return;
+    if (!donationsEnabled &&
+        (uri.host == FourthwallService.shopDomain ||
+            uri.host == 'donate.meditofoundation.org' ||
+            url == ConfigConstants.donationPortalUrl)) {
+      redirectToHome();
+      return;
+    }
+    final isFoundation =
+        uri.host == 'meditofoundation.org' ||
+        uri.host.endsWith('.meditofoundation.org');
+    if (isFoundation &&
+        (!donationsEnabled || uri.host != 'donate.meditofoundation.org')) {
+      return;
+    }
+    final shopPage = _nativeShopRoute(uri);
+    if (shopPage != null) {
+      await _pushRoute(shopPage, ref);
     } else if (await canLaunchUrl(uri)) {
-      final isEditStatsUrl = url.startsWith(editStatsUrl);
+      final isEditStatsUrl =
+          editStatsUrl.isNotEmpty && url!.startsWith(editStatsUrl);
       await Navigator.push<bool>(
         context,
         MaterialPageRoute(builder: (context) => _URLLauncherScreen(url: uri)),
@@ -89,7 +122,7 @@ Future<void> handleNavigation(
     await _handleEmailNavigation(ids, ref);
   } else if (type == TypeConstants.flow && ids.contains('downloads')) {
     await _pushRoute(const DownloadsView(), ref);
-  } else if (type == TypeConstants.account) {
+  } else if (accountRoute) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => const SignUpLogInPage(
@@ -108,8 +141,8 @@ Future<void> handleNavigation(
     );
     final initialTabIndex = statsPath?.contains(':history') == true ? 1 : 0;
     await _pushRoute(StatsScreen(initialTabIndex: initialTabIndex), ref);
-  } else if (type == TypeConstants.route && ids.any(_isShopRoute)) {
-    final id = ids.firstWhere(_isShopRoute)!;
+  } else if (shopRoute) {
+    final id = ids.firstWhere(_isShopRoute, orElse: () => RouteConstants.shop)!;
     final slug = id.contains(':') ? id.substring(id.indexOf(':') + 1) : '';
     final source = sourceRouteName ?? AnalyticsEventConstants.sourceDeeplink;
     await _pushRoute(
@@ -130,6 +163,10 @@ Future<void> handleNavigation(
   } else if (type == '/debug_info') {
     await _pushRoute(const DebugInfoScreen(), ref);
   }
+}
+
+void redirectToHome() {
+  navigatorKey.currentState?.popUntil((route) => route.isFirst);
 }
 
 bool _isShopRoute(String? id) =>
@@ -162,7 +199,7 @@ Future<bool?> _pushRoute(Widget route, WidgetRef? ref) async {
 
 /// Check if the navigation type/ids represent a donation route
 bool _isDonationRoute(String? type, List<String?> ids) {
-  return type == 'donation' ||
+  return type == RouteConstants.donation ||
       (type == TypeConstants.route && ids.contains(RouteConstants.donation));
 }
 
@@ -209,6 +246,10 @@ Future<bool?> handleDonationNavigation(
   String? sourceRouteName, {
   NavigatorState? navigator,
 }) async {
+  if (!donationsEnabled) {
+    redirectToHome();
+    return false;
+  }
   if (ref == null) {
     AppLogger.w('ROUTES', 'Cannot open donation screen: ref is null');
     return false;

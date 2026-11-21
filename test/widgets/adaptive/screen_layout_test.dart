@@ -368,10 +368,10 @@ void main() {
           DurationIndicatorWidget,
           PlayerButtonsWidget,
           PlayerActionBar,
-          ReportButtonWidget,
         ]) {
           expect(find.byType(type), findsOneWidget);
         }
+        expect(find.byType(ReportButtonWidget), findsNothing);
         expect(tester.takeException(), isNull);
       }
       // The speed chip opens a sheet; tapping a step label applies it.
@@ -723,11 +723,17 @@ void main() {
           await tester.pump(const Duration(milliseconds: 250));
           await tester.pump();
           await tester.pump(const Duration(seconds: 1));
-          final steps = OnboardingDonationTimingExperiment.steps(
-            variant: variant,
-            showBattery: false,
-            showTracking: true,
-          );
+          final steps =
+              OnboardingDonationTimingExperiment.steps(
+                    variant: variant,
+                    showBattery: false,
+                    showTracking: true,
+                  )
+                  .where(
+                    (step) =>
+                        donationsEnabled || step != OnboardingStep.donation,
+                  )
+                  .toList();
           final controller = tester
               .widget<PageView>(find.byType(PageView))
               .controller!;
@@ -748,7 +754,7 @@ void main() {
               final progress = tester.widget<OnboardingProgressIndicator>(
                 find.byType(OnboardingProgressIndicator),
               );
-              expect(progress.totalSteps, 4);
+              expect(progress.totalSteps, donationsEnabled ? 4 : 3);
               expect(
                 progress.currentIndex,
                 steps
@@ -807,13 +813,16 @@ void main() {
 
       await tester.ensureVisible(find.text('Get started'));
       await tester.tap(find.text('Get started'));
-      final signIn = find.byType(TextButton);
-      await tester.ensureVisible(signIn);
-      await tester.tap(signIn);
+      final signIn = find.text('Sign in or sign up');
+      expect(signIn, emailLoginEnabled ? findsOneWidget : findsNothing);
+      if (emailLoginEnabled) {
+        await tester.ensureVisible(signIn);
+        await tester.tap(signIn);
+      }
       await tester.pumpWidget(const SizedBox());
       await tester.pumpWidget(
         PreviewShell(
-          prefs: prefsDark,
+          prefs: {...prefsDark, SharedPreferenceConstants.isLoggedIn: true},
           child: Scaffold(
             body: Row(
               children: [
@@ -833,13 +842,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
+      expect(find.text('Delete Account'), findsOneWidget);
+      if (!emailLoginEnabled) {
+        expect(find.text('Sign in / Sign up'), findsNothing);
+      }
+      if (!donationsEnabled) {
+        expect(find.text('Donate'), findsNothing);
+        expect(find.text('Shop'), findsNothing);
+      }
       await tester.drag(find.byType(CustomScrollView), const Offset(0, -1500));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     }
     expect(started, 4);
-    expect(signedIn, 4);
+    expect(signedIn, emailLoginEnabled ? 4 : 0);
   });
   testWidgets(
     'Explore, Search and detail screens fit wide and compact viewports',

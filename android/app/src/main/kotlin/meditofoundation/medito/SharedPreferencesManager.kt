@@ -11,9 +11,54 @@ object SharedPreferencesManager {
     private const val PREFS_NAME = "MeditoAudioPrefs"
     private const val KEY_LAST_COMPLETED_TRACK = "lastCompletedTrack"
     private const val KEY_PENDING_REPEATS = "pendingRepeatPlaythroughs"
+    private const val KEY_CLIENT_ID = "completionClientId"
+    private const val KEY_USER_ID = "completionUserId"
+    private var activeClientId: String? = null
+    private var verified = false
+    private var generation = 0L
     private const val TAG = "SharedPreferencesManager"
 
-    fun saveCompletionData(context: Context, completionData: CompletionData): Boolean {
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    // Ambas colas comparten la identidad de la cuenta que grabó el audio.
+    @Synchronized
+    fun bindAccount(context: Context, clientId: String, userId: String?): Boolean {
+        val preferences = prefs(context)
+        val previousClient = preferences.getString(KEY_CLIENT_ID, null)
+        val previousUser = preferences.getString(KEY_USER_ID, null)
+        val changed = previousClient != clientId ||
+            (userId != null && previousUser != null && previousUser != userId)
+        if (changed) clearAccount(context)
+        if (activeClientId != clientId) generation++
+        activeClientId = clientId
+        verified = userId != null
+        preferences.edit().putString(KEY_CLIENT_ID, clientId).apply {
+            if (userId != null) putString(KEY_USER_ID, userId)
+        }.apply()
+        return changed
+    }
+
+    @Synchronized
+    fun clearAccount(context: Context) {
+        generation++
+        activeClientId = null
+        verified = false
+        check(prefs(context).edit().clear().commit()) {
+            "No se pudieron borrar las colas de audio"
+        }
+    }
+
+    @Synchronized
+    fun currentGeneration(): Long = generation
+
+    @Synchronized
+    fun isCurrent(value: Long, requireVerified: Boolean = false): Boolean =
+        value == generation && activeClientId != null && (!requireVerified || verified)
+
+    @Synchronized
+    fun saveCompletionData(context: Context, completionData: CompletionData, generation: Long): Boolean {
+        if (!isCurrent(generation)) return false
         return try {
             val jsonData = JSONObject().apply {
                 put("trackId", completionData.trackId)
@@ -60,7 +105,14 @@ object SharedPreferencesManager {
         }
     }
 
-    fun clearCompletionData(context: Context) {
+    @Synchronized
+    fun clearCompletionData(context: Context, completionData: CompletionData, generation: Long) {
+        if (!isCurrent(generation)) return
+        val stored = getCompletionData(context) ?: return
+        if (stored.timestamp != completionData.timestamp ||
+            stored.trackId != completionData.trackId ||
+            stored.fileId != completionData.fileId
+        ) return
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_LAST_COMPLETED_TRACK)
@@ -71,7 +123,8 @@ object SharedPreferencesManager {
     // slot like the completion) because repeat forever can finish several
     // loops while the engine is unavailable. Keyed by timestamp.
     @Synchronized
-    fun addPendingRepeat(context: Context, completionData: CompletionData) {
+    fun addPendingRepeat(context: Context, completionData: CompletionData, generation: Long): Boolean {
+        if (!isCurrent(generation)) return false
         val pending = readPendingRepeats(context)
         pending.put(JSONObject().apply {
             put("trackId", completionData.trackId)
@@ -81,6 +134,7 @@ object SharedPreferencesManager {
             put("timestamp", completionData.timestamp)
         })
         writePendingRepeats(context, pending)
+        return true
     }
 
     @Synchronized
@@ -104,7 +158,8 @@ object SharedPreferencesManager {
     }
 
     @Synchronized
-    fun removePendingRepeat(context: Context, completionData: CompletionData) {
+    fun removePendingRepeat(context: Context, completionData: CompletionData, generation: Long) {
+        if (!isCurrent(generation)) return
         val pending = readPendingRepeats(context)
         val remaining = JSONArray()
         for (i in 0 until pending.length()) {

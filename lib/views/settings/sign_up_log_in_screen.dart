@@ -342,7 +342,7 @@ class SignUpLogInFormState extends ConsumerState<SignUpLogInForm> {
       dev.log('[SIGN_UP] Starting OTP verification', level: 1000);
       dev.log('[SIGN_UP] Email: ${_emailController.text.trim()}', level: 1000);
       dev.log(
-        '[SIGN_UP] OTP length: ${_otpController.text.trim().length}',
+        '[SIGN_UP] Has OTP: ${_otpController.text.trim().isNotEmpty}',
         level: 1000,
       );
 
@@ -387,14 +387,11 @@ class SignUpLogInFormState extends ConsumerState<SignUpLogInForm> {
         // Set user ID for analytics immediately after successful sign-in
         // This ensures user ID is set before any events are logged
         try {
-          final userId = ref.read(userIdProvider);
-          if (userId != null && userId.isNotEmpty) {
+          final userId = (await ref.read(meProvider.future)).id;
+          if (userId.isNotEmpty) {
             await FirebaseAnalyticsService().setUserId(userId);
             await MetaSdkService.instance.setUserId(userId);
-            dev.log(
-              '[SIGN_UP] User ID set for analytics: $userId',
-              level: 1000,
-            );
+            dev.log('[SIGN_UP] User ID set for analytics', level: 1000);
           }
         } catch (e) {
           dev.log(

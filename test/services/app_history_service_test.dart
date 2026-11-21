@@ -90,7 +90,7 @@ void main() {
 
       final history = AppHistoryService.getSignInHistory(prefs);
       expect(history, hasLength(1));
-      expect(history.first['userId'], 'client-1');
+      expect(history.first['serverUserId'], 'client-1');
       expect(history.first['email'], 'a@example.com');
       expect(
         DateTime.parse(history.first['signedInAt'] as String),
@@ -121,10 +121,10 @@ void main() {
 
       final history = AppHistoryService.getSignInHistory(prefs);
       expect(history, hasLength(3));
-      expect(history[0]['userId'], 'client-1');
+      expect(history[0]['serverUserId'], 'client-1');
       expect(history[0]['email'], isNull);
       expect(history[1]['email'], 'a@example.com');
-      expect(history[2]['userId'], 'client-2');
+      expect(history[2]['serverUserId'], 'client-2');
     });
 
     test('accepts null email', () async {
@@ -191,7 +191,7 @@ void main() {
       expect(decodedVersions, hasLength(1));
       expect((decodedVersions.first as Map)['version'], '3.6.17');
       expect(decodedSignIns, hasLength(1));
-      expect((decodedSignIns.first as Map)['userId'], 'client-1');
+      expect((decodedSignIns.first as Map)['serverUserId'], 'client-1');
     });
   });
 }

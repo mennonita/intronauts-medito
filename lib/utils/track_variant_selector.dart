@@ -32,13 +32,25 @@ class TrackVariantSelector {
     );
   }
 
-  /// Resolves both the voice and the audio file in one shot.
-  static ({TrackVoice voice, TrackAudioFile file}) resolve(
+  static List<TrackVoice> playableVoices(Track track) => [
+    for (final voice in track.voices)
+      if (voice.audioFiles.any((file) => file.path.trim().isNotEmpty))
+        voice.copyWith(
+          audioFiles: voice.audioFiles
+              .where((file) => file.path.trim().isNotEmpty)
+              .toList(),
+        ),
+  ];
+
+  /// Selecciona una variante reproducible si el catálogo ofrece audio.
+  static ({TrackVoice voice, TrackAudioFile file})? resolve(
     Track track, {
     String? guideName,
     int? durationMs,
   }) {
-    final voice = voiceByGuideName(track.voices, guideName);
+    final voices = playableVoices(track);
+    if (voices.isEmpty) return null;
+    final voice = voiceByGuideName(voices, guideName);
     final file = closestDuration(voice.audioFiles, durationMs);
     return (voice: voice, file: file);
   }

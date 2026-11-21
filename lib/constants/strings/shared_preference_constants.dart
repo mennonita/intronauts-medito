@@ -15,12 +15,14 @@ class SharedPreferenceConstants {
   static const String favoritePacks = 'favorite_packs';
   static const String favorites = 'favorites';
   static const String removedFavorites = 'removed_favorites';
+  static const String favoritesPendingSync = 'favorites_pending_sync';
 
   static const String userId = 'userId';
   static const String userEmail = 'userEmail';
 
   // New constants for stats
   static const String localAllStatsKey = 'local_all_stats';
+  static const String serverUserId = 'server_user_id';
   static const String statsLastSyncedAt = 'stats_last_synced_at';
   static const String streakCircleDisplayPreference =
       'streak_circle_display_preference';

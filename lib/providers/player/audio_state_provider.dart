@@ -52,15 +52,13 @@ class AudioStateProvider implements MeditoAudioServiceCallbackApi {
   @override
   Future<bool> handleCompletedTrack(CompletionData completionData) async {
     try {
-      await handleStats({
+      return await handleStats({
         TypeConstants.trackIdKey: completionData.trackId,
         TypeConstants.durationIdKey: completionData.duration,
         TypeConstants.fileIdKey: completionData.fileId,
         TypeConstants.guideIdKey: completionData.guideId,
         TypeConstants.timestampIdKey: completionData.timestamp,
       });
-
-      return true;
     } on Exception catch (_) {
       return false;
     }

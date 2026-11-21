@@ -39,8 +39,8 @@ Widget _app(TagsRepository repo, Widget child) {
 void main() {
   final catalog = TagCatalog.fromJson({
     'tags': [
-      {'id': 'sleep', 'group': 'goal', 'description': 'd'},
-      {'id': 'stress', 'group': 'goal', 'description': 'd'},
+      {'id': 'sleep', 'group': 'goal', 'description': 'Sueño nocturno'},
+      {'id': 'stress', 'group': 'goal', 'description': ' '},
       {'id': 'guided_meditation', 'group': 'format', 'description': 'd'},
       {'id': 'unused', 'group': 'goal', 'description': 'd'},
     ],
@@ -50,9 +50,14 @@ void main() {
     },
   });
 
-  testWidgets('explore chips render nothing when the API fails', (tester) async {
+  testWidgets('explore chips render nothing when the API fails', (
+    tester,
+  ) async {
     await tester.pumpWidget(
-      _app(_FakeTagsRepository(error: Exception('500')), const ExploreTagChips()),
+      _app(
+        _FakeTagsRepository(error: Exception('500')),
+        const ExploreTagChips(),
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.byType(TagChip), findsNothing);
@@ -70,30 +75,41 @@ void main() {
         .widgetList<TagChip>(find.byType(TagChip))
         .map((c) => c.label)
         .toList();
-    expect(labels, ['Sleep', 'Stress']); // guided_meditation hidden, unused has no tracks
+    expect(labels, [
+      'Sueño nocturno',
+      'Stress',
+    ]); // guided_meditation hidden, unused has no tracks
   });
 
   testWidgets('track chips show that track\'s tags and open the tag page', (
     tester,
   ) async {
     await tester.pumpWidget(
-      _app(_FakeTagsRepository(catalog: catalog), const TrackTagChips(trackId: 't2')),
+      _app(
+        _FakeTagsRepository(catalog: catalog),
+        const TrackTagChips(trackId: 't2'),
+      ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Sleep'), findsOneWidget);
+    expect(find.text('Sueño nocturno'), findsOneWidget);
     expect(find.text('Stress'), findsOneWidget);
     expect(find.text('Guided meditation'), findsNothing);
 
-    await tester.tap(find.text('Stress'));
+    await tester.tap(find.text('Sueño nocturno'));
     await tester.pumpAndSettle();
     // The tag page's app bar carries the tag label.
     expect(find.byType(AppBar), findsOneWidget);
-    expect(find.text('Stress'), findsOneWidget);
+    expect(find.text('Sueño nocturno'), findsOneWidget);
   });
 
-  testWidgets('track chips render nothing for an untagged track', (tester) async {
+  testWidgets('track chips render nothing for an untagged track', (
+    tester,
+  ) async {
     await tester.pumpWidget(
-      _app(_FakeTagsRepository(catalog: catalog), const TrackTagChips(trackId: 'nope')),
+      _app(
+        _FakeTagsRepository(catalog: catalog),
+        const TrackTagChips(trackId: 'nope'),
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.byType(TagChip), findsNothing);
@@ -109,7 +125,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Sleep'), findsOneWidget); // 2/2
+    expect(find.text('Sueño nocturno'), findsOneWidget); // 2/2
     expect(find.text('Stress'), findsOneWidget); // 1/2 meets threshold
     expect(find.text('Guided meditation'), findsNothing); // hidden
   });

@@ -121,7 +121,12 @@ class _HomeViewState extends ConsumerState<HomeView>
         // from the second section. Anything else on top stays in the list
         // under a short image banner.
         final hasHero = ref.watch(homeHeroCoverProvider) != null;
-        final fullOrder = ref.watch(homeWidgetOrderProvider);
+        final fullOrder = ref
+            .watch(homeWidgetOrderProvider)
+            .where(
+              (type) => donationsEnabled || type != HomeWidgetType.products,
+            )
+            .toList();
         final first = fullOrder.firstOrNull;
         final heroType =
             hasHero &&
@@ -226,7 +231,7 @@ class _HomeViewState extends ConsumerState<HomeView>
       FourthwallService.allCollection,
     ]) {
       final shop = shopListingProvider(collection);
-      if (ref.exists(shop)) ref.invalidate(shop);
+      if (donationsEnabled && ref.exists(shop)) ref.invalidate(shop);
     }
     // Refetch all pack data; upNext is derived and will re-derive automatically.
     ref.invalidate(packDataProvider);

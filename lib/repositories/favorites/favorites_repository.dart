@@ -15,6 +15,8 @@ abstract class FavoritesRepository {
   Future<void> saveFavorites(List<FavoriteItem> favorites);
   Future<void> syncWithServer(List<FavoriteItem> favorites);
   Future<List<FavoriteItem>> loadFavoritesFromServer();
+  bool get hasPendingSync;
+  Future<void> setPendingSync(bool pending);
 
   /// Ids removed on this device that the server may not know about yet,
   /// mapped to when they were removed (ms since epoch).
@@ -78,9 +80,25 @@ class FavoritesRepositoryImpl implements FavoritesRepository {
   }
 
   @override
+  bool get hasPendingSync =>
+      _prefs.getBool(SharedPreferenceConstants.favoritesPendingSync) == true;
+
+  @override
+  Future<void> setPendingSync(bool pending) async {
+    final saved = pending
+        ? await _prefs.setBool(
+            SharedPreferenceConstants.favoritesPendingSync,
+            true,
+          )
+        : await _prefs.remove(SharedPreferenceConstants.favoritesPendingSync);
+    if (!saved) throw StateError('Could not save favorites sync status');
+  }
+
+  @override
   Future<void> clearLocal() async {
     await _prefs.remove(SharedPreferenceConstants.favorites);
     await _prefs.remove(SharedPreferenceConstants.removedFavorites);
+    await setPendingSync(false);
   }
 
   @override

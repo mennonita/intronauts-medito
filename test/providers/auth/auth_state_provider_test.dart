@@ -52,6 +52,11 @@ class _FakeFavoritesRepository implements FavoritesRepository {
   int clearLocalCalls = 0;
 
   @override
+  bool hasPendingSync = false;
+  @override
+  Future<void> setPendingSync(bool pending) async => hasPendingSync = pending;
+
+  @override
   Future<List<FavoriteItem>> loadFavorites() async => [];
 
   @override
@@ -174,6 +179,26 @@ void main() {
         1,
         reason: 'the next account must not inherit these favourites',
       );
+    });
+
+    test('same-client recovery leaves pending favorites available', () async {
+      fakeFavorites.hasPendingSync = true;
+      final container = ProviderContainer(
+        overrides: [
+          httpApiServiceProvider.overrideWithValue(fakeHttp),
+          authRepositorySyncProvider.overrideWithValue(fakeAuth),
+          favoritesRepositoryProvider.overrideWithValue(fakeFavorites),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(authStateListenerProvider);
+
+      fakeHttp.fireAuthEvent(AuthEvent.recoverSession);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(fakeAuth.resetAuthStateCallCount, 1);
+      expect(fakeFavorites.clearLocalCalls, 0);
+      expect(fakeFavorites.hasPendingSync, true);
     });
 
     test('removes the registered callback when the container is disposed', () {

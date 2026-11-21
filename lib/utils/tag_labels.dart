@@ -4,7 +4,8 @@ import 'package:medito/l10n/app_localizations.dart';
 /// User-facing label for a server tag id. Unknown ids (a tag added on the
 /// server before the app learned about it) fall back to the humanised id, so
 /// new tags still render without an app update.
-String tagLabel(BuildContext context, String tagId) {
+String tagLabel(BuildContext context, String tagId, String description) {
+  if (description.trim().isNotEmpty) return description.trim();
   final l10n = AppLocalizations.of(context)!;
   return switch (tagId) {
     'sleep' => l10n.tagSleep,

@@ -31,7 +31,14 @@ void main() {
     test(
       'addAudioCompleted - adjusts timestamp if track crosses midnight',
       () async {
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Arrange
         statsManager.setStatsForTesting(LocalAllStats.empty());
@@ -70,7 +77,14 @@ void main() {
     test(
       'addAudioCompleted - keeps end timestamp if track doesn\'t cross midnight',
       () async {
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Arrange
         statsManager.setStatsForTesting(LocalAllStats.empty());
@@ -108,7 +122,14 @@ void main() {
     test(
       'addAudioCompleted - handles track ending exactly at midnight',
       () async {
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Arrange
         statsManager.setStatsForTesting(LocalAllStats.empty());
@@ -148,7 +169,14 @@ void main() {
     test(
       'addAudioCompleted - handles track starting exactly at midnight',
       () async {
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Arrange
         statsManager.setStatsForTesting(LocalAllStats.empty());
@@ -188,7 +216,14 @@ void main() {
     test(
       'addAudioCompleted - handles track crossing multiple midnights',
       () async {
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Arrange
         statsManager.setStatsForTesting(LocalAllStats.empty());
@@ -229,7 +264,14 @@ void main() {
     test(
       'addAudioCompleted - handles track just crossing midnight boundary',
       () async {
-        when(mockStatsService.postStats(any)).thenAnswer((_) async => {});
+        when(
+          mockStatsService.postStats(any, clientSeq: anyNamed('clientSeq')),
+        ).thenAnswer(
+          (invocation) async => (
+            applied: true,
+            clientSeq: invocation.namedArguments[#clientSeq] as int,
+          ),
+        );
 
         // Arrange
         statsManager.setStatsForTesting(LocalAllStats.empty());

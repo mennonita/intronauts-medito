@@ -9,6 +9,9 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get trackAudioUnavailable => 'This meditation is not available yet.';
+
+  @override
   String get appName => 'Medito';
 
   @override
