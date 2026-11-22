@@ -10,7 +10,7 @@ import 'shared_preference/shared_preference_provider.dart';
 /// The device's preferred languages, in the user's order of preference
 /// (Settings > Language & Region on iOS, Languages on Android). This is
 /// independent of [localeProvider], which is the in-app language and is
-/// currently pinned to English; use this to tailor content to what the
+/// Spanish unless the user picked another one; use this to tailor content to what the
 /// phone says the user reads. Overridable in tests.
 final deviceLocalesProvider = Provider<List<Locale>>(
   (_) => PlatformDispatcher.instance.locales,
@@ -28,12 +28,19 @@ class LocaleNotifier extends Notifier<Locale?> {
       SharedPreferenceConstants.localePreference,
     );
 
-    if (savedLocale == null || savedLocale == LocaleConstants.system) {
-      // Force English until backend is ready for Spanish and German
-      return const Locale(LocaleConstants.english);
-    } else {
-      // Force English even if Spanish or German was previously selected
-      return const Locale(LocaleConstants.english);
+    return _resolve(savedLocale);
+  }
+
+  /// Intronauts se lanza en español. Un idioma elegido a mano (es, en o de)
+  /// se respeta; sin elección, o con «sistema», la app queda en español.
+  static Locale _resolve(String? saved) {
+    switch (saved) {
+      case LocaleConstants.english:
+      case LocaleConstants.spanish:
+      case LocaleConstants.german:
+        return Locale(saved!);
+      default:
+        return const Locale(LocaleConstants.spanish);
     }
   }
 
@@ -44,8 +51,7 @@ class LocaleNotifier extends Notifier<Locale?> {
       localeCode,
     );
 
-    // Force English until backend is ready for Spanish and German
-    state = const Locale(LocaleConstants.english);
+    state = _resolve(localeCode);
   }
 
   String getCurrentLocaleSetting() {
