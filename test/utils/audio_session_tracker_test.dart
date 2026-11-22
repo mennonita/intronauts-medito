@@ -297,6 +297,68 @@ void main() {
       expect(await persisted(), isNull);
     });
 
+    for (final replay in [false, true]) {
+      test(
+        'el abandono en tiempo extra usa el tiempo previsto (reinicio: $replay)',
+        () async {
+          const fileDurationMs = 18000000;
+          await tracker.onStarted(
+            fileId: 'timer-countdown-180000',
+            durationMs: fileDurationMs,
+            plannedDurationMs: 180000,
+          );
+          if (replay) {
+            // Deja pasar el intervalo de guardado de la posición.
+            await Future<void>.delayed(const Duration(milliseconds: 3050));
+          }
+          tracker.onPositionUpdate(
+            positionMs: 213000,
+            durationMs: fileDurationMs,
+            isPlaying: false,
+            isCompleted: false,
+          );
+          await pumpEventQueue();
+          expect(await persisted(), contains('"plannedDurationMs":180000'));
+          expect(await persisted(), contains('"fileDurationMs":18000000'));
+          if (replay) {
+            tracker.resetForTesting();
+            await tracker.replayIfAbandoned();
+          } else {
+            await tracker.onStopped();
+          }
+          final event = of(
+            AnalyticsEventConstants.audioSessionAbandoned,
+          ).single;
+          expect(
+            event.params[AnalyticsEventConstants.paramAudioFileDuration],
+            180000,
+          );
+          expect(
+            event.params[AnalyticsEventConstants.paramPercentCompleted],
+            100,
+          );
+          expect(
+            event.params[AnalyticsEventConstants.paramElapsedSeconds],
+            213,
+          );
+        },
+      );
+    }
+
+    test(
+      'el final del archivo de tiempo extra se recupera como final natural',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          SharedPreferenceConstants.incompleteAudioSession:
+              '{"fileId":"timer-countdown-180000","plannedDurationMs":180000,'
+              '"fileDurationMs":18000000,"lastPositionMs":17998000}',
+        });
+        await tracker.replayIfAbandoned();
+        expect(of(AnalyticsEventConstants.audioSessionAbandoned), isEmpty);
+        expect(await persisted(), isNull);
+      },
+    );
+
     test('record that reached the end is not an abandon', () async {
       SharedPreferences.setMockInitialValues({
         SharedPreferenceConstants.incompleteAudioSession:

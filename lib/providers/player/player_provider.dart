@@ -5,6 +5,14 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/models/models.dart';
 import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
+import 'package:medito/services/account/playback_account.dart';
+import 'package:medito/services/analytics/firebase_analytics_service.dart';
+import 'package:medito/services/audio/session_bell_preview.dart';
+import 'package:medito/constants/types/type_constants.dart';
+import 'package:medito/utils/stats_updater.dart' show handleStats;
+
+import '../timer/timer_session_closer.dart';
 
 import '../../models/player/repeat_mode.dart' as app_repeat;
 import '../../src/audio_pigeon.g.dart' as pigeon;
@@ -24,9 +32,27 @@ final playerProvider = NotifierProvider<PlayerProvider, PlaybackRequest?>(() {
   return PlayerProvider();
 });
 
-class PlayerProvider extends Notifier<PlaybackRequest?> {
+class PlayerProvider extends Notifier<PlaybackRequest?>
+    implements pigeon.MeditoTimerStopCallbackApi {
+  PlayerProvider({bool? useAndroidAudio})
+    : _usesAndroidAudio = useAndroidAudio ?? Platform.isAndroid;
+
+  final bool _usesAndroidAudio;
+  _PlaybackStart? _start;
+  final _timerCloses = StreamController<TimerCloseResult>.broadcast();
+  PlaybackRequest? _activeTimer;
+  TimerSessionCloser? _timerCloser;
+
+  Stream<TimerCloseResult> get timerCloses => _timerCloses.stream;
+
   @override
-  PlaybackRequest? build() => null;
+  PlaybackRequest? build() {
+    ref.onDispose(() {
+      _start?.cancelled = true;
+      unawaited(_timerCloses.close());
+    });
+    return null;
+  }
 
   /// Starts (or restarts) playback for [request]. The provider's state holds
   /// the same [PlaybackRequest] for the lifetime of the session so the player
@@ -46,7 +72,21 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
     // The audio state outlives sessions; drop the previous track's (possibly
     // completed, full-position) values so nothing reads them as this one's.
     ref.read(audioStateProvider.notifier).resetState();
-    await _playTrack(request);
+    _start?.cancelled = true;
+    final start = _PlaybackStart();
+    _start = start;
+    _activeTimer = request.isTimer ? request : null;
+    _timerCloser = request.isTimer ? TimerSessionCloser() : null;
+    try {
+      start.check();
+      await _playTrack(request, start);
+      start.check();
+    } on _PlaybackStartCancelled {
+      return;
+    } catch (_) {
+      if (!start.isCurrent) return;
+      rethrow;
+    }
     state = request;
 
     // Analytics: playback actually started. Fired after _playTrack so a failed
@@ -59,6 +99,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
             ? AnalyticsEventConstants.timerGuide
             : request.guideName,
         durationMs: request.duration,
+        plannedDurationMs: request.timerPlannedDurationMs,
       ),
     );
   }
@@ -75,7 +116,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
     state = request;
   }
 
-  Future<void> _playTrack(PlaybackRequest request) async {
+  Future<void> _playTrack(PlaybackRequest request, _PlaybackStart start) async {
     AppLogger.d(
       'PLAYER',
       '_playTrack called for track: ${request.trackId}, file: ${request.fileId}',
@@ -87,6 +128,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
         : await ref
               .read(audioDownloaderProvider.notifier)
               .getTrackPath(_constructFileName(request));
+    start.check();
 
     final url = downloadPath ?? request.remoteUrl;
     AppLogger.d('PLAYER', 'Will use path: $url');
@@ -110,7 +152,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
       imageUrl: request.coverUrl,
     );
 
-    if (Platform.isAndroid) {
+    if (_usesAndroidAudio) {
       AppLogger.d(
         'PLAYER',
         'On Android - starting service and checking readiness',
@@ -120,13 +162,16 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
       // resolved play() successfully despite playback never starting, leading
       // to a silent-fail player screen. See P0-4 in the audit.
       await _androidServiceApi.startService();
+      start.check();
       AppLogger.d(
         'PLAYER',
         'Service start requested, now waiting briefly before checking readiness',
       );
       await Future.delayed(const Duration(milliseconds: 500));
+      start.check();
 
-      final isReady = await _waitForServiceReadiness();
+      final isReady = await _waitForServiceReadiness(start);
+      start.check();
 
       if (isReady) {
         AppLogger.d('PLAYER', 'Service is ready, proceeding with playback');
@@ -136,10 +181,10 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
           'Service failed to become ready, attempting playback anyway',
         );
         await Future.delayed(const Duration(seconds: 1));
+        start.check();
       }
-      setRepeatMode(repeatMode);
-      setSpeed(1.0);
-      await _playAudioWithRetry(url, trackData);
+      if (!request.isTimer) setRepeatMode(repeatMode);
+      await _playAudioWithRetry(url, trackData, request, start);
     } else {
       AppLogger.d('PLAYER', 'On iOS - setting up audio');
       // NOTE: errors here intentionally propagate (see comment above for the
@@ -149,52 +194,63 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
       setRepeatMode(repeatMode);
       setSpeed(1.0);
       await iosAudioHandler.setUrl(downloadPath, request, trackData);
+      start.check();
+      iosAudioHandler.onTimerStop = request.isTimer
+          ? () async {
+              if (identical(_start, start)) await closeTimer();
+            }
+          : null;
+      final sound = ref.read(backgroundSoundsNotifierProvider.notifier);
+      sound.setTimerScope(request.isTimer);
+      final bells = request.isTimer ? sound.prepareTimerBells() : null;
+      await iosAudioHandler.sessionBells.setBellCues(
+        offsetsMs: request.isTimer
+            ? request.timerBellOffsetsMs ?? const []
+            : null,
+        endOffsetMs: request.timerEndBellOffsetMs,
+        enabled: bells?.enabled ?? false,
+        volume: bells?.volume ?? 0,
+      );
+      start.check();
+      start.requested = true;
       AppLogger.d('PLAYER', 'iOS setUrl succeeded');
       await iosAudioHandler.play();
+      start.check();
       AppLogger.d('PLAYER', 'iOS play() called');
     }
   }
 
-  Future<bool> _waitForServiceReadiness() async {
+  Future<bool> _waitForServiceReadiness(_PlaybackStart start) async {
     const maxAttempts = 10;
     const initialDelayMs = 500;
 
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      var ready = false;
       try {
-        AppLogger.d(
-          'PLAYER',
-          'Checking if service is ready (attempt ${attempt + 1})',
-        );
-        final isReady = await _androidServiceApi.isServiceReady();
-        AppLogger.d(
-          'PLAYER',
-          'Service readiness check returned: $isReady (attempt ${attempt + 1})',
-        );
-
-        if (isReady) {
-          AppLogger.d('PLAYER', 'Service is ready');
-          return true;
-        } else {
-          AppLogger.d('PLAYER', 'Service not ready yet, waiting...');
-          final delayMs = initialDelayMs * (1 << attempt);
-          await Future.delayed(Duration(milliseconds: delayMs));
-        }
-      } catch (e) {
+        ready = await _androidServiceApi.isServiceReady();
+      } catch (error) {
         AppLogger.e(
           'PLAYER',
-          'Error during service readiness check (attempt ${attempt + 1})',
-          e,
+          'No se pudo consultar el servicio de audio',
+          error,
         );
-        final delayMs = initialDelayMs * (1 << attempt);
-        await Future.delayed(Duration(milliseconds: delayMs));
       }
+      start.check();
+      if (ready) return true;
+      await Future.delayed(
+        Duration(milliseconds: initialDelayMs * (1 << attempt)),
+      );
+      start.check();
     }
-
-    AppLogger.e('PLAYER', 'Service readiness check timed out');
     return false;
   }
 
-  Future<void> _playAudioWithRetry(String url, pigeon.Track trackData) async {
+  Future<void> _playAudioWithRetry(
+    String url,
+    pigeon.Track trackData,
+    PlaybackRequest request,
+    _PlaybackStart start,
+  ) async {
     const maxAttempts = 3;
     const initialDelayMs = 300;
 
@@ -205,11 +261,47 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
           'Calling playAudio with url: $url (attempt ${attempt + 1})',
         );
 
-        await _api.playAudio(pigeon.AudioData(url: url, track: trackData));
+        final sound = ref.read(backgroundSoundsNotifierProvider.notifier);
+        sound.setTimerScope(request.isTimer);
+        await _api.setBellCues(
+          !request.isTimer,
+          request.timerBellOffsetsMs ?? const [],
+        );
+        start.check();
+        if (request.isTimer) {
+          pigeon.MeditoTimerStopCallbackApi.setUp(this);
+          final bells = sound.prepareTimerBells();
+          await _api.setBackgroundSoundVolume(bells.volume);
+          start.check();
+          bool enabled;
+          do {
+            enabled = ref.read(backgroundSoundsNotifierProvider).bellsEnabled;
+            await _api.setSessionBells(enabled);
+            start.check();
+          } while (enabled !=
+              ref.read(backgroundSoundsNotifierProvider).bellsEnabled);
+        }
+        start.requested = true;
+        final started = await _api.playAudio(
+          pigeon.AudioData(
+            url: url,
+            track: trackData,
+            timerSeed: request.timerSeed,
+            timerEndBellOffsetMs: request.timerEndBellOffsetMs,
+            timerHasExtraTime: request.hasExtraTime,
+            timerStopLabel: request.timerStopLabel,
+          ),
+        );
+        start.check();
+        if (!started) {
+          start.requested = false;
+          throw StateError('El reproductor no pudo iniciar el audio');
+        }
 
         AppLogger.d('PLAYER', 'playAudio call succeeded');
         return;
       } catch (e) {
+        start.check();
         AppLogger.e(
           'PLAYER',
           'Error playing audio (attempt ${attempt + 1}): $e',
@@ -219,6 +311,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
           final delayMs = initialDelayMs * (1 << attempt);
           AppLogger.d('PLAYER', 'Retrying playAudio in ${delayMs}ms...');
           await Future.delayed(Duration(milliseconds: delayMs));
+          start.check();
         } else {
           rethrow;
         }
@@ -230,26 +323,175 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
       '${request.trackId}-${request.fileId}${getAudioFileExtension(request.remoteUrl)}';
 
   Future<void> seekToPosition(int position) async {
-    if (Platform.isAndroid) {
+    if (_usesAndroidAudio) {
       await _api.seekToPosition(position);
     } else {
       await iosAudioHandler.seek(Duration(milliseconds: position));
     }
   }
 
-  void stop() {
-    // Analytics: closing the player ends the session. No-op if it already
-    // completed (the completion path also calls stop()).
-    unawaited(AudioSessionTracker.instance.onStopped());
-    if (Platform.isAndroid) {
-      _api.stopAudio();
-    } else {
-      iosAudioHandler.stop();
+  @override
+  Future<void> timerStopped(
+    int sessionSeed,
+    pigeon.TimerStopReport report,
+  ) async {
+    if (_activeTimer?.timerSeed == sessionSeed) {
+      await _closeTimer(report: report);
     }
   }
 
+  Future<TimerCloseResult?> closeTimer() => _closeTimer();
+
+  Future<TimerCloseResult?> _closeTimer({
+    pigeon.TimerStopReport? report,
+  }) async {
+    final request = _activeTimer;
+    final closer = _timerCloser;
+    final start = _start;
+    if (request == null ||
+        closer == null ||
+        start == null ||
+        !PlaybackAccount.isCurrent(start.accountGeneration)) {
+      return null;
+    }
+    final audio = ref.read(audioStateProvider);
+    if (!closer.isClosing &&
+        report == null &&
+        start.requested &&
+        audio.isCompleted &&
+        audio.track.fileId == request.fileId) {
+      return null;
+    }
+    start.cancelled = true;
+    bool isCurrent() =>
+        identical(_start, start) &&
+        PlaybackAccount.isCurrent(start.accountGeneration);
+    final result = await closer.close(
+      stopPlayback: () => _stopTimerPlayback(request, start, report),
+      isCurrent: isCurrent,
+      onStopped: (result) {
+        final sound = ref.read(backgroundSoundsNotifierProvider);
+        final soundNotifier = ref.read(
+          backgroundSoundsNotifierProvider.notifier,
+        );
+        soundNotifier.stopTimerAmbient(
+          transportAlreadyStopped: _usesAndroidAudio,
+        );
+        if (result.recorded &&
+            !result.endCueRang &&
+            sound.bellsEnabled &&
+            request.timerEndBellEnabled &&
+            result.elapsed.inMilliseconds < request.plannedDurationMs) {
+          final preview = ref.read(sessionBellPreviewProvider);
+          final volume = soundNotifier.scaledVolume(sound.volume);
+          unawaited(
+            Future.delayed(const Duration(milliseconds: 400), () async {
+              if (!isCurrent() ||
+                  !ref.read(backgroundSoundsNotifierProvider).bellsEnabled) {
+                return;
+              }
+              try {
+                await preview.play(volume);
+              } catch (error, stack) {
+                AppLogger.e(
+                  'BELLS',
+                  'No se pudo tocar la campana de cierre',
+                  error,
+                  stack,
+                );
+              }
+            }),
+          );
+        }
+        _recordTimerClose(request, result);
+      },
+    );
+    return isCurrent() ? result : null;
+  }
+
+  Future<TimerCloseResult> _stopTimerPlayback(
+    PlaybackRequest request,
+    _PlaybackStart start,
+    pigeon.TimerStopReport? report,
+  ) async {
+    if (report == null && !start.requested) {
+      if (!_usesAndroidAudio) await iosAudioHandler.stopPlayback();
+      return const TimerCloseResult(Duration.zero);
+    }
+    if (_usesAndroidAudio) {
+      final seed = request.timerSeed;
+      if (report == null && seed == null) {
+        return const TimerCloseResult(Duration.zero, stopped: false);
+      }
+      final native = report ?? await _api.stopTimerPlayback(seed!);
+      return TimerCloseResult(
+        Duration(milliseconds: native.positionMs),
+        endCueRang: native.endCueRang,
+        stopped: native.stopped,
+        completionPersisted: native.completionPersisted ?? false,
+      );
+    }
+    final elapsed = iosAudioHandler.position;
+    start.endCueRang |= iosAudioHandler.sessionBells.stopBellsAndReportEnd();
+    await iosAudioHandler.stopPlayback();
+    return TimerCloseResult(elapsed, endCueRang: start.endCueRang);
+  }
+
+  void _recordTimerClose(PlaybackRequest request, TimerCloseResult result) {
+    final elapsed = Duration(seconds: result.elapsed.inSeconds);
+    if (result.recorded) {
+      unawaited(
+        AudioSessionTracker.instance.onCompleted(fileId: request.fileId),
+      );
+      if (!result.completionPersisted) {
+        unawaited(
+          handleStats({
+            TypeConstants.trackIdKey: timerSessionId(elapsed),
+            TypeConstants.durationIdKey: elapsed.inMilliseconds,
+            TypeConstants.fileIdKey: request.fileId,
+            TypeConstants.guideIdKey: '',
+            TypeConstants.timestampIdKey: DateTime.now().millisecondsSinceEpoch,
+          }),
+        );
+      }
+    } else {
+      unawaited(AudioSessionTracker.instance.onStopped());
+    }
+    if (!result.completionPersisted) {
+      unawaited(
+        FirebaseAnalyticsService().logEvent(
+          name: AnalyticsEventConstants.timerEnded,
+          parameters: {
+            AnalyticsEventConstants.paramTimerMode: request.timerMode.name,
+            AnalyticsEventConstants.paramElapsedSeconds: elapsed.inSeconds,
+            AnalyticsEventConstants.paramRecorded: result.recorded ? 1 : 0,
+          },
+        ),
+      );
+    }
+    _timerCloses.add(result);
+  }
+
+  Future<void> _stopPlayback() =>
+      _usesAndroidAudio ? _api.stopAudio() : iosAudioHandler.stopPlayback();
+
+  void stop() {
+    final start = _start;
+    start?.cancelled = true;
+    if (_timerCloser?.isClosing ?? false) return;
+    // Analytics: closing the player ends the session. No-op if it already
+    // completed (the completion path also calls stop()).
+    unawaited(AudioSessionTracker.instance.onStopped());
+    final pendingAndroidTimer =
+        _usesAndroidAudio &&
+        (_activeTimer != null || state?.isTimer == true) &&
+        start?.requested != true;
+    _activeTimer = null;
+    if (!pendingAndroidTimer) unawaited(_stopPlayback());
+  }
+
   void setSpeed(double speed) {
-    if (Platform.isAndroid) {
+    if (_usesAndroidAudio) {
       _api.setSpeed(speed);
     } else {
       iosAudioHandler.setSpeed(speed);
@@ -262,7 +504,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
       app_repeat.RepeatMode.once => pigeon.RepeatMode.once,
       app_repeat.RepeatMode.infinite => pigeon.RepeatMode.infinite,
     };
-    if (Platform.isAndroid) {
+    if (_usesAndroidAudio) {
       _api.setRepeatMode(pigeonMode);
     } else {
       iosAudioHandler.setCustomRepeatMode(pigeonMode);
@@ -270,7 +512,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
   }
 
   void skip10SecondsForward() {
-    if (Platform.isAndroid) {
+    if (_usesAndroidAudio) {
       _api.skip10SecondsForward();
     } else {
       iosAudioHandler.seek(
@@ -280,7 +522,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
   }
 
   void skip10SecondsBackward() {
-    if (Platform.isAndroid) {
+    if (_usesAndroidAudio) {
       _api.skip10SecondsBackward();
     } else {
       iosAudioHandler.seek(
@@ -290,7 +532,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
   }
 
   void playPause() {
-    if (Platform.isAndroid) {
+    if (_usesAndroidAudio) {
       _api.playPauseAudio();
     } else {
       if (iosAudioHandler.playing) {
@@ -300,6 +542,24 @@ class PlayerProvider extends Notifier<PlaybackRequest?> {
       }
     }
   }
+}
+
+class _PlaybackStart {
+  final int accountGeneration = PlaybackAccount.generation;
+  bool cancelled = false;
+  bool requested = false;
+  bool endCueRang = false;
+
+  bool get isCurrent =>
+      !cancelled && PlaybackAccount.isCurrent(accountGeneration);
+
+  void check() {
+    if (!isCurrent) throw const _PlaybackStartCancelled();
+  }
+}
+
+class _PlaybackStartCancelled implements Exception {
+  const _PlaybackStartCancelled();
 }
 
 const audioPercentageListened = 0.8;

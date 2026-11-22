@@ -47,6 +47,7 @@ Future<MeModel> me(Ref ref) async {
             return const MeModel(id: '');
           }
           final prefs = ref.read(sharedPreferencesProvider);
+          // Riesgo aceptado: Detener puede guardar en la cuenta nueva antes de reasignar el audio.
           await StatsManager().acceptServerUser(meData.id);
           if (!ref.mounted || epoch != http.authEpoch) {
             return const MeModel(id: '');

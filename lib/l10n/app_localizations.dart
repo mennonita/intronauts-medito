@@ -5193,6 +5193,144 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save'**
   String get dayBoundarySave;
+
+  /// No description provided for @timerBells.
+  ///
+  /// In en, this message translates to:
+  /// **'Bells'**
+  String get timerBells;
+
+  /// No description provided for @timerStartBell.
+  ///
+  /// In en, this message translates to:
+  /// **'At the start'**
+  String get timerStartBell;
+
+  /// No description provided for @timerEndBell.
+  ///
+  /// In en, this message translates to:
+  /// **'At the end'**
+  String get timerEndBell;
+
+  /// No description provided for @timerBellEvery.
+  ///
+  /// In en, this message translates to:
+  /// **'Every {minutes} min'**
+  String timerBellEvery(int minutes);
+
+  /// No description provided for @timerBellInterval.
+  ///
+  /// In en, this message translates to:
+  /// **'Interval'**
+  String get timerBellInterval;
+
+  /// No description provided for @timerBellsOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get timerBellsOff;
+
+  /// No description provided for @timerRandomBells.
+  ///
+  /// In en, this message translates to:
+  /// **'Random'**
+  String get timerRandomBells;
+
+  /// No description provided for @timerRandomBellCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} at random'**
+  String timerRandomBellCount(int count);
+
+  /// No description provided for @timerExtraTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Extra time'**
+  String get timerExtraTime;
+
+  /// No description provided for @timerExtraTimeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'When the timer ends, it keeps counting until you stop.'**
+  String get timerExtraTimeDescription;
+
+  /// No description provided for @timerExtraTimeElapsed.
+  ///
+  /// In en, this message translates to:
+  /// **'Extra time +{time}'**
+  String timerExtraTimeElapsed(String time);
+
+  /// No description provided for @timerSavedPresets.
+  ///
+  /// In en, this message translates to:
+  /// **'Your timers'**
+  String get timerSavedPresets;
+
+  /// No description provided for @timerSavePreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Save this timer'**
+  String get timerSavePreset;
+
+  /// No description provided for @timerPresetName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get timerPresetName;
+
+  /// No description provided for @timerDefaultPresetName.
+  ///
+  /// In en, this message translates to:
+  /// **'My timer'**
+  String get timerDefaultPresetName;
+
+  /// No description provided for @timerPresetSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get timerPresetSave;
+
+  /// No description provided for @timerPresetCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get timerPresetCancel;
+
+  /// No description provided for @timerDeletePresetQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete “{name}”?'**
+  String timerDeletePresetQuestion(String name);
+
+  /// No description provided for @timerPresetDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get timerPresetDelete;
+
+  /// No description provided for @timerPresetLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'You have 20 timers. Delete one to save another.'**
+  String get timerPresetLimit;
+
+  /// No description provided for @timerBellsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Timer bells follow your settings'**
+  String get timerBellsDescription;
+
+  /// No description provided for @timerPresetWriteError.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to save the change. Try again.'**
+  String get timerPresetWriteError;
+
+  /// No description provided for @timerStopError.
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to stop the timer. Try again.'**
+  String get timerStopError;
 }
 
 class _AppLocalizationsDelegate

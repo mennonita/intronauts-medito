@@ -1,50 +1,42 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
+import 'package:medito/models/timer/timer_bell_settings.dart';
 import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/models/timer/timer_settings.dart';
+import 'package:medito/utils/logger.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
 
-class TimerSettings {
-  const TimerSettings({required this.mode, required this.minutes});
+export 'package:medito/models/timer/timer_settings.dart';
 
-  final TimerMode mode;
-
-  /// Countdown length. Kept while in stopwatch mode so switching back
-  /// restores it.
-  final int minutes;
-
-  Duration get countdown => Duration(minutes: minutes);
-
-  /// What a session started now would last.
-  Duration get sessionDuration =>
-      mode == TimerMode.stopwatch ? kStopwatchMaxDuration : countdown;
-
-  bool get canStart => mode == TimerMode.stopwatch || minutes > 0;
-
-  TimerSettings copyWith({TimerMode? mode, int? minutes}) =>
-      TimerSettings(mode: mode ?? this.mode, minutes: minutes ?? this.minutes);
-}
-
-/// The Timer screen's mode and countdown length. The length is persisted so
-/// the next visit opens on it (70% of timer sessions repeat the previous
-/// length, Sep 2026); the screen always opens on the countdown.
-// autoDispose: dropped when the Timer screen closes, so each visit starts on
-// the countdown again (the player route sits above it, so it survives the
-// session itself).
 final timerSettingsProvider =
     NotifierProvider.autoDispose<TimerSettingsNotifier, TimerSettings>(
       TimerSettingsNotifier.new,
     );
 
 class TimerSettingsNotifier extends Notifier<TimerSettings> {
-  static const _maxMinutes = kMaxTimerHours * 60 + 59;
-
   @override
   TimerSettings build() {
     final prefs = ref.watch(sharedPreferencesProvider);
     final minutes = prefs.getInt(SharedPreferenceConstants.timerMinutes);
+    var bells = const TimerBellSettings();
+    try {
+      final raw = prefs.getString(SharedPreferenceConstants.timerBellSettings);
+      if (raw != null) {
+        bells = TimerBellSettings.fromJson(
+          jsonDecode(raw) as Map<String, Object?>,
+        );
+      }
+    } catch (error) {
+      AppLogger.w('TIMER', 'Ajustes de campanas inválidos: $error');
+    }
     return TimerSettings(
+      bells: bells,
+      extraTime:
+          prefs.getBool(SharedPreferenceConstants.timerExtraTime) ?? false,
       mode: TimerMode.countdown,
-      minutes: (minutes ?? kDefaultTimerMinutes).clamp(0, _maxMinutes),
+      minutes: (minutes ?? kDefaultTimerMinutes).clamp(0, kMaxTimerMinutes),
     );
   }
 
@@ -54,11 +46,28 @@ class TimerSettingsNotifier extends Notifier<TimerSettings> {
   }
 
   void setMinutes(int minutes) {
-    final clamped = minutes.clamp(0, _maxMinutes);
+    final clamped = minutes.clamp(0, kMaxTimerMinutes);
     if (clamped == state.minutes) return;
     state = state.copyWith(minutes: clamped);
     ref
         .read(sharedPreferencesProvider)
         .setInt(SharedPreferenceConstants.timerMinutes, clamped);
+  }
+
+  Future<void> setBells(TimerBellSettings bells) async {
+    state = state.copyWith(bells: bells);
+    await ref
+        .read(sharedPreferencesProvider)
+        .setString(
+          SharedPreferenceConstants.timerBellSettings,
+          jsonEncode(bells.toJson()),
+        );
+  }
+
+  Future<void> setExtraTime(bool enabled) async {
+    state = state.copyWith(extraTime: enabled);
+    await ref
+        .read(sharedPreferencesProvider)
+        .setBool(SharedPreferenceConstants.timerExtraTime, enabled);
   }
 }

@@ -11,6 +11,7 @@ void main() {
   late _Player primary;
   late _Player bell;
   late StreamController<Duration> positions;
+  late StreamController<Duration> bellPositions;
   late IosSessionBells controller;
   var position = Duration.zero;
   var playing = false;
@@ -21,6 +22,8 @@ void main() {
     primary = _Player();
     bell = _Player();
     positions = StreamController<Duration>.broadcast(sync: true);
+    bellPositions = StreamController<Duration>.broadcast(sync: true);
+    when(() => bell.positionStream).thenAnswer((_) => bellPositions.stream);
     position = Duration.zero;
     playing = false;
     processing = ProcessingState.ready;
@@ -53,6 +56,7 @@ void main() {
   tearDown(() async {
     await controller.disable();
     await positions.close();
+    await bellPositions.close();
   });
 
   test(
@@ -121,5 +125,106 @@ void main() {
     positions.add(position);
     await flush();
     verifyNever(() => bell.play());
+  });
+  test(
+    'precarga el inicio y toca al llegar al tiempo previsto sin completar el archivo',
+    () async {
+      await controller.setBellCues(
+        offsetsMs: [0, 60000, 180000],
+        endOffsetMs: 180000,
+        enabled: true,
+        volume: .5,
+      );
+      verify(() => bell.setAsset(kSessionBellAsset)).called(1);
+      verifyNever(() => bell.play());
+      playing = true;
+      positions.add(Duration.zero);
+      await flush();
+      verify(() => bell.play()).called(1);
+      position = const Duration(minutes: 3);
+      positions.add(position);
+      await flush();
+      verify(() => bell.play()).called(1);
+      bellPositions.add(const Duration(milliseconds: 100));
+      expect(controller.stopBellsAndReportEnd(), isTrue);
+      position += const Duration(seconds: 1);
+      positions.add(position);
+      await flush();
+      verifyNever(() => bell.play());
+    },
+  );
+
+  test('el cierre silenciado se consume y no se reporta como oído', () async {
+    await controller.setBellCues(
+      offsetsMs: [0, 60000],
+      endOffsetMs: 60000,
+      enabled: false,
+      volume: .5,
+    );
+    verify(() => bell.setAsset(kSessionBellAsset)).called(1);
+    playing = true;
+    positions.add(Duration.zero);
+    position = const Duration(minutes: 1);
+    positions.add(position);
+    await controller.setTimerEnabled(true, .5);
+    verifyNever(() => bell.setAsset(kSessionBellAsset));
+    positions.add(position);
+    await flush();
+    verifyNever(() => bell.play());
+    expect(controller.stopBellsAndReportEnd(), isFalse);
+  });
+
+  test(
+    'detener durante el salto del cierre cancela el sonido pendiente',
+    () async {
+      await controller.setBellCues(
+        offsetsMs: [60000],
+        endOffsetMs: 60000,
+        enabled: true,
+        volume: .5,
+      );
+      final seeking = Completer<void>();
+      when(() => bell.seek(Duration.zero)).thenAnswer((_) => seeking.future);
+      playing = true;
+      position = const Duration(minutes: 1);
+      positions.add(position);
+      expect(controller.stopBellsAndReportEnd(), isFalse);
+      seeking.complete();
+      await flush();
+      verifyNever(() => bell.play());
+    },
+  );
+
+  test('conserva el último interruptor antes y durante la precarga', () async {
+    final stopping = Completer<void>();
+    final loading = Completer<Duration?>();
+    when(() => bell.stop()).thenAnswer((_) => stopping.future);
+    when(
+      () => bell.setAsset(kSessionBellAsset),
+    ).thenAnswer((_) => loading.future);
+
+    final installing = controller.setBellCues(
+      offsetsMs: [0, 8000],
+      enabled: true,
+      volume: .5,
+    );
+    await controller.setTimerEnabled(false, .5);
+    stopping.complete();
+    await flush();
+    await controller.setTimerEnabled(true, .5);
+    await controller.setTimerEnabled(false, .5);
+    loading.complete(const Duration(seconds: 6));
+    await installing;
+
+    expect(controller.enabled, isFalse);
+    playing = true;
+    positions.add(Duration.zero);
+    await flush();
+    verifyNever(() => bell.play());
+    await controller.setTimerEnabled(true, .5);
+    position = const Duration(seconds: 8);
+    positions.add(position);
+    await flush();
+    verify(() => bell.play()).called(1);
   });
 }

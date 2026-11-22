@@ -6,6 +6,7 @@ import 'package:pigeon/pigeon.dart';
 @ConfigurePigeon(
   PigeonOptions(
     dartOut: 'lib/src/audio_pigeon.g.dart',
+    dartPackageName: 'medito',
     dartOptions: DartOptions(),
     kotlinOut:
         'android/app/src/main/kotlin/meditofoundation/medito/pigeon/AudioPigeon.g.kt',
@@ -16,10 +17,21 @@ import 'package:pigeon/pigeon.dart';
 // #docregion host-definitions
 //ignore:prefer-match-file-name
 class AudioData {
-  AudioData({required this.url, required this.track});
+  AudioData({
+    required this.url,
+    required this.track,
+    this.timerSeed,
+    this.timerEndBellOffsetMs,
+    this.timerHasExtraTime,
+    this.timerStopLabel,
+  });
 
   String url;
   Track track;
+  int? timerSeed;
+  int? timerEndBellOffsetMs;
+  bool? timerHasExtraTime;
+  String? timerStopLabel;
 }
 
 enum RepeatMode { none, once, infinite }
@@ -93,6 +105,10 @@ abstract class MeditoAudioServiceApi {
   /// Start/middle/end bells, independent of the ambient background sound.
   void setSessionBells(bool enabled);
 
+  void setBellCues(bool useTrackSchedule, List<int> offsetsMs);
+
+  TimerStopReport stopTimerPlayback(int sessionSeed);
+
   void playBackgroundSound();
 
   void pauseBackgroundSound();
@@ -160,6 +176,20 @@ class Track {
   });
 }
 
+class TimerEndedData {
+  TimerEndedData({
+    required this.positionMs,
+    required this.mode,
+    required this.elapsedSeconds,
+    required this.recorded,
+  });
+
+  int positionMs;
+  String mode;
+  int elapsedSeconds;
+  bool recorded;
+}
+
 class CompletionData {
   String trackId;
   int duration;
@@ -167,6 +197,7 @@ class CompletionData {
   String? guideId;
   int timestamp;
   String? userToken;
+  TimerEndedData? timerEnded;
 
   CompletionData({
     required this.trackId,
@@ -195,3 +226,23 @@ abstract class MeditoAudioServiceCallbackApi {
 }
 
 // #enddocregion flutter-definitions
+
+class TimerStopReport {
+  TimerStopReport({
+    required this.positionMs,
+    required this.endCueRang,
+    required this.stopped,
+    this.completionPersisted,
+  });
+
+  int positionMs;
+  bool endCueRang;
+  bool stopped;
+  bool? completionPersisted;
+}
+
+@FlutterApi()
+abstract class MeditoTimerStopCallbackApi {
+  @async
+  void timerStopped(int sessionSeed, TimerStopReport report);
+}

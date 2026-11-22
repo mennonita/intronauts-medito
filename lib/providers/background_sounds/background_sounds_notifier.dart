@@ -7,6 +7,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../models/background_sounds/background_sounds_model.dart';
+import '../../models/player/playback_request.dart';
+import '../../models/timer/timer_session.dart';
 import '../../repositories/background_sounds/background_sounds_repository.dart';
 import '../../repositories/downloader/downloader_repository.dart';
 import '../../src/audio_pigeon.g.dart';
@@ -192,8 +194,20 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   /// one shared choice; only the bells switch is remembered per scope (on by
   /// default for the Timer, off under tracks).
   bool _timerScope = false;
+  int _timerBellToggle = 0;
 
-  void setTimerScope(bool isTimer) => _timerScope = isTimer;
+  void setTimerScope(bool isTimer) {
+    if (_timerScope != isTimer) _timerBellToggle++;
+    _timerScope = isTimer;
+  }
+
+  ({bool enabled, double volume}) prepareTimerBells() {
+    final repo = ref.read(backgroundSoundsRepositoryProvider);
+    final enabled = repo.getSessionBellsEnabled(forTimer: true);
+    final volume = repo.getBgSoundVolume() ?? state.volume;
+    state = state.copyWith(bellsEnabled: enabled, volume: volume);
+    return (enabled: enabled, volume: scaledVolume(volume));
+  }
 
   @override
   BackgroundSoundsState build() {
@@ -225,6 +239,12 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   void handleOnChangeSound(
     BackgroundSoundsModel? sound, {
     bool preview = true,
+  }) => _selectSound(sound, preview: preview, persist: true);
+
+  void _selectSound(
+    BackgroundSoundsModel? sound, {
+    required bool preview,
+    required bool persist,
   }) {
     unawaited(ref.read(sessionBellPreviewProvider).stop());
     AppLogger.d('BG_SOUND', 'Changing sound to: ${sound?.title}');
@@ -241,14 +261,17 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
 
     // Bells used to be one of the background sounds; they are a switch now.
     if (sound.id == kSessionBellsId) {
-      setSessionBells(true, preview: preview);
-      handleOnChangeSound(_noneSound, preview: preview);
+      if (persist) setSessionBells(true, preview: preview);
+      _selectSound(_noneSound, preview: preview, persist: persist);
       return;
     }
 
-    var bgSoundRepoProvider = ref.read(backgroundSoundsRepositoryProvider);
-    bgSoundRepoProvider.saveSelectedBgSoundToSharedPreferences(sound);
-    _updateItemsInSavedBgSoundList(sound);
+    if (persist) {
+      ref
+          .read(backgroundSoundsRepositoryProvider)
+          .saveSelectedBgSoundToSharedPreferences(sound);
+      _updateItemsInSavedBgSoundList(sound);
+    }
 
     if (sound.id == kNoneBackgroundSoundId) {
       AppLogger.d('BG_SOUND', 'None selected, stopping background sound');
@@ -277,20 +300,40 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
         .read(backgroundSoundsRepositoryProvider)
         .saveSessionBellsEnabled(enabled, forTimer: _timerScope);
     state = state.copyWith(bellsEnabled: enabled);
-    unawaited(_applySessionBells(enabled, preview: preview));
+    final toggle = _timerScope ? ++_timerBellToggle : null;
+    if (toggle != null && !enabled) {
+      unawaited(
+        ref.read(sessionBellPreviewProvider).stop().catchError((
+          Object error,
+          StackTrace stack,
+        ) {
+          AppLogger.e('BELLS', 'No se pudo detener la muestra', error, stack);
+        }),
+      );
+    }
+    unawaited(_applySessionBells(enabled, preview: preview, toggle: toggle));
   }
 
-  Future<void> _applySessionBells(bool enabled, {required bool preview}) async {
+  Future<void> _applySessionBells(
+    bool enabled, {
+    required bool preview,
+    required int? toggle,
+  }) async {
     try {
       final volume = scaledVolume(state.volume);
       if (Platform.isAndroid) {
         await _api.setSessionBells(enabled);
+      } else if (_timerScope) {
+        await iosAudioHandler.sessionBells.setTimerEnabled(enabled, volume);
       } else if (enabled) {
         await iosAudioHandler.sessionBells.enable(volume);
       } else {
         await iosAudioHandler.sessionBells.disable();
       }
-      if (enabled && preview && state.bellsEnabled) {
+      if (enabled &&
+          preview &&
+          state.bellsEnabled &&
+          (toggle == null || toggle == _timerBellToggle)) {
         await ref.read(sessionBellPreviewProvider).play(volume);
       }
     } catch (error, stack) {
@@ -484,7 +527,12 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     }
   }
 
-  /// Session over: stops the ambient sound and the bells.
+  void stopTimerAmbient({required bool transportAlreadyStopped}) {
+    _timerBellToggle++;
+    _stopAmbient(transportAlreadyStopped: transportAlreadyStopped);
+  }
+
+  /// Detiene el sonido de fondo y las campanas al cerrar la sesión.
   void stopBackgroundSound() {
     _stopAmbient();
     if (Platform.isAndroid) {
@@ -496,12 +544,13 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
 
   /// Stops only the ambient sound (None picked, or switching sounds); the
   /// bells keep their own on/off state.
-  void _stopAmbient() {
+  void _stopAmbient({bool transportAlreadyStopped = false}) {
     unawaited(ref.read(sessionBellPreviewProvider).stop());
     AppLogger.d('BG_SOUND', 'Stopping background sound');
     iosAmbientActive = false;
     _fadeSubscription?.cancel();
     _fadeSubscription = null;
+    if (transportAlreadyStopped) return;
     if (Platform.isAndroid) {
       _api.setBackgroundSound(null);
       _api.stopBackgroundSound();
@@ -513,6 +562,16 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   void _updateItemsInSavedBgSoundList(BackgroundSoundsModel sound) {
     final provider = ref.read(backgroundSoundsRepositoryProvider);
     provider.updateItemsInSavedBgSoundList(sound);
+  }
+
+  void restoreTimerBackgroundSound(PlaybackRequest request) {
+    final repo = ref.read(backgroundSoundsRepositoryProvider);
+    final sound = request.resolveBackgroundSound(
+      request.overrideBackgroundSound
+          ? null
+          : repo.getSelectedBgSoundFromSharedPreferences(),
+    );
+    _selectSound(sound, preview: false, persist: false);
   }
 
   void playBackgroundSoundFromPref() {

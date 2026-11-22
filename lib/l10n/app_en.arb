@@ -2122,5 +2122,56 @@
   "dayBoundarySave": "Save",
   "@dayBoundarySave": {
     "description": "Botón para guardar el inicio del día."
-  }
+  },
+  "timerBells": "Bells",
+  "timerStartBell": "At the start",
+  "timerEndBell": "At the end",
+  "timerBellEvery": "Every {minutes} min",
+  "@timerBellEvery": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerBellInterval": "Interval",
+  "timerBellsOff": "Off",
+  "timerRandomBells": "Random",
+  "timerRandomBellCount": "{count} at random",
+  "@timerRandomBellCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "timerExtraTime": "Extra time",
+  "timerExtraTimeDescription": "When the timer ends, it keeps counting until you stop.",
+  "timerExtraTimeElapsed": "Extra time +{time}",
+  "@timerExtraTimeElapsed": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "timerSavedPresets": "Your timers",
+  "timerSavePreset": "Save this timer",
+  "timerPresetName": "Name",
+  "timerDefaultPresetName": "My timer",
+  "timerPresetSave": "Save",
+  "timerPresetCancel": "Cancel",
+  "timerDeletePresetQuestion": "Delete “{name}”?",
+  "@timerDeletePresetQuestion": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "timerPresetDelete": "Delete",
+  "timerPresetLimit": "You have 20 timers. Delete one to save another.",
+  "timerBellsDescription": "Timer bells follow your settings",
+  "timerPresetWriteError": "Unable to save the change. Try again.",
+  "timerStopError": "Unable to stop the timer. Try again."
 }

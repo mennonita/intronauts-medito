@@ -154,6 +154,12 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
         createNotificationChannels()
     }
 
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        val cache = FlutterEngineCache.getInstance()
+        if (cache.get(ENGINE_ID) === flutterEngine) cache.remove(ENGINE_ID)
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
     override fun onResume() {
         super.onResume()
         checkAndSendCompletionData()

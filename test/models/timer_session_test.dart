@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/models/local_all_stats.dart';
+import 'package:medito/models/player/playback_request.dart';
+import 'package:medito/models/timer/timer_bell_settings.dart';
+import 'package:medito/models/background_sounds/background_sounds_model.dart';
 import 'package:medito/models/local_audio_completed.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/utils/audio_completion_tracker.dart';
@@ -44,6 +47,64 @@ void main() {
       expect(stopwatch.fileId, 'timer-stopwatch-0');
       expect(stopwatch.trackId, timerSessionId(kStopwatchMaxDuration));
     });
+  });
+
+  test(
+    'el tiempo extra conserva la duración prevista, el archivo y la semilla',
+    () {
+      final request = timerPlaybackRequest(
+        mode: TimerMode.countdown,
+        duration: const Duration(minutes: 3),
+        filePath: '/tmp/timer.wav',
+        title: 'Temporizador',
+        extraTime: true,
+        seed: 1234,
+        bells: const TimerBellSettings(intervalMinutes: 1, randomCount: 3),
+      );
+      final restored = PlaybackRequest.fromJson(request.toJson());
+      expect(restored, request);
+      expect(restored.hasExtraTime, isTrue);
+      expect(restored.plannedDurationMs, 180000);
+      expect(restored.duration, kStopwatchMaxDuration.inMilliseconds);
+      expect(restored.trackId, 'timer-18000');
+      expect(restored.fileId, 'timer-countdown-180000');
+      expect(restored.timerSeed, 1234);
+      expect(restored.timerEndBellOffsetMs, 180000);
+    },
+  );
+
+  test('distingue el sonido general, el silencio y un sonido guardado', () {
+    const global = BackgroundSoundsModel(
+      id: 'global',
+      title: 'A',
+      path: '/a',
+      duration: 1,
+    );
+    const saved = BackgroundSoundsModel(
+      id: 'saved',
+      title: 'B',
+      path: '/b',
+      duration: 1,
+    );
+    final request = timerPlaybackRequest(
+      mode: TimerMode.countdown,
+      duration: const Duration(minutes: 1),
+      filePath: '/tmp/timer.wav',
+      title: 'Temporizador',
+    );
+    expect(request.resolveBackgroundSound(global), global);
+    expect(
+      request
+          .copyWith(overrideBackgroundSound: true)
+          .resolveBackgroundSound(global),
+      isNull,
+    );
+    expect(
+      request
+          .copyWith(overrideBackgroundSound: true, backgroundSound: saved)
+          .resolveBackgroundSound(global),
+      saved,
+    );
   });
 
   group('timer sessions in stats', () {

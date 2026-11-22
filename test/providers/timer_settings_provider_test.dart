@@ -23,6 +23,13 @@ void main() {
     final settings = container.read(timerSettingsProvider);
     expect(settings.mode, TimerMode.countdown);
     expect(settings.minutes, kDefaultTimerMinutes);
+    expect(settings.extraTime, isFalse);
+    expect(settings.bells.toJson(), {
+      'start': true,
+      'end': true,
+      'intervalMinutes': 0,
+      'randomCount': 0,
+    });
   });
 
   test('remembers the length but always reopens on the countdown', () {
@@ -40,5 +47,26 @@ void main() {
     final settings = next.read(timerSettingsProvider);
     expect(settings.mode, TimerMode.countdown);
     expect(settings.minutes, 20);
+  });
+
+  test('recuerda las campanas y el tiempo extra entre pantallas', () async {
+    final first = newContainer();
+    final settings = first.read(timerSettingsProvider);
+    final notifier = first.read(timerSettingsProvider.notifier);
+    final bells = settings.bells.copyWith(
+      start: false,
+      end: false,
+      intervalMinutes: 15,
+      randomCount: 6,
+    );
+    await notifier.setBells(bells);
+    await notifier.setExtraTime(true);
+    first.dispose();
+
+    final next = newContainer();
+    addTearDown(next.dispose);
+    final restored = next.read(timerSettingsProvider);
+    expect(restored.extraTime, isTrue);
+    expect(restored.bells.toJson(), bells.toJson());
   });
 }

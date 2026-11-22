@@ -60,19 +60,16 @@ object SharedPreferencesManager {
     fun saveCompletionData(context: Context, completionData: CompletionData, generation: Long): Boolean {
         if (!isCurrent(generation)) return false
         return try {
-            val jsonData = JSONObject().apply {
-                put("trackId", completionData.trackId)
-                put("duration", completionData.duration)
-                put("fileId", completionData.fileId)
-                put("guideId", completionData.guideId)
-                put("timestamp", completionData.timestamp)
+            val write = prefs(context).edit()
+                .putString(KEY_LAST_COMPLETED_TRACK, NativeCompletionRecord.encode(completionData))
+            if (completionData.timerEnded != null) {
+                val saved = write.commit()
+                if (!saved) Log.e(TAG, "No se pudo guardar el cierre del temporizador")
+                saved
+            } else {
+                write.apply()
+                true
             }
-
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_LAST_COMPLETED_TRACK, jsonData.toString())
-                .apply()
-            true
         } catch (e: JSONException) {
             Log.e(TAG, "Error saving completion data: ${e.message}")
             false
@@ -84,21 +81,7 @@ object SharedPreferencesManager {
             .getString(KEY_LAST_COMPLETED_TRACK, null)
 
         return try {
-            completionString?.let {
-                val json = JSONObject(it)
-                if (json.has("trackId") && json.has("duration") && json.has("fileId") && json.has("timestamp")) {
-                    CompletionData(
-                        trackId = json.getString("trackId"),
-                        duration = json.getLong("duration"),
-                        fileId = json.getString("fileId"),
-                        guideId = json.optString("guideId", "None"),
-                        timestamp = json.getLong("timestamp")
-                    )
-                } else {
-                    Log.w(TAG, "Missing required fields in stored completion data")
-                    null
-                }
-            }
+            completionString?.let(NativeCompletionRecord::decode)
         } catch (e: JSONException) {
             Log.e(TAG, "Error parsing completion data: ${e.message}")
             null
@@ -113,10 +96,8 @@ object SharedPreferencesManager {
             stored.trackId != completionData.trackId ||
             stored.fileId != completionData.fileId
         ) return
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .remove(KEY_LAST_COMPLETED_TRACK)
-            .apply()
+        val write = prefs(context).edit().remove(KEY_LAST_COMPLETED_TRACK)
+        if (completionData.timerEnded != null) write.commit() else write.apply()
     }
 
     // Repeat play-throughs not yet acknowledged by Dart. A list (not a single

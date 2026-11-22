@@ -1399,5 +1399,28 @@
   "dayBoundarySave": "Guardar",
   "@dayBoundarySave": {
     "description": "Botón para guardar el inicio del día."
-  }
+  },
+  "timerBells": "Campanas",
+  "timerStartBell": "Al empezar",
+  "timerEndBell": "Al terminar",
+  "timerBellEvery": "Cada {minutes} min",
+  "timerBellInterval": "Intervalo",
+  "timerBellsOff": "Apagado",
+  "timerRandomBells": "Al azar",
+  "timerRandomBellCount": "{count} al azar",
+  "timerExtraTime": "Tiempo extra",
+  "timerExtraTimeDescription": "Al terminar, sigue contando hasta que pares.",
+  "timerExtraTimeElapsed": "Tiempo extra +{time}",
+  "timerSavedPresets": "Tus temporizadores",
+  "timerSavePreset": "Guardar este temporizador",
+  "timerPresetName": "Nombre",
+  "timerDefaultPresetName": "Mi temporizador",
+  "timerPresetSave": "Guardar",
+  "timerPresetCancel": "Cancelar",
+  "timerDeletePresetQuestion": "¿Borrar «{name}»?",
+  "timerPresetDelete": "Borrar",
+  "timerPresetLimit": "Ya tienes 20 temporizadores. Borra uno para guardar otro.",
+  "timerBellsDescription": "Campanas del temporizador según tus ajustes",
+  "timerPresetWriteError": "No se pudo guardar el cambio. Intenta de nuevo.",
+  "timerStopError": "No se pudo detener el temporizador. Intenta de nuevo."
 }

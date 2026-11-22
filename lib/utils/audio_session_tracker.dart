@@ -36,6 +36,7 @@ class AudioSessionTracker {
 
   // Active session, or null when nothing is playing.
   _Session? _active;
+  int _discardGeneration = 0;
 
   // File ids completed during this process, for [replayIfAbandoned].
   final Set<String> _completedFileIds = {};
@@ -56,26 +57,32 @@ class AudioSessionTracker {
     required String fileId,
     String? guide,
     required int durationMs,
+    int? plannedDurationMs,
   }) async {
+    final generation = _discardGeneration;
     // Switching tracks: the previous session never completed.
     if (_active != null && !_active!.ended) {
       await _abandon(reason: 'switch_track');
     }
+    if (generation != _discardGeneration) return;
 
     final session = _Session(
       fileId: fileId,
       guide: (guide == null || guide.isEmpty) ? 'unknown' : guide,
-      durationMs: durationMs,
+      plannedDurationMs: plannedDurationMs ?? durationMs,
+      fileDurationMs: durationMs,
+      hasFixedPlan: plannedDurationMs != null,
       startMs: DateTime.now().millisecondsSinceEpoch,
     );
     _active = session;
     _lastPersistAt = null;
     await _persist(session);
+    if (generation != _discardGeneration) return;
 
     await _log(AnalyticsEventConstants.audioSessionStarted, {
       AnalyticsEventConstants.paramAudioFileId: session.fileId,
       AnalyticsEventConstants.paramAudioFileGuide: session.guide,
-      AnalyticsEventConstants.paramAudioFileDuration: session.durationMs,
+      AnalyticsEventConstants.paramAudioFileDuration: session.plannedDurationMs,
     });
     AppLogger.d('SESSION', 'audio_session_started: ${session.fileId}');
   }
@@ -96,7 +103,10 @@ class AudioSessionTracker {
     if (positionMs >= 0) session.lastPositionMs = positionMs;
     // The live, measured duration is authoritative (matches the completed
     // event); only trust positive values.
-    if (durationMs > 0) session.durationMs = durationMs;
+    if (durationMs > 0) {
+      session.fileDurationMs = durationMs;
+      if (!session.hasFixedPlan) session.plannedDurationMs = durationMs;
+    }
     session.isPlaying = isPlaying;
     if (isCompleted) session.playerCompleted = true;
 
@@ -115,6 +125,7 @@ class AudioSessionTracker {
   /// completion (see [replayIfAbandoned]) can tell its session finished.
   Future<void> onCompleted({String? fileId}) async {
     if (fileId != null) _completedFileIds.add(fileId);
+    // Riesgo aceptado: el cierre tardío de una sesión puede borrar el registro de la siguiente.
     final session = _active;
     if (session != null) {
       session.ended = true;
@@ -127,6 +138,14 @@ class AudioSessionTracker {
   /// Player closed via the player's stop/close control. Abandonment unless the
   /// session already completed.
   Future<void> onStopped() => _abandon(reason: 'stopped');
+
+  /// Descarta la sesión al cerrar o cambiar de cuenta.
+  Future<void> discard() {
+    _discardGeneration++;
+    _active?.ended = true;
+    _active = null;
+    return _clearPersisted();
+  }
 
   /// PlayerView was disposed (e.g. system back gesture). Only an abandon if the
   /// session is paused — if it's still playing it continues in the background.
@@ -174,8 +193,8 @@ class AudioSessionTracker {
 
       // The app died at the very end of the track: the completion is (or is
       // about to be) delivered separately, so this is not an abandon.
-      if (session.durationMs > 0 &&
-          session.durationMs - session.lastPositionMs <= _nearEndWindowMs) {
+      if (session.fileDurationMs > 0 &&
+          session.fileDurationMs - session.lastPositionMs <= _nearEndWindowMs) {
         AppLogger.d(
           'SESSION',
           'launch replay skipped, session reached the end: ${session.fileId}',
@@ -237,7 +256,10 @@ class AudioSessionTracker {
   }) async {
     final elapsedMs = session.lastPositionMs < 0 ? 0 : session.lastPositionMs;
     final elapsedSeconds = (elapsedMs / 1000).round();
-    final percent = _bucketedPercent(elapsedMs, session.durationMs);
+    final percent =
+        session.hasExtraTime && elapsedMs >= session.plannedDurationMs
+        ? 100
+        : _bucketedPercent(elapsedMs, session.plannedDurationMs);
     // A stopwatch has no length (its file is just a long cap), so a percent
     // would always read ~0; elapsed_seconds is the measure there.
     final isStopwatch = session.fileId.startsWith('timer-stopwatch-');
@@ -245,7 +267,7 @@ class AudioSessionTracker {
     await _log(AnalyticsEventConstants.audioSessionAbandoned, {
       AnalyticsEventConstants.paramAudioFileId: session.fileId,
       AnalyticsEventConstants.paramAudioFileGuide: session.guide,
-      AnalyticsEventConstants.paramAudioFileDuration: session.durationMs,
+      AnalyticsEventConstants.paramAudioFileDuration: session.plannedDurationMs,
       if (!isStopwatch) AnalyticsEventConstants.paramPercentCompleted: percent,
       AnalyticsEventConstants.paramElapsedSeconds: elapsedSeconds,
       AnalyticsEventConstants.paramReason: reason,
@@ -270,6 +292,7 @@ class AudioSessionTracker {
   Future<void> _persist(_Session session) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!identical(_active, session) || session.ended) return;
       await prefs.setString(
         SharedPreferenceConstants.incompleteAudioSession,
         jsonEncode(session.toJson()),
@@ -302,14 +325,22 @@ class _Session {
   _Session({
     required this.fileId,
     required this.guide,
-    required this.durationMs,
+    required this.plannedDurationMs,
+    required this.fileDurationMs,
+    this.hasFixedPlan = false,
     required this.startMs,
     this.lastPositionMs = 0,
   });
 
   final String fileId;
   final String guide;
-  int durationMs;
+  int plannedDurationMs;
+  int fileDurationMs;
+  final bool hasFixedPlan;
+
+  bool get hasExtraTime =>
+      fileId.startsWith('timer-countdown-') &&
+      fileDurationMs > plannedDurationMs;
   final int startMs;
   int lastPositionMs;
 
@@ -321,7 +352,8 @@ class _Session {
   Map<String, dynamic> toJson() => {
     'fileId': fileId,
     'guide': guide,
-    'durationMs': durationMs,
+    'plannedDurationMs': plannedDurationMs,
+    'fileDurationMs': fileDurationMs,
     'startMs': startMs,
     'lastPositionMs': lastPositionMs,
   };
@@ -329,7 +361,14 @@ class _Session {
   factory _Session.fromJson(Map<String, dynamic> json) => _Session(
     fileId: (json['fileId'] as String?) ?? 'unknown',
     guide: (json['guide'] as String?) ?? 'unknown',
-    durationMs: (json['durationMs'] as num?)?.toInt() ?? 0,
+    plannedDurationMs:
+        (json['plannedDurationMs'] as num?)?.toInt() ??
+        (json['durationMs'] as num?)?.toInt() ??
+        0,
+    fileDurationMs:
+        (json['fileDurationMs'] as num?)?.toInt() ??
+        (json['durationMs'] as num?)?.toInt() ??
+        0,
     startMs: (json['startMs'] as num?)?.toInt() ?? 0,
     lastPositionMs: (json['lastPositionMs'] as num?)?.toInt() ?? 0,
   );

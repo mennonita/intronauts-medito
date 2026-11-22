@@ -1,6 +1,8 @@
 import 'dart:async';
 import '../../services/audio/ios_session_bells.dart';
 import 'package:medito/models/models.dart' show PlaybackRequest;
+import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/services/account/playback_account.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
@@ -14,11 +16,17 @@ import '../../utils/stats_updater.dart';
 import '../../utils/logger.dart';
 
 class IosAudioHandler extends BaseAudioHandler {
-  final _player = AudioPlayer();
+  final AudioPlayer _player;
   late final sessionBells = IosSessionBells(_player);
   // Distinguish a repeat boundary from terminal completion; never wait for bells.
   final _sessionCompleted = BehaviorSubject<bool>.seeded(false);
   bool _isInitialized = false;
+  bool _hasExtraTime = false;
+  bool _isTimer = false;
+  int _startGeneration = 0;
+  bool _discarded = false;
+  bool _timerPlayBlocked = false;
+  Future<void> Function()? onTimerStop;
   RepeatMode _currentRepeatMode = RepeatMode.none;
   bool _hasReplayedOnce = false;
 
@@ -33,7 +41,7 @@ class IosAudioHandler extends BaseAudioHandler {
   static const _pauseGracePeriod = Duration(minutes: 3);
   Timer? _pauseDeactivationTimer;
 
-  IosAudioHandler();
+  IosAudioHandler({AudioPlayer? player}) : _player = player ?? AudioPlayer();
 
   Future<void> ensureInitialized() async {
     if (_isInitialized) return;
@@ -59,7 +67,7 @@ class IosAudioHandler extends BaseAudioHandler {
               _player.setVolume(_player.volume * 2.0);
               break;
             case AudioInterruptionType.pause:
-              if (_player.playing) {
+              if (_player.playing && !_timerPlayBlocked) {
                 _player.play();
               }
               break;
@@ -123,7 +131,7 @@ class IosAudioHandler extends BaseAudioHandler {
           id: event.track.toString(),
           title: event.track.title,
           artist: event.track.artist,
-          duration: event.duration,
+          duration: _hasExtraTime ? null : event.duration,
           // A timer session has no cover; an empty URI is not "no art".
           artUri: event.track.imageUrl.isEmpty
               ? null
@@ -146,13 +154,16 @@ class IosAudioHandler extends BaseAudioHandler {
 
     _player.processingStateStream.listen((state) async {
       if (state != ProcessingState.completed) _sessionCompleted.add(false);
-      if (state == ProcessingState.completed) {
+      if (state == ProcessingState.completed && !_discarded) {
+        final accountGeneration = PlaybackAccount.generation;
         // Handle repeat once mode
         if (_currentRepeatMode == RepeatMode.once && !_hasReplayedOnce) {
           _hasReplayedOnce = true;
           unawaited(_recordPlaythrough());
           await _player.seek(Duration.zero);
-          await _player.play();
+          if (!_discarded && PlaybackAccount.isCurrent(accountGeneration)) {
+            await _player.play();
+          }
           return;
         }
 
@@ -172,7 +183,9 @@ class IosAudioHandler extends BaseAudioHandler {
         await sessionBells.disable();
         await _deactivateSession();
 
-        await _recordPlaythrough();
+        if (!_discarded && PlaybackAccount.isCurrent(accountGeneration)) {
+          await _recordPlaythrough();
+        }
       }
     });
 
@@ -200,17 +213,21 @@ class IosAudioHandler extends BaseAudioHandler {
       playbackState.add(
         playbackState.value.copyWith(
           controls: [
-            MediaControl.rewind,
+            if (!_hasExtraTime) MediaControl.rewind,
             if (playing) MediaControl.pause else MediaControl.play,
-            MediaControl.fastForward,
+            if (!_hasExtraTime) MediaControl.fastForward,
+            if (_isTimer) MediaControl.stop,
           ],
-          systemActions: const {
-            MediaAction.seek,
-            MediaAction.seekForward,
-            MediaAction.seekBackward,
-            MediaAction.setSpeed,
+          systemActions: {
+            if (!_hasExtraTime) ...const {
+              MediaAction.seek,
+              MediaAction.seekForward,
+              MediaAction.seekBackward,
+              MediaAction.setSpeed,
+            },
             MediaAction.pause,
             MediaAction.play,
+            if (_isTimer) MediaAction.stop,
           },
           playing: playing,
           processingState: const {
@@ -278,6 +295,7 @@ class IosAudioHandler extends BaseAudioHandler {
       );
 
   Future<void> _recordPlaythrough() {
+    if (_discarded) return Future.value();
     _completedPlaythroughs++;
     if (_completedPlaythroughs == 1) return _storeTrackCompletion();
     return _storeRepeatPlaythrough();
@@ -302,7 +320,9 @@ class IosAudioHandler extends BaseAudioHandler {
     try {
       if (duration == null) return;
 
-      final payload = await _createTrackCompletionPayload();
+      final accountGeneration = PlaybackAccount.generation;
+      final payload = _createTrackCompletionPayload();
+      if (!PlaybackAccount.isCurrent(accountGeneration)) return;
 
       // Try to update stats immediately
       if (await _tryUpdateStats(payload)) {
@@ -310,7 +330,9 @@ class IosAudioHandler extends BaseAudioHandler {
       }
 
       // Failed to update stats directly, store for later processing
-      await _storeForLaterProcessing(payload);
+      if (PlaybackAccount.isCurrent(accountGeneration)) {
+        await _storeForLaterProcessing(payload, accountGeneration);
+      }
     } catch (e) {
       AppLogger.e(
         'IOS',
@@ -320,7 +342,7 @@ class IosAudioHandler extends BaseAudioHandler {
   }
 
   /// Creates a payload map with all track completion data
-  Future<Map<String, dynamic>> _createTrackCompletionPayload() async {
+  Map<String, dynamic> _createTrackCompletionPayload() {
     return {
       TypeConstants.trackIdKey: trackState.id,
       TypeConstants.durationIdKey: duration?.inMilliseconds ?? 0,
@@ -350,22 +372,29 @@ class IosAudioHandler extends BaseAudioHandler {
   }
 
   /// Store track completion data for later processing
-  Future<void> _storeForLaterProcessing(Map<String, dynamic> payload) async {
+  Future<void> _storeForLaterProcessing(
+    Map<String, dynamic> payload,
+    int accountGeneration,
+  ) async {
     AppLogger.d(
       'IOS',
       'Storing track completion for later processing: ${trackState.id}',
     );
     final prefs = await SharedPreferences.getInstance();
-    await storeTrackCompletion(prefs, payload);
+    if (PlaybackAccount.isCurrent(accountGeneration)) {
+      await storeTrackCompletion(prefs, payload);
+    }
   }
 
   @override
-  Future<void> seek(Duration position) {
+  Future<void> seek(Duration position) async {
+    if (_hasExtraTime) return;
     return _player.seek(position);
   }
 
   @override
-  Future<void> setSpeed(double speed) {
+  Future<void> setSpeed(double speed) async {
+    if (_hasExtraTime) return;
     return _player.setSpeed(speed);
   }
 
@@ -388,10 +417,14 @@ class IosAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> play() async {
+    final generation = _startGeneration;
+    if (_discarded || _timerPlayBlocked) return;
     _cancelPauseDeactivationTimer();
 
     final session = await AudioSession.instance;
+    if (generation != _startGeneration) return;
     await session.setActive(true);
+    if (generation != _startGeneration) return;
 
     unawaited(_player.play());
     // Bells follow _player on their own; resume the ambient sound if any.
@@ -410,14 +443,41 @@ class IosAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> stop() async {
+    final close = onTimerStop;
+    if (_isTimer && !isComplete && close != null) {
+      await close();
+      return;
+    }
+    await stopPlayback();
+  }
+
+  Future<void> discardPlayback() {
+    _discarded = true;
+    onTimerStop = null;
+    iosAmbientActive = false;
+    return stopPlayback();
+  }
+
+  Future<void> stopPlayback() async {
+    if (_isTimer) _timerPlayBlocked = true;
+    final generation = ++_startGeneration;
     _cancelPauseDeactivationTimer();
-    await sessionBells.disable();
-    // Await the players so their audio I/O has actually stopped before we
-    // deactivate; iOS rejects deactivation while the shared session is busy.
-    await _player.stop();
-    await iosBackgroundPlayer.pause();
-    unawaited(super.stop());
-    await _deactivateSession();
+    if (_isTimer) {
+      await Future.wait([
+        sessionBells.disable(),
+        _player.stop(),
+        iosBackgroundPlayer.pause(),
+      ]);
+    } else {
+      await sessionBells.disable();
+      // iOS solo desactiva la sesión cuando los reproductores se detienen.
+      await _player.stop();
+      await iosBackgroundPlayer.pause();
+    }
+    if (generation == _startGeneration) {
+      unawaited(super.stop());
+      await _deactivateSession();
+    }
   }
 
   /// Schedules release of the audio session after [_pauseGracePeriod] if the
@@ -461,7 +521,17 @@ class IosAudioHandler extends BaseAudioHandler {
     PlaybackRequest request,
     Track trackData,
   ) async {
+    final generation = ++_startGeneration;
     await ensureInitialized();
+    if (generation != _startGeneration) return;
+    if (_isTimer || request.isTimer) {
+      await _player.pause();
+      if (generation != _startGeneration) return;
+      await _player.setSpeed(1.0);
+      if (generation != _startGeneration) return;
+    }
+    _hasExtraTime = request.hasExtraTime;
+    _isTimer = request.isTimer;
 
     _hasReplayedOnce = false;
     _completedPlaythroughs = 0;
@@ -476,8 +546,12 @@ class IosAudioHandler extends BaseAudioHandler {
       await _player.setAsset(downloadPath);
     }
 
+    if (generation != _startGeneration) return;
     await setCustomRepeatMode(_currentRepeatMode);
+    if (generation != _startGeneration) return;
 
+    _discarded = false;
+    _timerPlayBlocked = false;
     _trackStateSubject.add(trackData);
   }
 }

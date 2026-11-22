@@ -1,5 +1,8 @@
 import 'package:medito/models/player/playback_request.dart';
 
+import '../background_sounds/background_sounds_model.dart';
+import 'timer_bell_settings.dart';
+
 /// The two ways the home Timer runs: down from a chosen length, or up until
 /// the user ends it.
 enum TimerMode { countdown, stopwatch }
@@ -51,6 +54,16 @@ String timerFileId(TimerMode mode, Duration duration) =>
     'timer-${mode.name}-${duration.inMilliseconds}';
 
 extension TimerPlaybackRequest on PlaybackRequest {
+  int get plannedDurationMs => timerPlannedDurationMs ?? duration;
+  bool get hasExtraTime =>
+      isTimer &&
+      timerMode == TimerMode.countdown &&
+      plannedDurationMs < duration;
+
+  BackgroundSoundsModel? resolveBackgroundSound(
+    BackgroundSoundsModel? global,
+  ) => overrideBackgroundSound ? backgroundSound : global;
+
   bool get isTimer => isTimerSessionId(trackId);
 
   TimerMode get timerMode =>
@@ -68,9 +81,25 @@ PlaybackRequest timerPlaybackRequest({
   required String filePath,
   required String title,
   String? coverUrl,
+  TimerBellSettings bells = const TimerBellSettings(),
+  bool extraTime = false,
+  int? seed,
+  String? stopLabel,
+  bool overrideBackgroundSound = false,
+  BackgroundSoundsModel? backgroundSound,
 }) {
+  final hasExtraTime = mode == TimerMode.countdown && extraTime;
+  final fileDuration = hasExtraTime ? kStopwatchMaxDuration : duration;
+  final sessionSeed = seed ?? DateTime.now().millisecondsSinceEpoch;
+  final cues = buildTimerBellCues(
+    settings: bells,
+    mode: mode,
+    plannedDuration: duration,
+    extraTime: hasExtraTime,
+    seed: sessionSeed,
+  );
   return PlaybackRequest(
-    trackId: timerSessionId(duration),
+    trackId: timerSessionId(fileDuration),
     fileId: timerFileId(
       mode,
       mode == TimerMode.stopwatch ? Duration.zero : duration,
@@ -79,7 +108,15 @@ PlaybackRequest timerPlaybackRequest({
     description: '',
     coverUrl: coverUrl ?? '',
     remoteUrl: Uri.file(filePath).toString(),
-    duration: duration.inMilliseconds,
+    duration: fileDuration.inMilliseconds,
+    timerPlannedDurationMs: duration.inMilliseconds,
+    timerSeed: sessionSeed,
+    timerStopLabel: stopLabel,
+    timerBellOffsetsMs: cues.offsetsMs,
+    timerEndBellOffsetMs: cues.endOffsetMs,
+    timerEndBellEnabled: bells.end,
+    overrideBackgroundSound: overrideBackgroundSound,
+    backgroundSound: backgroundSound,
     hasBackgroundSound: true,
   );
 }

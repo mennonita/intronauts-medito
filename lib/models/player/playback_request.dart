@@ -1,5 +1,6 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:medito/models/track/track.dart';
+import '../background_sounds/background_sounds_model.dart';
 
 part 'playback_request.freezed.dart';
 part 'playback_request.g.dart';
@@ -21,6 +22,14 @@ abstract class PlaybackRequest with _$PlaybackRequest {
     required bool hasBackgroundSound,
     String? guideName,
     TrackArtist? artist,
+    int? timerPlannedDurationMs,
+    int? timerSeed,
+    String? timerStopLabel,
+    List<int>? timerBellOffsetsMs,
+    int? timerEndBellOffsetMs,
+    @Default(true) bool timerEndBellEnabled,
+    @Default(false) bool overrideBackgroundSound,
+    BackgroundSoundsModel? backgroundSound,
   }) = _PlaybackRequest;
 
   factory PlaybackRequest.fromJson(Map<String, Object?> json) =>

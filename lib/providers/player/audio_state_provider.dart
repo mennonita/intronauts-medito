@@ -10,10 +10,12 @@ import '../../src/audio_pigeon.g.dart';
 import '../../utils/audio_session_tracker.dart';
 import '../../utils/stats_updater.dart';
 import '../../utils/stats_updater.dart' as stats_updater;
+import '../timer/native_timer_close_recovery.dart';
 
 class AudioStateProvider implements MeditoAudioServiceCallbackApi {
   final AudioStateNotifier notifier;
   final WidgetRef? ref;
+  final _timerRecovery = NativeTimerCloseRecovery();
 
   AudioStateProvider(this.notifier, {this.ref});
 
@@ -52,6 +54,9 @@ class AudioStateProvider implements MeditoAudioServiceCallbackApi {
   @override
   Future<bool> handleCompletedTrack(CompletionData completionData) async {
     try {
+      if (completionData.timerEnded != null) {
+        return await _timerRecovery.handle(completionData);
+      }
       return await handleStats({
         TypeConstants.trackIdKey: completionData.trackId,
         TypeConstants.durationIdKey: completionData.duration,

@@ -2870,4 +2870,86 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get dayBoundarySave => 'Guardar';
+
+  @override
+  String get timerBells => 'Campanas';
+
+  @override
+  String get timerStartBell => 'Al empezar';
+
+  @override
+  String get timerEndBell => 'Al terminar';
+
+  @override
+  String timerBellEvery(int minutes) {
+    return 'Cada $minutes min';
+  }
+
+  @override
+  String get timerBellInterval => 'Intervalo';
+
+  @override
+  String get timerBellsOff => 'Apagado';
+
+  @override
+  String get timerRandomBells => 'Al azar';
+
+  @override
+  String timerRandomBellCount(int count) {
+    return '$count al azar';
+  }
+
+  @override
+  String get timerExtraTime => 'Tiempo extra';
+
+  @override
+  String get timerExtraTimeDescription =>
+      'Al terminar, sigue contando hasta que pares.';
+
+  @override
+  String timerExtraTimeElapsed(String time) {
+    return 'Tiempo extra +$time';
+  }
+
+  @override
+  String get timerSavedPresets => 'Tus temporizadores';
+
+  @override
+  String get timerSavePreset => 'Guardar este temporizador';
+
+  @override
+  String get timerPresetName => 'Nombre';
+
+  @override
+  String get timerDefaultPresetName => 'Mi temporizador';
+
+  @override
+  String get timerPresetSave => 'Guardar';
+
+  @override
+  String get timerPresetCancel => 'Cancelar';
+
+  @override
+  String timerDeletePresetQuestion(String name) {
+    return '¿Borrar «$name»?';
+  }
+
+  @override
+  String get timerPresetDelete => 'Borrar';
+
+  @override
+  String get timerPresetLimit =>
+      'Ya tienes 20 temporizadores. Borra uno para guardar otro.';
+
+  @override
+  String get timerBellsDescription =>
+      'Campanas del temporizador según tus ajustes';
+
+  @override
+  String get timerPresetWriteError =>
+      'No se pudo guardar el cambio. Intenta de nuevo.';
+
+  @override
+  String get timerStopError =>
+      'No se pudo detener el temporizador. Intenta de nuevo.';
 }

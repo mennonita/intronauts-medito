@@ -2831,4 +2831,83 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dayBoundarySave => 'Save';
+
+  @override
+  String get timerBells => 'Bells';
+
+  @override
+  String get timerStartBell => 'At the start';
+
+  @override
+  String get timerEndBell => 'At the end';
+
+  @override
+  String timerBellEvery(int minutes) {
+    return 'Every $minutes min';
+  }
+
+  @override
+  String get timerBellInterval => 'Interval';
+
+  @override
+  String get timerBellsOff => 'Off';
+
+  @override
+  String get timerRandomBells => 'Random';
+
+  @override
+  String timerRandomBellCount(int count) {
+    return '$count at random';
+  }
+
+  @override
+  String get timerExtraTime => 'Extra time';
+
+  @override
+  String get timerExtraTimeDescription =>
+      'When the timer ends, it keeps counting until you stop.';
+
+  @override
+  String timerExtraTimeElapsed(String time) {
+    return 'Extra time +$time';
+  }
+
+  @override
+  String get timerSavedPresets => 'Your timers';
+
+  @override
+  String get timerSavePreset => 'Save this timer';
+
+  @override
+  String get timerPresetName => 'Name';
+
+  @override
+  String get timerDefaultPresetName => 'My timer';
+
+  @override
+  String get timerPresetSave => 'Save';
+
+  @override
+  String get timerPresetCancel => 'Cancel';
+
+  @override
+  String timerDeletePresetQuestion(String name) {
+    return 'Delete “$name”?';
+  }
+
+  @override
+  String get timerPresetDelete => 'Delete';
+
+  @override
+  String get timerPresetLimit =>
+      'You have 20 timers. Delete one to save another.';
+
+  @override
+  String get timerBellsDescription => 'Timer bells follow your settings';
+
+  @override
+  String get timerPresetWriteError => 'Unable to save the change. Try again.';
+
+  @override
+  String get timerStopError => 'Unable to stop the timer. Try again.';
 }

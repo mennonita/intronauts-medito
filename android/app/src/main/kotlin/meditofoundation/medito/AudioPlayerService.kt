@@ -7,12 +7,15 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -24,8 +27,14 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import androidx.media3.session.MediaStyleNotificationHelper
 import io.flutter.embedding.engine.FlutterEngineCache
 import kotlinx.coroutines.CoroutineScope
@@ -65,11 +74,19 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private lateinit var backgroundMusicPlayer: ExoPlayer
     private lateinit var sessionBells: SessionBellPlayer
     private var primaryMediaSession: MediaSession? = null
+    private var timerRegisteredSession: MediaSession? = null
     private var meditoAudioApi: MeditoAudioServiceCallbackApi? = null
+    private var timerSeed: Long? = null
+    private var timerStopLabel: String? = null
+    private var timerHasExtraTime = false
+    private var lastTimerStop: Pair<Long, TimerStopReport>? = null
+    private var playbackAttempt = 0L
+    private var timerPlaybackStopped = false
+    private var pendingTimerBellOffsets: List<Long>? = null
+    private var pendingTimerBellsEnabled = false
     private var isCompletionHandled = false
     private var hasAudioFocus = false
     private var isServiceFullyInitialized = false
-    private var flutterEngine: io.flutter.embedding.engine.FlutterEngine? = null
     private lateinit var audioManager: AudioManager
     private var currentRepeatMode: RepeatMode = RepeatMode.NONE
 
@@ -356,9 +373,145 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     private fun createMediaSession(): MediaSession {
-        return MediaSession.Builder(this, primaryPlayer)
+        val player = object : ForwardingPlayer(primaryPlayer) {
+            override fun stop() {
+                if (timerSeed != null) requestSystemTimerStop() else super.stop()
+            }
+        }
+        return MediaSession.Builder(this, player)
             .setId("MeditoAudioSession_${System.currentTimeMillis()}")
+            .setCustomLayout(timerStopLayout())
+            .setCallback(object : MediaSession.Callback {
+                override fun onConnect(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo
+                ): MediaSession.ConnectionResult {
+                    return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                        .setAvailablePlayerCommands(mediaPlayerCommands())
+                        .setAvailableSessionCommands(mediaSessionCommands())
+                        .setCustomLayout(timerStopLayout())
+                        .build()
+                }
+
+                override fun onPostConnect(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo
+                ) {
+                    if (timerSeed != null && session.mediaNotificationControllerInfo == controller) {
+                        applyTimerNotificationControls(session, controller)
+                    }
+                }
+
+                override fun onCustomCommand(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    customCommand: SessionCommand,
+                    args: Bundle
+                ): ListenableFuture<SessionResult> {
+                    val result = when {
+                        customCommand != timerStopCommand() -> SessionResult.RESULT_ERROR_NOT_SUPPORTED
+                        requestSystemTimerStop() -> SessionResult.RESULT_SUCCESS
+                        else -> SessionResult.RESULT_ERROR_UNKNOWN
+                    }
+                    return Futures.immediateFuture(SessionResult(result))
+                }
+
+                override fun onMediaButtonEvent(
+                    session: MediaSession,
+                    controllerInfo: MediaSession.ControllerInfo,
+                    intent: Intent
+                ): Boolean {
+                    val event = IntentCompat.getParcelableExtra(
+                        intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java
+                    ) ?: return false
+                    if (event.keyCode == KeyEvent.KEYCODE_MEDIA_STOP && timerSeed != null) {
+                        if (event.action == KeyEvent.ACTION_DOWN) requestSystemTimerStop()
+                        return true
+                    }
+                    return timerHasExtraTime && event.keyCode in extraTimeBlockedKeys
+                }
+
+                override fun onPlayerCommandRequest(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    playerCommand: Int
+                ): Int {
+                    if (!TimerMediaCommands.allows(timerHasExtraTime, playerCommand)) {
+                        return SessionResult.RESULT_ERROR_NOT_SUPPORTED
+                    }
+                    return SessionResult.RESULT_SUCCESS
+                }
+            })
             .build()
+    }
+
+    private fun timerStopCommand(): SessionCommand? {
+        val seed = timerSeed ?: return null
+        if (timerStopLabel == null) return null
+        return SessionCommand("$ACTION_TIMER_STOP/$seed", Bundle.EMPTY)
+    }
+
+    private fun timerStopLayout(): List<CommandButton> {
+        val label = timerStopLabel ?: return emptyList()
+        val command = timerStopCommand() ?: return emptyList()
+        return listOf(
+            CommandButton.Builder(CommandButton.ICON_STOP)
+                .setSessionCommand(command)
+                .setDisplayName(label)
+                .build()
+        )
+    }
+
+    private fun mediaPlayerCommands(): Player.Commands =
+        if (timerHasExtraTime) Player.Commands.Builder()
+            .addAll(*TimerMediaCommands.extraTime.toIntArray())
+            .build()
+        else MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+
+    private fun mediaSessionCommands(): SessionCommands {
+        val defaults = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
+        val stop = timerStopCommand() ?: return defaults
+        return defaults.buildUpon().add(stop).build()
+    }
+
+    private fun updateTimerMediaControls(session: MediaSession) {
+        if (timerSeed != null && !isSessionAdded(session)) {
+            // La reproducción desde Flutter no pasa por onGetSession.
+            // El registro conecta el controlador que publica los comandos de Android.
+            timerRegisteredSession = session
+            addSession(session)
+        }
+
+        val notificationController = session.mediaNotificationControllerInfo
+        val playerCommands = mediaPlayerCommands()
+        val sessionCommands = mediaSessionCommands()
+        for (controller in session.connectedControllers) {
+            if (controller != notificationController) {
+                session.setAvailableCommands(controller, sessionCommands, playerCommands)
+            }
+        }
+        session.setCustomLayout(timerStopLayout())
+        notificationController?.let { applyTimerNotificationControls(session, it) }
+
+        if (timerSeed == null && timerRegisteredSession === session) {
+            if (isSessionAdded(session)) removeSession(session)
+            timerRegisteredSession = null
+        }
+    }
+
+    private fun applyTimerNotificationControls(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo
+    ) {
+        session.setAvailableCommands(controller, mediaSessionCommands(), mediaPlayerCommands())
+        // Media3 actualiza el PlaybackState de Android al aplicar este diseño al controlador.
+        session.setCustomLayout(controller, timerStopLayout())
+    }
+
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        // El servicio publica la notificación del temporizador con sus propias acciones.
+        if (timerSeed != null || timerRegisteredSession === session) return
+        super.onUpdateNotification(session, startInForegroundRequired)
     }
 
     override fun onCreate() {
@@ -368,7 +521,6 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // Flutter Engine and API setup is handled in onStartCommand
-        // flutterEngine = FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID) ?: run { ... }
 
         try {
             primaryPlayer = ExoPlayer.Builder(this)
@@ -626,6 +778,13 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         
         // Handle media button actions from notification
         when (intent?.action) {
+            ACTION_TIMER_STOP -> {
+                if (::primaryPlayer.isInitialized &&
+                    intent.getLongExtra(KEY_TIMER_SEED, 0L) == timerSeed) {
+                    requestSystemTimerStop()
+                }
+                return START_NOT_STICKY
+            }
             ACTION_PLAY_PAUSE -> {
                 Log.d(TAG, "🔊 Handling play/pause action from notification")
                 playPauseAudio()
@@ -685,7 +844,6 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             try {
                 FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID)?.let { engine ->
                     Log.d(TAG, "🔊 Found Flutter engine in cache")
-                    flutterEngine = engine // Save engine reference
                     withContext(Dispatchers.Main) {
                         MeditoAudioServiceApi.setUp(
                             engine.dartExecutor.binaryMessenger,
@@ -795,8 +953,10 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             return false
         }
 
+        val attempt = ++playbackAttempt
         isCompletionHandled = false
         playbackGeneration = SharedPreferencesManager.currentGeneration()
+        val accountGeneration = playbackGeneration
         completedPlaythroughs = 0
         sessionBells.reset()
 
@@ -806,7 +966,24 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
             // Stop any existing playback
             Log.d(TAG, "🔊 Stopping any existing primary playback")
+            if (audioData.timerSeed != null) primaryPlayer.pause()
             resetPrimaryQueue()
+            timerSeed = audioData.timerSeed
+            timerStopLabel = audioData.timerStopLabel
+            timerHasExtraTime = timerSeed != null && audioData.timerHasExtraTime == true
+            ensureMediaSession()
+            primaryMediaSession?.let(::updateTimerMediaControls)
+            lastTimerStop = null
+            timerPlaybackStopped = false
+            if (timerSeed != null) currentRepeatMode = RepeatMode.NONE
+            primaryPlayer.setPlaybackSpeed(1.0f)
+            sessionBells.configure(
+                pendingTimerBellOffsets,
+                audioData.timerEndBellOffsetMs,
+                pendingTimerBellsEnabled,
+                backgroundMusicVolume
+            )
+            installingTimerBellCues = false
 
             // Apply current repeat mode
             configurePrimaryPlaylist(buildPrimaryMediaItem(audioData), currentRepeatMode)
@@ -820,14 +997,13 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                 Log.w(TAG, "⚠️ Audio focus not granted initially, but continuing with playback attempt")
             }
 
-            // Ensure MediaSession is ready (important for Android 16+)
-            ensureMediaSession()
-            
             // Prepare the player
             primaryPlayer.prepare()
             
             // Helper function to start playback once ready
-            val startPlayback = {
+            val startPlayback = start@{
+                if (playbackAttempt != attempt ||
+                    accountGeneration != SharedPreferencesManager.currentGeneration()) return@start
                 // Ensure we still have audio focus or request it again
                 if (!hasAudioFocus) {
                     requestAudioFocus()
@@ -849,10 +1025,18 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                 }
             }
             
+            val startWhenPrepared = {
+                if (audioData.timerSeed != null) {
+                    sessionBells.whenPrepared(startPlayback)
+                } else {
+                    startPlayback()
+                }
+            }
+
             // Check if player is already ready
             if (primaryPlayer.playbackState == Player.STATE_READY) {
                 Log.d(TAG, "🔊 Player already ready, starting playback immediately")
-                startPlayback()
+                startWhenPrepared()
             } else {
                 // Wait for player to be ready before playing (important for Android 16+)
                 // Use a listener to start playback once ready
@@ -864,7 +1048,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                             isHandled = true
                             Log.d(TAG, "🔊 Player is ready, starting playback")
                             primaryPlayer.removeListener(this)
-                            startPlayback()
+                            startWhenPrepared()
                         } else if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
                             if (!isHandled) {
                                 isHandled = true
@@ -888,9 +1072,10 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     private fun updateNotification() {
-        if (!::primaryPlayer.isInitialized) return
+        if (!::primaryPlayer.isInitialized || timerPlaybackStopped) return
 
         val mediaItem = primaryPlayer.currentMediaItem ?: return
+        val notificationTimerSeed = timerSeed
         val title = mediaItem.mediaMetadata?.title?.toString() ?: "Medito"
         val artist = mediaItem.mediaMetadata?.artist?.toString() ?: "Medito"
 
@@ -908,12 +1093,16 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                 }
 
                 withContext(Dispatchers.Main) {
-                    showNotification(createNotificationBuilder(title, artist, artworkBitmap).build())
+                    if (!timerPlaybackStopped && notificationTimerSeed == timerSeed) {
+                        showNotification(createNotificationBuilder(title, artist, artworkBitmap).build())
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    showNotification(createNotificationBuilder(title, artist, null).build())
+                    if (!timerPlaybackStopped && notificationTimerSeed == timerSeed) {
+                        showNotification(createNotificationBuilder(title, artist, null).build())
+                    }
                 }
             }
         }
@@ -960,7 +1149,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
 
         // Skip backward action
-        builder.addAction(
+        if (!timerHasExtraTime) builder.addAction(
             NotificationCompat.Action(
                 R.drawable.ic_skip_backward,
                 "Skip Backward",
@@ -980,7 +1169,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         )
 
         // Skip forward action
-        builder.addAction(
+        if (!timerHasExtraTime) builder.addAction(
             NotificationCompat.Action(
                 R.drawable.ic_skip_forward,
                 "Skip Forward",
@@ -988,12 +1177,29 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             )
         )
 
+        timerStopLabel?.let { label ->
+            val stopIntent = Intent(this, AudioPlayerService::class.java).apply {
+                action = ACTION_TIMER_STOP
+                putExtra(KEY_TIMER_SEED, timerSeed ?: 0L)
+                data = Uri.parse("medito://timer-stop/$timerSeed")
+            }
+            builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                label,
+                PendingIntent.getService(this, 0, stopIntent, pendingIntentFlags)
+            )
+        }
+
         // Apply MediaStyle with actions shown in compact view
         primaryMediaSession?.let { session ->
-            builder.setStyle(
-                MediaStyleNotificationHelper.MediaStyle(session)
-                    .setShowActionsInCompactView(0, 1, 2)  // Show all 3 actions in compact view
-            )
+            val style = MediaStyleNotificationHelper.MediaStyle(session)
+            if (timerHasExtraTime) {
+                if (timerStopLabel != null) style.setShowActionsInCompactView(0, 1)
+                else style.setShowActionsInCompactView(0)
+            } else {
+                style.setShowActionsInCompactView(0, 1, 2)
+            }
+            builder.setStyle(style)
         }
 
         return builder
@@ -1098,7 +1304,15 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             Log.w(TAG, "setSessionBells($enabled) before the service was ready")
             return
         }
-        if (enabled) sessionBells.enable(backgroundMusicVolume) else sessionBells.disable()
+        if (pendingTimerBellOffsets != null) pendingTimerBellsEnabled = enabled
+        if (!installingTimerBellCues) sessionBells.setEnabled(enabled, backgroundMusicVolume)
+    }
+
+    private var installingTimerBellCues = false
+
+    override fun setBellCues(useTrackSchedule: Boolean, offsetsMs: List<Long>) {
+        pendingTimerBellOffsets = if (useTrackSchedule) null else offsetsMs
+        installingTimerBellCues = !useTrackSchedule
     }
 
     override fun setBackgroundSoundVolume(volume: Double) {
@@ -1114,11 +1328,13 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     override fun seekToPosition(position: Long) {
+        if (timerHasExtraTime) return
         isCompletionHandled = false
         primaryPlayer.seekTo(position)
     }
 
     override fun setSpeed(speed: Double) {
+        if (timerHasExtraTime) return
         primaryPlayer.setPlaybackSpeed(speed.toFloat())
     }
 
@@ -1131,7 +1347,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     private fun seekBy(deltaMs: Long) {
-        if (!::primaryPlayer.isInitialized) return
+        if (timerHasExtraTime || !::primaryPlayer.isInitialized) return
 
         val currentPosition = primaryPlayer.currentPosition
         val targetPosition = if (deltaMs > 0) {
@@ -1175,13 +1391,97 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
     }
 
+    private fun requestSystemTimerStop(): Boolean {
+        val seed = timerSeed ?: return false
+        val engine = FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID)
+        val report = stopTimerPlayback(seed, systemStop = true)
+        if (report.stopped && engine != null) {
+            MeditoTimerStopCallbackApi(engine.dartExecutor.binaryMessenger).timerStopped(seed, report) { result ->
+                result.exceptionOrNull()?.let {
+                    Log.e(TAG, "No se pudo comunicar el cierre del temporizador", it)
+                }
+            }
+        }
+        return report.stopped
+    }
+
+    override fun stopTimerPlayback(sessionSeed: Long): TimerStopReport =
+        stopTimerPlayback(sessionSeed, systemStop = false)
+
+    private fun stopTimerPlayback(sessionSeed: Long, systemStop: Boolean): TimerStopReport {
+        if (playbackGeneration != SharedPreferencesManager.currentGeneration()) {
+            return TimerStopReport(0L, false, false)
+        }
+        lastTimerStop?.let { (seed, report) ->
+            if (seed == sessionSeed) return report
+        }
+        if (timerSeed != sessionSeed || isCompletionHandled) {
+            return TimerStopReport(0L, false, false)
+        }
+
+        val position = primaryPlayer.currentPosition
+        val completion = if (systemStop) {
+            val fileId = primaryPlayer.currentMediaItem?.mediaMetadata?.extras?.getString(KEY_FILE_ID).orEmpty()
+            NativeCompletionRecord.timerClose(fileId, position, System.currentTimeMillis())
+        } else null
+        playbackAttempt++
+        var endCueRang = false
+        try {
+            endCueRang = sessionBells.stopAndReportEnd()
+            stopPlayers(clearTimerQueue = true)
+        } catch (error: Exception) {
+            Log.e(TAG, "No se pudo detener el temporizador", error)
+            return TimerStopReport(position, endCueRang, false)
+        }
+        val generation = playbackGeneration
+        val saved = completion != null &&
+            SharedPreferencesManager.saveCompletionData(this, completion, generation)
+        val report = TimerStopReport(position, endCueRang, true, saved)
+        lastTimerStop = sessionSeed to report
+        finishManualStop()
+        if (saved && completion != null) {
+            val engine = FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID)
+            engine?.let {
+                MeditoAudioServiceCallbackApi(it.dartExecutor.binaryMessenger).handleCompletedTrack(completion) { result ->
+                    if (result.getOrNull() == true) {
+                        SharedPreferencesManager.clearCompletionData(this, completion, generation)
+                    }
+                }
+            }
+        }
+        return report
+    }
+
     override fun stopAudio() {
+        playbackAttempt++
         sessionBells.disable()
-        isCompletionHandled = false
+        stopPlayers(clearTimerQueue = timerSeed != null)
+        finishManualStop()
+    }
+
+    private fun stopPlayers(clearTimerQueue: Boolean) {
         primaryPlayer.stop()
         backgroundMusicPlayer.stop()
-        clearNotification()
+        if (clearTimerQueue) {
+            backgroundSoundUri = null
+            primaryPlayer.clearMediaItems()
+            backgroundMusicPlayer.clearMediaItems()
+        }
+    }
+
+    private fun finishManualStop() {
+        if (timerSeed != null) timerPlaybackStopped = true
+        timerSeed = null
+        timerStopLabel = null
+        timerHasExtraTime = false
+        isCompletionHandled = false
         stopPositionUpdates()
+        try {
+            primaryMediaSession?.let(::updateTimerMediaControls)
+            clearNotification()
+        } catch (error: Exception) {
+            Log.e(TAG, "No se pudieron quitar los controles del reproductor", error)
+        }
     }
 
     override fun playPauseAudio() {
@@ -1410,6 +1710,14 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         private const val TAG = "MeditoAudioService"
         const val ACTION_BIND_SERVICE = "meditofoundation.medito.BIND_SERVICE"
         const val ACTION_PLAY_PAUSE = "meditofoundation.medito.ACTION_PLAY_PAUSE"
+        private val extraTimeBlockedKeys = setOf(
+            KeyEvent.KEYCODE_MEDIA_NEXT,
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+            KeyEvent.KEYCODE_MEDIA_REWIND
+        )
+        const val ACTION_TIMER_STOP = "meditofoundation.medito.ACTION_TIMER_STOP"
+        const val KEY_TIMER_SEED = "timer_seed"
         const val ACTION_SKIP_FORWARD = "meditofoundation.medito.ACTION_SKIP_FORWARD"
         const val ACTION_SKIP_BACKWARD = "meditofoundation.medito.ACTION_SKIP_BACKWARD"
         private const val KEY_ARTIST_URL = "artistUrl"

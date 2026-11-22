@@ -7,8 +7,10 @@ import 'package:medito/constants/constants.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/models.dart';
+import 'package:medito/models/timer/timer_preset.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/providers.dart';
+import 'package:medito/providers/timer/timer_presets_provider.dart';
 import 'package:medito/providers/timer/timer_settings_provider.dart';
 import 'package:medito/repositories/background_sounds/background_sounds_repository.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
@@ -22,7 +24,9 @@ import 'package:medito/views/player/player_view.dart';
 import 'package:medito/widgets/inputs/medito_segmented_tabs.dart';
 import 'package:medito/views/player/widgets/bottom_actions/single_back_action_bar.dart';
 
+import 'widgets/timer_bell_controls.dart';
 import 'widgets/timer_duration_wheels.dart';
+import 'widgets/timer_preset_name_dialog.dart';
 
 /// The home Timer: pick a length (or an open-ended stopwatch) and a sound,
 /// then sit with the regular player. Works fully offline — the session is a
@@ -100,8 +104,9 @@ class _TimerViewState extends ConsumerState<TimerView> {
     }
   }
 
-  Future<void> _start() async {
-    final settings = ref.read(timerSettingsProvider);
+  Future<void> _start([TimerPreset? preset]) async {
+    final settings =
+        preset?.settings ?? ref.read<TimerSettings>(timerSettingsProvider);
     if (_starting || !settings.canStart) return;
     setState(() => _starting = true);
     final l10n = AppLocalizations.of(context)!;
@@ -109,7 +114,7 @@ class _TimerViewState extends ConsumerState<TimerView> {
 
     try {
       final duration = settings.sessionDuration;
-      final path = await TimerAudioFile.prepare(duration);
+      final path = await TimerAudioFile.prepare(settings.fileDuration);
       final request = timerPlaybackRequest(
         mode: settings.mode,
         duration: duration,
@@ -118,6 +123,11 @@ class _TimerViewState extends ConsumerState<TimerView> {
             ? l10n.timerModeStopwatch
             : l10n.timerTitle,
         coverUrl: _coverUrl,
+        bells: settings.bells,
+        extraTime: settings.hasExtraTime,
+        stopLabel: l10n.timerEndSession,
+        overrideBackgroundSound: preset != null,
+        backgroundSound: preset?.sound,
       );
       unawaited(
         FirebaseAnalyticsService().logEvent(
@@ -127,10 +137,18 @@ class _TimerViewState extends ConsumerState<TimerView> {
             AnalyticsEventConstants.paramDurationMinutes:
                 settings.mode == TimerMode.stopwatch ? 0 : settings.minutes,
             if (settings.mode == TimerMode.countdown)
-              AnalyticsEventConstants.paramLengthSource: _lengthSource,
+              AnalyticsEventConstants.paramLengthSource: preset == null
+                  ? _lengthSource
+                  : 'preset',
             // Ambient sound and bells, as last left in the player.
             AnalyticsEventConstants.paramSoundId:
-                _soundRepo.getSelectedBgSoundFromSharedPreferences()?.id ??
+                request
+                    .resolveBackgroundSound(
+                      preset == null
+                          ? _soundRepo.getSelectedBgSoundFromSharedPreferences()
+                          : null,
+                    )
+                    ?.id ??
                 kNoneBackgroundSoundId,
             AnalyticsEventConstants.paramSessionBells:
                 _soundRepo.getSessionBellsEnabled(forTimer: true) ? 1 : 0,
@@ -157,6 +175,57 @@ class _TimerViewState extends ConsumerState<TimerView> {
     }
   }
 
+  Future<void> _savePreset(TimerSettings settings) async {
+    final sound = _soundRepo.getSelectedBgSoundFromSharedPreferences();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const TimerPresetNameDialog(),
+    );
+    if (!mounted || name == null) return;
+    final saved = await ref
+        .read(timerPresetsProvider.notifier)
+        .save(
+          name,
+          settings,
+          sound?.id == kNoneBackgroundSoundId ? null : sound,
+        );
+    if (!saved) _showPresetWriteError();
+  }
+
+  Future<void> _deletePreset(TimerPreset preset) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.timerDeletePresetQuestion(preset.name)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.timerPresetCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(l10n.timerPresetDelete),
+          ),
+        ],
+      ),
+    );
+    if (mounted && confirmed == true) {
+      final deleted = await ref
+          .read(timerPresetsProvider.notifier)
+          .delete(preset);
+      if (!deleted) _showPresetWriteError();
+    }
+  }
+
+  void _showPresetWriteError() {
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l10n.timerPresetWriteError)));
+  }
+
   void _selectPreset(int minutes) {
     unawaited(HapticFeedback.selectionClick());
     _lengthSource = 'preset';
@@ -169,6 +238,9 @@ class _TimerViewState extends ConsumerState<TimerView> {
     final l10n = AppLocalizations.of(context)!;
     final settings = ref.watch(timerSettingsProvider);
     final isStopwatch = settings.mode == TimerMode.stopwatch;
+    final presets = ref.watch(timerPresetsProvider);
+    final atPresetLimit = presets.length >= kMaxTimerPresets;
+    final settingsNotifier = ref.read(timerSettingsProvider.notifier);
 
     final coverUrl = _coverUrl;
 
@@ -213,6 +285,32 @@ class _TimerViewState extends ConsumerState<TimerView> {
                               .setMode(TimerMode.values[index]);
                         },
                       ),
+                      if (presets.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text(l10n.timerSavedPresets),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final preset in presets)
+                                Padding(
+                                  padding: const EdgeInsetsDirectional.only(
+                                    end: 8,
+                                  ),
+                                  child: GestureDetector(
+                                    onLongPress: () => _deletePreset(preset),
+                                    child: ActionChip(
+                                      label: Text(preset.name),
+                                      onPressed: _starting
+                                          ? null
+                                          : () => _start(preset),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       AnimatedSize(
                         duration: const Duration(milliseconds: 220),
@@ -253,6 +351,25 @@ class _TimerViewState extends ConsumerState<TimerView> {
                           ],
                         ),
                       ),
+                      TimerBellControls(
+                        bells: settings.bells,
+                        showRandom: !isStopwatch,
+                        onChanged: settingsNotifier.setBells,
+                      ),
+                      if (!isStopwatch)
+                        SwitchListTile(
+                          title: Text(l10n.timerExtraTime),
+                          subtitle: Text(l10n.timerExtraTimeDescription),
+                          value: settings.extraTime,
+                          onChanged: settingsNotifier.setExtraTime,
+                        ),
+                      OutlinedButton(
+                        onPressed: settings.canStart && !atPresetLimit
+                            ? () => _savePreset(settings)
+                            : null,
+                        child: Text(l10n.timerSavePreset),
+                      ),
+                      if (atPresetLimit) Text(l10n.timerPresetLimit),
                     ],
                   ),
                 ),

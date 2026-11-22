@@ -170,6 +170,10 @@ class SharedPreferenceConstants {
   static const String shopBagCheckoutStarted = 'shop_bag_checkout_started';
 
   // Home Timer: last countdown length in minutes.
+  static const String timerBellSettings = 'timer_bell_settings';
+  static const String timerExtraTime = 'timer_extra_time';
+  static const String timerPresets = 'timer_presets';
+  static const String lastRecoveredTimerClose = 'last_recovered_timer_close';
   static const String timerMinutes = 'timer_minutes';
   // Session bells on/off, separate from the ambient sound so both can play.
   // Tracks default off; the Timer defaults on.

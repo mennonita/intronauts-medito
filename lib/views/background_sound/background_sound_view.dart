@@ -141,6 +141,9 @@ class _SessionBellsSwitch extends ConsumerWidget {
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
     final l10n = AppLocalizations.of(context)!;
+    final isTimer = ref.watch(
+      playerProvider.select((request) => request?.isTimer ?? false),
+    );
     final enabled = ref.watch(
       backgroundSoundsNotifierProvider.select((s) => s.bellsEnabled),
     );
@@ -183,7 +186,9 @@ class _SessionBellsSwitch extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      l10n.sessionBellsDescription,
+                      isTimer
+                          ? l10n.timerBellsDescription
+                          : l10n.sessionBellsDescription,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontSize: 14,
                         color: onSurface.withValues(alpha: 0.7),
