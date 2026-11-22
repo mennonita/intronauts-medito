@@ -40,15 +40,18 @@ struct StreakWidgetView: View {
     private var colors: WidgetColors { effectiveDark ? .dark : .light }
     private var isMedium: Bool { family == .systemMedium }
 
-    private var today: Date { entry.data.today(at: entry.date) }
+    private var today: Date {
+        logicalDayStart(entry.date, offsetHours: entry.data.returnsOffsetHours)
+    }
 
     var body: some View {
-        let streak = entry.data.streak(at: entry.date)
+        let practiceDays = entry.data.practiceDates.filter { $0 <= today }
+        let returns = max(entry.data.minimumReturns, practiceDays.count)
         StatWidgetBody(
-            value: "\(streak)",
-            unit: streak == 1 ? entry.data.dayLabel : entry.data.daysLabel,
-            doneToday: entry.data.allActivityDates.contains(today),
-            allActivityDates: entry.data.allActivityDates,
+            value: "\(returns)",
+            unit: NSLocalizedString("Returns", comment: "Nombre del total de días de práctica."),
+            doneToday: practiceDays.contains(today),
+            allActivityDates: practiceDays,
             today: today,
             colors: colors,
             isMedium: isMedium
@@ -65,8 +68,8 @@ struct StreakWidget: Widget {
                 // Source params let DeepLinkService attribute the tap for analytics.
                 .widgetURL(URL(string: "org.meditofoundation://medito/?source=home_widget&widget=streak"))
         }
-        .configurationDisplayName("Streak")
-        .description("See your current meditation streak.")
+        .configurationDisplayName("Returns")
+        .description("Practice returns and calendar")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

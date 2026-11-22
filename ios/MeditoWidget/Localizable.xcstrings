@@ -1,0 +1,26 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Practice returns and calendar": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regresos y calendario de práctica"
+          }
+        }
+      }
+    },
+    "Returns": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regresos"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

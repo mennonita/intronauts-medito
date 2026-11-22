@@ -68,7 +68,10 @@ class StatsNotifier extends AsyncNotifier<LocalAllStats> {
   Future<LocalAllStats> build() async {
     AppLogger.d('STATS_PROVIDER', 'StatsNotifier: Building');
 
-    return _fetchStatsWithRetry();
+    final stats = await _fetchStatsWithRetry();
+    // Publica el historial para los widgets al abrir la app tras actualizarla.
+    HomeWidgetService.updateWidgetFromStats(stats).ignore();
+    return stats;
   }
 
   Future<LocalAllStats> _fetchStatsWithRetry({bool force = false}) async {

@@ -1,3 +1,4 @@
+import 'package:medito/utils/practice_history.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -19,7 +20,7 @@ class HomeWidgetService {
   // can update SharedPreferences within the same frame.
   static Timer? _broadcastDebounce;
   static const Duration _broadcastCoalesceWindow = Duration(milliseconds: 100);
-  static const String _streakCurrentKey = 'streak_current';
+  static const String _returnsDataKey = 'returns_data';
   static const String _meditationDatesKey = 'meditation_dates';
   static const String _freezeDatesKey = 'freeze_dates';
   static const String _dayLabelKey = 'day_label';
@@ -85,13 +86,15 @@ class HomeWidgetService {
 
       final meditationDates = _extractMeditationDates(stats);
       final freezeDates = stats.freezeUsageDates.toList();
-      final dayBoundaryOffsetHours = await _readDayBoundaryOffsetHours();
+      final prefs = await SharedPreferences.getInstance();
+      final dayBoundaryOffsetHours =
+          prefs.getInt(SharedPreferenceConstants.dayBoundaryOffsetHours) ?? 0;
 
       final consistencyPercentage = (stats.consistencyScore * 100)
           .round()
           .clamp(0, 100);
       await Future.wait([
-        HomeWidget.saveWidgetData<int>(_streakCurrentKey, stats.streakCurrent),
+        _writeReturnsData(stats, prefs, dayBoundaryOffsetHours),
         HomeWidget.saveWidgetData<String>(
           _meditationDatesKey,
           jsonEncode(meditationDates),
@@ -140,10 +143,12 @@ class HomeWidgetService {
       final consistencyPercentage = (stats.consistencyScore * 100)
           .round()
           .clamp(0, 100);
-      final dayBoundaryOffsetHours = await _readDayBoundaryOffsetHours();
+      final prefs = await SharedPreferences.getInstance();
+      final dayBoundaryOffsetHours =
+          prefs.getInt(SharedPreferenceConstants.dayBoundaryOffsetHours) ?? 0;
 
       await Future.wait([
-        _saveWithTimeout(_streakCurrentKey, stats.streakCurrent),
+        _writeReturnsData(stats, prefs, dayBoundaryOffsetHours),
         _saveWithTimeout(_meditationDatesKey, jsonEncode(meditationDates)),
         _saveWithTimeout(_freezeDatesKey, jsonEncode(freezeDates)),
         _saveWithTimeout(_dayLabelKey, 'day'),
@@ -163,21 +168,28 @@ class HomeWidgetService {
     }
   }
 
-  static Future<int> _readDayBoundaryOffsetHours() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getInt(SharedPreferenceConstants.dayBoundaryOffsetHours) ??
-          0;
-    } catch (e) {
-      AppLogger.w('WIDGET', 'Failed to read day boundary offset: $e');
-      return 0;
-    }
+  static Future<void> _writeReturnsData(
+    LocalAllStats stats,
+    SharedPreferences prefs,
+    int offsetHours,
+  ) {
+    final history = PracticeHistory.read(
+      stats,
+      prefs: prefs,
+      now: DateTime.now(),
+      offset: Duration(hours: offsetHours),
+    );
+    return _saveWithTimeout(
+      _returnsDataKey,
+      jsonEncode({
+        'timestamps': history.timestamps.toList(),
+        'count': history.returns,
+        'offset': offsetHours,
+      }),
+    );
   }
 
-  // Raw (not day-bucketed) so the widget can bucket by day itself — both the
-  // streak widget and the consistency widget honour the user's day-boundary
-  // offset when bucketing, and neither can do that correctly from a timestamp
-  // that's already been truncated to midnight here.
+  // La puntuación de consistencia usa las fechas originales.
   static List<int> _extractMeditationDates(LocalAllStats stats) {
     if (stats.audioCompleted == null) return [];
 

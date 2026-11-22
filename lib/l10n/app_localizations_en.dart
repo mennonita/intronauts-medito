@@ -356,12 +356,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get statsErrorRetry => 'Retry';
 
   @override
-  String get currentStreak => 'Current Streak';
-
-  @override
-  String get longestStreak => 'Longest Streak';
-
-  @override
   String get consistencyScore => 'Consistency Score';
 
   @override
@@ -390,15 +384,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get showConsistencyScore => 'Show Consistency Score';
-
-  @override
-  String get showCurrentStreak => 'Show Current Streak';
-
-  @override
-  String get alwaysShowStreakOnHomepage => 'Always show streak on homepage';
-
-  @override
-  String get displayPreferenceSaved => 'Display preference saved';
 
   @override
   String get gotIt => 'Got it';
@@ -458,10 +443,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get andText => ' and ';
-
-  @override
-  String get streakFreezeEarned =>
-      'Congratulations! You earned a streak freeze for reaching a 7-day milestone!';
 
   @override
   String get emailVerificationText =>
@@ -706,11 +687,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sunday => 'S';
 
   @override
-  String get dailyPracticeMessage =>
-      'Practicing daily grows your streak, but it also makes you more mindful and happier!';
-
-  @override
-  String get dayStreak => 'day streak';
+  String get dailyPracticeMessage => 'Coming back is the practice.';
 
   @override
   String get dailyQuote => 'Daily Quote';
@@ -846,14 +823,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'No stats snapshots are stored on this device yet.';
 
   @override
-  String backupSummary(int streak, int sessions, int minutes) {
+  String backupSummary(int sessions, int minutes) {
     String _temp0 = intl.Intl.pluralLogic(
       sessions,
       locale: localeName,
       other: '$sessions sessions',
       one: '1 session',
     );
-    return 'Streak $streak · $_temp0 · $minutes min';
+    return '$_temp0 · $minutes min';
   }
 
   @override
@@ -882,9 +859,6 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return '$_temp0';
   }
-
-  @override
-  String get newStreak => 'New streak';
 
   @override
   String get newSessions => 'New sessions';
@@ -1191,35 +1165,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get donationContinue => 'Continue';
 
   @override
-  String get streakFreezesAvailable => 'Streak Freezes Available';
-
-  @override
-  String get freezeUsedMessage =>
-      'A streak freeze was used to maintain your streak!';
-
-  @override
-  String get streakAtRisk => 'You missed a day';
-
-  @override
-  String get streakFreezeAvailable =>
-      'You have 1 streak freeze available. Would you like to use it to protect your current streak?';
-
-  @override
-  String streakFreezesAvailableMessage(Object count) {
-    return 'But it\'s OK! You have $count streak freezes available. Would you like to use one to protect your current streak?';
-  }
-
-  @override
-  String get useStreakFreeze => 'Use Streak Freeze';
-
-  @override
-  String get streakFreezesBeta => 'Streak Freezes (Beta)';
-
-  @override
-  String get streakFreezesBetaDescription =>
-      'Enable the ability to use streak freezes to maintain your meditation streak when you miss a day';
-
-  @override
   String get notNow => 'Not Now';
 
   @override
@@ -1413,12 +1358,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get zenModeOff => 'Off';
 
   @override
-  String get zenModeOffDescription =>
-      'Show your streak, stats and consistency score.';
+  String get zenModeOffDescription => 'Show your practice stats.';
 
   @override
   String get zenModeOnDescription =>
-      'Hide your streak, stats and consistency score everywhere in the app.';
+      'Hide your practice stats throughout the app.';
 
   @override
   String get zenModeFootnote => 'Your progress is recorded either way.';
@@ -1653,7 +1597,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get consistencyScoreInfoMessage =>
-      'Your consistency score reflects how regularly you\'ve meditated since you started. Recent days carry more weight, but earlier missed days still gently affect the score. Unlike streaks, it doesn\'t reset on a missed day.';
+      'Your consistency score reflects how regularly you\'ve meditated since you started. Recent days carry more weight.';
 
   @override
   String get accountDeletionInitiated =>
@@ -1892,75 +1836,66 @@ class AppLocalizationsEn extends AppLocalizations {
       'You can turn reminders on or off in Settings';
 
   @override
-  String get reminderDay1TitleVar1 => 'Keep your streak going 🌱';
+  String get reminderDay1TitleVar1 => 'Your practice is here for you';
 
   @override
-  String reminderDay1BodyVar1(String streak) {
-    return 'You are on a $streak day streak. Keep it going?';
-  }
+  String get reminderDay1BodyVar1 => 'Coming back is the practice.';
 
   @override
-  String get reminderDay1TitleVar2 => 'Strong step ✨';
+  String get reminderDay1TitleVar2 => 'Take a breath';
 
   @override
-  String reminderDay1BodyVar2(String consistency) {
-    return 'Consistency $consistency%. Let’s keep it going.';
-  }
+  String get reminderDay1BodyVar2 => 'Give yourself a moment to breathe.';
 
   @override
-  String get reminderDay1TitleVar3 => 'Tiny wins add up 💜';
+  String get reminderDay1TitleVar3 => 'A moment for yourself';
 
   @override
   String get reminderDay1BodyVar3 =>
-      'A few minutes now keeps your momentum alive.';
+      'Take a few minutes to notice how you feel.';
 
   @override
-  String get reminderDay1TitleVar4 => 'Your practice awaits 🌸';
+  String get reminderDay1TitleVar4 => 'Make room for calm';
 
   @override
-  String get reminderDay1BodyVar4 =>
-      'Take a moment to reconnect with yourself.';
+  String get reminderDay1BodyVar4 => 'Try taking a moment to sit quietly.';
 
   @override
-  String get reminderDay1TitleVar5 => 'One breath at a time 🫧';
+  String get reminderDay1TitleVar5 => 'One breath at a time';
 
   @override
-  String get reminderDay1BodyVar5 =>
-      'Every session counts, no matter how short.';
+  String get reminderDay1BodyVar5 => 'Start with a single breath.';
 
   @override
-  String get reminderDay2TitleVar1 => 'Keep the flow 🔁';
+  String get reminderDay2TitleVar1 => 'Back to your practice';
 
   @override
-  String get reminderDay2BodyVar1 =>
-      'Let’s get that streak going again. Just a few minutes can make a big difference.';
+  String get reminderDay2BodyVar1 => 'Take a few minutes to reconnect.';
 
   @override
-  String get reminderDay2TitleVar2 => 'Build your rhythm 🧘';
+  String get reminderDay2TitleVar2 => 'Time to pause';
 
   @override
-  String get reminderDay2BodyVar2 => 'Another gentle practice awaits.';
+  String get reminderDay2BodyVar2 =>
+      'A short practice is here when you’re ready.';
 
   @override
-  String get reminderDay2TitleVar3 => 'You have got this 🌟';
+  String get reminderDay2TitleVar3 => 'Follow your breath';
 
   @override
-  String get reminderDay2BodyVar3 =>
-      'Return to your breath, one moment at a time.';
+  String get reminderDay2BodyVar3 => 'Notice what each breath feels like.';
 
   @override
-  String get reminderDay2TitleVar4 => 'Small steps forward 🚶';
+  String get reminderDay2TitleVar4 => 'A quiet moment';
 
   @override
-  String get reminderDay2BodyVar4 =>
-      'Consistency builds strength. Start with just a few minutes.';
+  String get reminderDay2BodyVar4 => 'Take a few minutes to be with yourself.';
 
   @override
-  String get reminderDay2TitleVar5 => 'Gentle return 💚';
+  String get reminderDay2TitleVar5 => 'Come as you are';
 
   @override
-  String get reminderDay2BodyVar5 =>
-      'Your mindful practice is here whenever you are ready.';
+  String get reminderDay2BodyVar5 => 'Take a moment to check in with yourself.';
 
   @override
   String get reminderDay3TitleVar1 => 'Build the habit 📆';
@@ -2110,7 +2045,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deleteSessionConfirmation =>
-      'Are you sure you want to delete this session? This will update your streak and stats.';
+      'Delete this session from your practice history?';
 
   @override
   String get deleteSessionError => 'Failed to delete session.';
@@ -2259,9 +2194,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'These defaults are set from your last selection on any track. Home uses them to skip the selection screen when you continue a pack.';
 
   @override
-  String get streakFreezeUsed => 'Streak freeze used';
-
-  @override
   String get session => 'session';
 
   @override
@@ -2302,9 +2234,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get reportIssue => 'Report issue';
-
-  @override
-  String get viewStreak => 'View streak';
 
   @override
   String get refresh => 'Refresh';
@@ -2485,7 +2414,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get accountPromptBody =>
-      'Add your email so your streak and history follow you to a new phone.';
+      'Add your email to take your practice history to a new phone.';
 
   @override
   String get accountPromptCta => 'Save my progress';
@@ -2835,4 +2764,71 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get openTimer => 'Open timer';
+
+  @override
+  String get returnsHomeLabel => 'You\'ve returned';
+
+  @override
+  String get returnsHomeCaption => 'times to your practice';
+
+  @override
+  String get returnsLabel => 'Returns';
+
+  @override
+  String get projectedReturnsLabel => 'New returns total';
+
+  @override
+  String returnsCompletion(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count times',
+      one: 'once',
+    );
+    return 'You\'ve returned $_temp0';
+  }
+
+  @override
+  String get returnedHeadline => 'You came back.';
+
+  @override
+  String returnedAfterPause(int count) {
+    return '$count days passed. That\'s okay: coming back is exactly what we\'re practicing.';
+  }
+
+  @override
+  String practiceDaysThisWeek(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '1 day',
+    );
+    return 'You showed up $_temp0 this week';
+  }
+
+  @override
+  String get viewPracticeStats => 'View practice stats';
+
+  @override
+  String get dayBoundaryTitle => 'When does your day start?';
+
+  @override
+  String get dayBoundaryDescription =>
+      'Choose when your practice day starts. If you meditate after midnight, you can count it toward the previous day.';
+
+  @override
+  String get dayBoundaryNote =>
+      'Changing this setting groups past sessions into days using the new start time.';
+
+  @override
+  String get dayBoundaryMidnight => 'Midnight (default)';
+
+  @override
+  String dayBoundaryHour(int hour) {
+    return '$hour:00 AM';
+  }
+
+  @override
+  String get dayBoundarySave => 'Save';
 }

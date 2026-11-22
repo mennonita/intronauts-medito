@@ -28,9 +28,7 @@ export 'consistency_score_history.dart';
 // Export the key for backward compatibility if needed
 const String completedTracksKey = CompletedTracksStorage.completedTracksKey;
 
-/// Local hour-of-day at which manual sessions are anchored. Noon keeps the
-/// entry unambiguously inside its calendar day regardless of the user's
-/// day-boundary offset. Public so the calendar's streak preview matches.
+/// Guarda las sesiones de un rango a mediodía, dentro del día elegido.
 const int manualSessionAnchorHour = 12;
 
 // Static flag to prevent concurrent processing
@@ -75,10 +73,7 @@ Future<void> _refreshStatsAndUpNext() async {
 Future<void> Function({required int endMs, required int durationMs})?
 reminderReschedulerOverride;
 
-/// Reschedules the Daily reminder series so its anchor and the streak /
-/// consistency values baked into each day's copy reflect the latest session
-/// state. Safe to call from any stats-mutating path (real completions, manual
-/// adds, deletes); no-ops when Daily reminders are disabled.
+/// Actualiza las fechas de la serie cuando cambia el historial de práctica.
 Future<void> _rescheduleReminders({
   required int endMs,
   required int durationMs,

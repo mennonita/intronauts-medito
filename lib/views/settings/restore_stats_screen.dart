@@ -169,11 +169,7 @@ class _BackupRow extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      l10n.backupSummary(
-                        stats.streakCurrent,
-                        sessionCount,
-                        minutes,
-                      ),
+                      l10n.backupSummary(sessionCount, minutes),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),

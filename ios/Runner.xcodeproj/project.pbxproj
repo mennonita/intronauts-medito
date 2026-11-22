@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1B2C3D42F1A000100000011 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D42F1A000100000012 /* Localizable.xcstrings */; };
 		0D4562B77FF4244FD7A0BF1F /* blush@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 11B39ECC271C6439638C9ACA /* blush@2x.png */; };
 		0E56EAD091A3D2694CF3FA38 /* blush@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = F5F696C23AC21F365306D45A /* blush@3x.png */; };
 		9956A5D296C34F048C5E16B1 /* classic@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = 0BBFDA482A614471ACEB6AA2 /* classic@2x.png */; };
@@ -97,6 +98,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1B2C3D42F1A000100000012 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		0486B7CC9C4218C886196CB6 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		0FFC4805F01806064CC598A5 /* Pods-RunnerTests.release-prod.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release-prod.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release-prod.xcconfig"; sourceTree = "<group>"; };
 		101421EE97843C1D2CD49583 /* forest@3x.png */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.png; path = "forest@3x.png"; sourceTree = "<group>"; };
@@ -457,6 +459,7 @@
 				EDFD4D0C2C9359BF0066E874 /* WidgetShared.swift */,
 				A1B2C3D42F1A000100000001 /* StatCalculators.swift */,
 				EDFD4D0E2C9359BF0066E874 /* StreakWidget.swift */,
+				A1B2C3D42F1A000100000012 /* Localizable.xcstrings */,
 				EDFD4D102C9359BF0066E874 /* ConsistencyWidget.swift */,
 				EDFD4D2A2C9359BF0066E874 /* UpNextWidget.swift */,
 				ED8A5BE12CCCE11E0043D20A /* Resources */,
@@ -589,6 +592,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				es,
 				Base,
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
@@ -669,6 +673,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EDFD4D122C9359BF0066E874 /* Assets.xcassets in Resources */,
+				A1B2C3D42F1A000100000011 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

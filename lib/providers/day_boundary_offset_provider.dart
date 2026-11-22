@@ -3,30 +3,20 @@ import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
 import 'package:medito/providers/stats_provider.dart';
 
-/// User-configurable offset (in whole hours) that shifts when a new "day"
-/// begins for streak calculation. Default `0` = midnight; e.g. `4` means a
-/// session at 02:00 still counts toward the previous calendar day.
-///
-/// Persisted to `SharedPreferenceConstants.dayBoundaryOffsetHours` and pushed
-/// into the StatsManager so streak math honours it on every recalculation.
+/// Guarda la hora local en que empieza el día de práctica.
 class DayBoundaryOffsetNotifier extends AsyncNotifier<int> {
   @override
-  Future<int> build() async {
+  int build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    final hours =
-        prefs.getInt(SharedPreferenceConstants.dayBoundaryOffsetHours) ?? 0;
-    // Mirror into StatsManager so freshly-built UI sees the right streak
-    // even before any setter is called.
-    ref.read(statsManagerProvider).setDayBoundaryOffset(Duration(hours: hours));
-    return hours;
+    return prefs.getInt(SharedPreferenceConstants.dayBoundaryOffsetHours) ?? 0;
   }
 
   Future<void> setOffsetHours(int hours) async {
-    await ref
-        .read(statsManagerProvider)
-        .setDayBoundaryOffset(Duration(hours: hours));
+    final manager = ref.read(statsManagerProvider);
+    await manager.initialize();
+    await manager.setDayBoundaryOffset(Duration(hours: hours));
     state = AsyncValue.data(hours);
-    // Recompute streaks against the new boundary.
+    // Actualiza el calendario y el contador con el nuevo inicio del día.
     await ref.read(statsProvider.notifier).refreshFromLocal();
   }
 }

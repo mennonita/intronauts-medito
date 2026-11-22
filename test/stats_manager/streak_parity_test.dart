@@ -1,10 +1,4 @@
-// Runs the shared fixture in test/fixtures/streak_score_fixtures.json against
-// the Dart implementation (the source of truth). The same fixture is consumed
-// by the Kotlin unit test (android/app/src/test/kotlin/.../
-// StreakCalculatorParityTest.kt) that exercises the on-device widget port —
-// keeping both suites pointed at one fixture file means drift between the two
-// implementations shows up as a CI failure instead of relying on the
-// sync-reminder comments alone.
+// Verifica el cálculo histórico de rachas que conserva el contrato del servidor.
 import 'dart:convert';
 import 'dart:io';
 

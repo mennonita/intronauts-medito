@@ -121,8 +121,6 @@
   "statsLoading": "Loading stats...",
   "loading": "Loading...",
   "statsErrorRetry": "Retry",
-  "currentStreak": "Current Streak",
-  "longestStreak": "Longest Streak",
   "consistencyScore": "Consistency Score",
   "totalTracksCompleted": "Total Tracks Completed",
   "totalTimeListened": "Total Time Listened",
@@ -133,9 +131,6 @@
   "hourFull": "hour",
   "minute": "minute",
   "showConsistencyScore": "Show Consistency Score",
-  "showCurrentStreak": "Show Current Streak",
-  "alwaysShowStreakOnHomepage": "Always show streak on homepage",
-  "displayPreferenceSaved": "Display preference saved",
   "gotIt": "Got it",
   "signUpLogInTitle": "Sign in to Medito",
   "createAccountTitle": "Create account",
@@ -160,7 +155,6 @@
   "resendCodeInSeconds": "Resend code in {seconds} s",
   "byContinuingAgreeTo": "By continuing, you agree to our ",
   "andText": " and ",
-  "streakFreezeEarned": "Congratulations! You earned a streak freeze for reaching a 7-day milestone!",
   "emailVerificationText": "We'll send you a code by email to verify your account",
   "createAccountBenefits": "• Track your mindfulness journey\n• Never lose your meditation progress\n• Build a lasting meditation practice 💜",
   "loginBenefits": "• Download your previously saved data\\n• Continue your meditation journey from where you left off",
@@ -239,8 +233,7 @@
   "friday": "F",
   "saturday": "S",
   "sunday": "S",
-  "dailyPracticeMessage": "Practicing daily grows your streak, but it also makes you more mindful and happier!",
-  "dayStreak": "day streak",
+  "dailyPracticeMessage": "Coming back is the practice.",
   "dailyQuote": "Daily Quote",
   "termsOfService": "Terms of Service",
   "privacyPolicy": "Privacy Policy",
@@ -282,12 +275,16 @@
   "restorePreviousStats": "Restore previous stats",
   "restorePreviousStatsExplainer": "Pick a snapshot to restore. Snapshots are saved automatically when your stats sync, and the most recent 20 are kept on this device — including snapshots taken from other accounts you've signed into here.",
   "noBackupsAvailable": "No stats snapshots are stored on this device yet.",
-  "backupSummary": "Streak {streak} · {sessions, plural, =1{1 session} other{{sessions} sessions}} · {minutes} min",
+  "backupSummary": "{sessions, plural, =1{1 session} other{{sessions} sessions}} · {minutes} min",
   "@backupSummary": {
+    "description": "Resumen de sesiones y minutos en una copia del historial.",
     "placeholders": {
-      "streak": {"type": "int"},
-      "sessions": {"type": "int"},
-      "minutes": {"type": "int"}
+      "sessions": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
     }
   },
   "restoreStatsConfirmTitle": "Restore these stats?",
@@ -299,7 +296,6 @@
   "@daysSelected": {
     "placeholders": {"count": {"type": "int"}}
   },
-  "newStreak": "New streak",
   "newSessions": "New sessions",
   "addSessionsToSelectedDays": "Add sessions to selected days",
   "addSessionsTitle": "{count, plural, =1{Add 1 session} other{Add {count} sessions}}",
@@ -509,14 +505,6 @@
   "donationThankYouBody": "Your generosity helps keep Medito free and accessible to everyone. We're deeply grateful for your contribution to spreading mindfulness worldwide.",
   "donationVisitFoundation": "Visit Medito Foundation",
   "donationContinue": "Continue",
-  "streakFreezesAvailable": "Streak Freezes Available",
-  "freezeUsedMessage": "A streak freeze was used to maintain your streak!",
-  "streakAtRisk": "You missed a day",
-  "streakFreezeAvailable": "You have 1 streak freeze available. Would you like to use it to protect your current streak?",
-  "streakFreezesAvailableMessage": "But it's OK! You have {count} streak freezes available. Would you like to use one to protect your current streak?",
-  "useStreakFreeze": "Use Streak Freeze",
-  "streakFreezesBeta": "Streak Freezes (Beta)",
-  "streakFreezesBetaDescription": "Enable the ability to use streak freezes to maintain your meditation streak when you miss a day",
   "notNow": "Not Now",
   "helpTitle": "Help",
   "meditationInterruptionTitle": "Meditations stop unexpectedly",
@@ -586,11 +574,11 @@
   "@zenModeOff": {
     "description": "Zen Mode state label; button in the sheet and subtitle on the settings row"
   },
-  "zenModeOffDescription": "Show your streak, stats and consistency score.",
+  "zenModeOffDescription": "Show your practice stats.",
   "@zenModeOffDescription": {
     "description": "Description under the Off option in the Zen Mode sheet"
   },
-  "zenModeOnDescription": "Hide your streak, stats and consistency score everywhere in the app.",
+  "zenModeOnDescription": "Hide your practice stats throughout the app.",
   "@zenModeOnDescription": {
     "description": "Description under the On option in the Zen Mode sheet"
   },
@@ -709,7 +697,7 @@
   "tracksSectionHeader": "Tracks",
   "noResultsFound": "No results found for your search",
   "consistencyScoreInfoTitle": "Consistency Score",
-  "consistencyScoreInfoMessage": "Your consistency score reflects how regularly you've meditated since you started. Recent days carry more weight, but earlier missed days still gently affect the score. Unlike streaks, it doesn't reset on a missed day.",
+  "consistencyScoreInfoMessage": "Your consistency score reflects how regularly you've meditated since you started. Recent days carry more weight.",
   "accountDeletionInitiated": "Account deletion process initiated. Please complete the steps in your browser.",
   "reportError": "Report Error",
   "errorReportedMessage": "Thank you, your report has been sent.",
@@ -994,97 +982,85 @@
   "@reminderPromptDismissedMessage": {
     "description": "Message shown when user dismisses the reminder prompt on the end screen"
   },
-  "reminderDay1TitleVar1": "Keep your streak going 🌱",
+  "reminderDay1TitleVar1": "Your practice is here for you",
   "@reminderDay1TitleVar1": {
     "description": "Daily reminder day 1 title variant 1"
   },
-  "reminderDay1BodyVar1": "You are on a {streak} day streak. Keep it going?",
+  "reminderDay1BodyVar1": "Coming back is the practice.",
   "@reminderDay1BodyVar1": {
-    "description": "Daily reminder day 1 body variant 1",
-    "placeholders": {
-      "streak": {
-        "type": "String",
-        "description": "Current streak count"
-      }
-    }
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay1TitleVar2": "Strong step ✨",
+  "reminderDay1TitleVar2": "Take a breath",
   "@reminderDay1TitleVar2": {
     "description": "Daily reminder day 1 title variant 2"
   },
-  "reminderDay1BodyVar2": "Consistency {consistency}%. Let’s keep it going.",
+  "reminderDay1BodyVar2": "Give yourself a moment to breathe.",
   "@reminderDay1BodyVar2": {
-    "description": "Daily reminder day 1 body variant 2",
-    "placeholders": {
-      "consistency": {
-        "type": "String",
-        "description": "Consistency percentage"
-      }
-    }
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay1TitleVar3": "Tiny wins add up 💜",
+  "reminderDay1TitleVar3": "A moment for yourself",
   "@reminderDay1TitleVar3": {
     "description": "Daily reminder day 1 title variant 3"
   },
-  "reminderDay1BodyVar3": "A few minutes now keeps your momentum alive.",
+  "reminderDay1BodyVar3": "Take a few minutes to notice how you feel.",
   "@reminderDay1BodyVar3": {
-    "description": "Daily reminder day 1 body variant 3"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay1TitleVar4": "Your practice awaits 🌸",
+  "reminderDay1TitleVar4": "Make room for calm",
   "@reminderDay1TitleVar4": {
     "description": "Daily reminder day 1 title variant 4"
   },
-  "reminderDay1BodyVar4": "Take a moment to reconnect with yourself.",
+  "reminderDay1BodyVar4": "Try taking a moment to sit quietly.",
   "@reminderDay1BodyVar4": {
-    "description": "Daily reminder day 1 body variant 4"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay1TitleVar5": "One breath at a time 🫧",
+  "reminderDay1TitleVar5": "One breath at a time",
   "@reminderDay1TitleVar5": {
     "description": "Daily reminder day 1 title variant 5"
   },
-  "reminderDay1BodyVar5": "Every session counts, no matter how short.",
+  "reminderDay1BodyVar5": "Start with a single breath.",
   "@reminderDay1BodyVar5": {
-    "description": "Daily reminder day 1 body variant 5"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar1": "Keep the flow 🔁",
+  "reminderDay2TitleVar1": "Back to your practice",
   "@reminderDay2TitleVar1": {
     "description": "Daily reminder day 2 title variant 1"
   },
-  "reminderDay2BodyVar1": "Let’s get that streak going again. Just a few minutes can make a big difference.",
+  "reminderDay2BodyVar1": "Take a few minutes to reconnect.",
   "@reminderDay2BodyVar1": {
-    "description": "Daily reminder day 2 body variant 1"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar2": "Build your rhythm 🧘",
+  "reminderDay2TitleVar2": "Time to pause",
   "@reminderDay2TitleVar2": {
     "description": "Daily reminder day 2 title variant 2"
   },
-  "reminderDay2BodyVar2": "Another gentle practice awaits.",
+  "reminderDay2BodyVar2": "A short practice is here when you’re ready.",
   "@reminderDay2BodyVar2": {
-    "description": "Daily reminder day 2 body variant 2"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar3": "You have got this 🌟",
+  "reminderDay2TitleVar3": "Follow your breath",
   "@reminderDay2TitleVar3": {
     "description": "Daily reminder day 2 title variant 3"
   },
-  "reminderDay2BodyVar3": "Return to your breath, one moment at a time.",
+  "reminderDay2BodyVar3": "Notice what each breath feels like.",
   "@reminderDay2BodyVar3": {
-    "description": "Daily reminder day 2 body variant 3"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar4": "Small steps forward 🚶",
+  "reminderDay2TitleVar4": "A quiet moment",
   "@reminderDay2TitleVar4": {
     "description": "Daily reminder day 2 title variant 4"
   },
-  "reminderDay2BodyVar4": "Consistency builds strength. Start with just a few minutes.",
+  "reminderDay2BodyVar4": "Take a few minutes to be with yourself.",
   "@reminderDay2BodyVar4": {
-    "description": "Daily reminder day 2 body variant 4"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar5": "Gentle return 💚",
+  "reminderDay2TitleVar5": "Come as you are",
   "@reminderDay2TitleVar5": {
     "description": "Daily reminder day 2 title variant 5"
   },
-  "reminderDay2BodyVar5": "Your mindful practice is here whenever you are ready.",
+  "reminderDay2BodyVar5": "Take a moment to check in with yourself.",
   "@reminderDay2BodyVar5": {
-    "description": "Daily reminder day 2 body variant 5"
+    "description": "Texto de la invitación de práctica en el recordatorio."
   },
   "reminderDay3TitleVar1": "Build the habit 📆",
   "@reminderDay3TitleVar1": {
@@ -1266,7 +1242,7 @@
   "@deleteSessionTitle": {
     "description": "Title for the dialog confirming deletion of a tracked session"
   },
-  "deleteSessionConfirmation": "Are you sure you want to delete this session? This will update your streak and stats.",
+  "deleteSessionConfirmation": "Delete this session from your practice history?",
   "@deleteSessionConfirmation": {
     "description": "Confirmation message shown when the user long-presses a session to delete it"
   },
@@ -1467,10 +1443,6 @@
   "@defaultsNote": {
     "description": "Note explaining how defaults work in Up Next"
   },
-  "streakFreezeUsed": "Streak freeze used",
-  "@streakFreezeUsed": {
-    "description": "Text shown when a streak freeze was used on a particular day"
-  },
   "session": "session",
   "@session": {
     "description": "Singular form of session"
@@ -1526,10 +1498,6 @@
   "reportIssue": "Report issue",
   "@reportIssue": {
     "description": "Accessibility label for the report button in the player"
-  },
-  "viewStreak": "View streak",
-  "@viewStreak": {
-    "description": "Accessibility label for the streak circle button on the home screen"
   },
   "refresh": "Refresh",
   "@refresh": {
@@ -1751,7 +1719,7 @@
   "@accountPromptTitle": {
     "description": "Title of the end-screen card that invites an anonymous user to add an email to their account"
   },
-  "accountPromptBody": "Add your email so your streak and history follow you to a new phone.",
+  "accountPromptBody": "Add your email to take your practice history to a new phone.",
   "@accountPromptBody": {
     "description": "Body of the end-screen account-conversion card"
   },
@@ -2074,5 +2042,85 @@
   "timerStopwatchTitle": "Sit for as long as you like",
   "@timerStopwatchTitle": {"description": "Title of the card explaining Stopwatch mode on the Timer screen"},
   "openTimer": "Open timer",
-  "@openTimer": {"description": "Offline screen link that opens the Timer, which works without a connection"}
+  "@openTimer": {"description": "Offline screen link that opens the Timer, which works without a connection"},
+  "returnsHomeLabel": "You've returned",
+  "@returnsHomeLabel": {
+    "description": "Etiqueta del contador de regresos en Inicio."
+  },
+  "returnsHomeCaption": "times to your practice",
+  "@returnsHomeCaption": {
+    "description": "Texto debajo del contador de regresos en Inicio."
+  },
+  "returnsLabel": "Returns",
+  "@returnsLabel": {
+    "description": "Nombre del total de días de práctica."
+  },
+  "projectedReturnsLabel": "New returns total",
+  "@projectedReturnsLabel": {
+    "description": "Total previsto tras agregar sesiones manuales."
+  },
+  "returnsCompletion": "You've returned {count, plural, =1{once} other{{count} times}}",
+  "@returnsCompletion": {
+    "description": "Total de regresos al terminar una sesión.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "returnedHeadline": "You came back.",
+  "@returnedHeadline": {
+    "description": "Encabezado al terminar una sesión después de una pausa."
+  },
+  "returnedAfterPause": "{count} days passed. That's okay: coming back is exactly what we're practicing.",
+  "@returnedAfterPause": {
+    "description": "Duración de la pausa entre dos días de práctica.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "practiceDaysThisWeek": "You showed up {count, plural, =1{1 day} other{{count} days}} this week",
+  "@practiceDaysThisWeek": {
+    "description": "Días de práctica en los últimos siete días, incluido hoy.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "viewPracticeStats": "View practice stats",
+  "@viewPracticeStats": {
+    "description": "Etiqueta de accesibilidad del botón de estadísticas en modo Zen."
+  },
+  "dayBoundaryTitle": "When does your day start?",
+  "@dayBoundaryTitle": {
+    "description": "Título del selector de inicio del día."
+  },
+  "dayBoundaryDescription": "Choose when your practice day starts. If you meditate after midnight, you can count it toward the previous day.",
+  "@dayBoundaryDescription": {
+    "description": "Explica el ajuste de inicio del día de práctica."
+  },
+  "dayBoundaryNote": "Changing this setting groups past sessions into days using the new start time.",
+  "@dayBoundaryNote": {
+    "description": "Explica cómo se agrupan las sesiones anteriores."
+  },
+  "dayBoundaryMidnight": "Midnight (default)",
+  "@dayBoundaryMidnight": {
+    "description": "Opción predeterminada del selector de inicio del día."
+  },
+  "dayBoundaryHour": "{hour}:00 AM",
+  "@dayBoundaryHour": {
+    "description": "Opción en horas para el inicio del día.",
+    "placeholders": {
+      "hour": {
+        "type": "int"
+      }
+    }
+  },
+  "dayBoundarySave": "Save",
+  "@dayBoundarySave": {
+    "description": "Botón para guardar el inicio del día."
+  }
 }

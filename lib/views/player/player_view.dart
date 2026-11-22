@@ -65,9 +65,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   /// Keeps a previous session's completed state from opening the end screen.
   final _completionGate = SessionCompletionGate();
   final _analytics = FirebaseAnalyticsService();
-  // Snapshot of stats taken when the player opens, before the session can
-  // affect them. EndScreenView uses this as the "before" value so its
-  // AnimatedSwitcher actually animates from old streak -> new streak.
+  // Guarda el historial previo para detectar una pausa al terminar.
   LocalAllStats? _statsAtSessionStart;
 
   // Holds the end-screen donation ask alive while the player is open so the
@@ -479,11 +477,6 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
         final currentlyPlayingTrack = ref.read(playerProvider);
         if (currentlyPlayingTrack == null) return;
 
-        // handleStats (run from the platform on completion) has already
-        // written the new completion to local stats and pushed it through
-        // statsProvider via refreshFromLocal — so no refresh() is needed
-        // here. We pass the pre-session snapshot so EndScreenView can
-        // animate from the old streak to the current one.
         unawaited(ref.read(dndProvider.notifier).setDndMode(false));
 
         // pushReplacement swaps whatever route is on top. If a sheet (repeat,

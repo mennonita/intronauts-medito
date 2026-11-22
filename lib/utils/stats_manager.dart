@@ -10,6 +10,7 @@ import 'package:medito/services/network/http_api_service.dart';
 import 'package:medito/services/stats_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:medito/models/local_audio_completed.dart';
+import 'package:medito/utils/practice_history.dart';
 import 'package:medito/utils/audio_completion_tracker.dart';
 import 'package:medito/services/home_widget_service.dart';
 import 'package:medito/utils/consistency_score_history.dart';
@@ -244,6 +245,13 @@ class StatsManager {
     return _allStats!;
   }
 
+  Future<int> get returns async => PracticeHistory.read(
+    await localAllStats,
+    prefs: _prefs,
+    now: _getCurrentDate(),
+    offset: _dayBoundaryOffset,
+  ).returns;
+
   void _merge(LocalAllStats remoteStats) {
     // Check if remote stats contain recent dummy data
     var now = _getCurrentDate();
@@ -408,11 +416,7 @@ class StatsManager {
     }
   }
 
-  // ⚠️ KEEP IN SYNC: ported to Kotlin in
-  // android/app/src/main/kotlin/meditofoundation/medito/widget/StreakCalculator.kt
-  // so the Android home-screen widget can recompute the current streak
-  // on-device (including the day-boundary offset). If this algorithm
-  // changes, update that copy too.
+  // Conserva el cálculo histórico que usa el servidor.
   LocalAllStats calculateStreak(LocalAllStats allStats) {
     final offset = _dayBoundaryOffset;
     final now = _getCurrentDate();
@@ -639,6 +643,7 @@ class StatsManager {
     await _ensureStatsLoaded();
     if (generation != _clearGeneration) return;
 
+    final completedAt = audioCompleted.timestamp;
     if (AudioCompletionTracker.checkTrackCrossedMidnight(
       endTimestamp: audioCompleted.timestamp,
       duration: duration,
@@ -652,6 +657,14 @@ class StatsManager {
     _allStats = change.apply(
       _allStats!,
       _getCurrentDate().millisecondsSinceEpoch,
+    );
+    PracticeHistory.read(
+      _allStats!,
+      prefs: _prefs,
+      now: _getCurrentDate(),
+      offset: _dayBoundaryOffset,
+      storedSession: audioCompleted,
+      completedAt: completedAt,
     );
     await _saveLocalChange(
       change: change,
@@ -794,6 +807,12 @@ class StatsManager {
     if (!_isInitialized) await initialize();
     if (generation != _clearGeneration) return;
 
+    PracticeHistory.read(
+      _allStats ?? _loadLocalAllStats(),
+      prefs: _prefs,
+      now: _getCurrentDate(),
+      offset: _dayBoundaryOffset,
+    );
     final change = StatsChange.restore(snapshot);
     _allStats = change.apply(
       snapshot,
@@ -808,6 +827,12 @@ class StatsManager {
     await _ensureStatsLoaded();
     if (generation != _clearGeneration) return;
 
+    PracticeHistory.read(
+      _allStats!,
+      prefs: _prefs,
+      now: _getCurrentDate(),
+      offset: _dayBoundaryOffset,
+    );
     final change = StatsChange.remove(session);
     final updated = change.apply(
       _allStats!,

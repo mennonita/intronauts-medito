@@ -15,8 +15,8 @@ class BulkAddSessionsDialog extends StatefulWidget {
   final DateTime rangeEnd;
   final int dayCount;
   final int newSessionsCount;
-  final int currentStreak;
-  final int projectedStreak;
+  final int currentReturns;
+  final int projectedReturns;
 
   const BulkAddSessionsDialog({
     super.key,
@@ -24,8 +24,8 @@ class BulkAddSessionsDialog extends StatefulWidget {
     required this.rangeEnd,
     required this.dayCount,
     required this.newSessionsCount,
-    required this.currentStreak,
-    required this.projectedStreak,
+    required this.currentReturns,
+    required this.projectedReturns,
   });
 
   @override
@@ -47,7 +47,7 @@ class _BulkAddSessionsDialogState extends State<BulkAddSessionsDialog> {
     final theme = Theme.of(context);
     final dateFmt = DateFormat('MMM d, y');
     final alreadyFilled = widget.dayCount - widget.newSessionsCount;
-    final streakChanged = widget.projectedStreak != widget.currentStreak;
+    final returnsChanged = widget.projectedReturns != widget.currentReturns;
 
     return MeditoDialog(
       child: Column(
@@ -79,20 +79,18 @@ class _BulkAddSessionsDialogState extends State<BulkAddSessionsDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _StreakRow(
-                  label: l10n.currentStreak,
-                  value:
-                      '${widget.currentStreak} ${widget.currentStreak == 1 ? l10n.day.toLowerCase() : l10n.days}',
+                _PreviewRow(
+                  label: l10n.returnsLabel,
+                  value: '${widget.currentReturns}',
                 ),
                 const SizedBox(height: 6),
-                _StreakRow(
-                  label: l10n.newStreak,
-                  value:
-                      '${widget.projectedStreak} ${widget.projectedStreak == 1 ? l10n.day.toLowerCase() : l10n.days}',
-                  emphasize: streakChanged,
+                _PreviewRow(
+                  label: l10n.projectedReturnsLabel,
+                  value: '${widget.projectedReturns}',
+                  emphasize: returnsChanged,
                 ),
                 const SizedBox(height: 6),
-                _StreakRow(
+                _PreviewRow(
                   label: l10n.newSessions,
                   value: '${widget.newSessionsCount}',
                 ),
@@ -141,12 +139,12 @@ class _BulkAddSessionsDialogState extends State<BulkAddSessionsDialog> {
   }
 }
 
-class _StreakRow extends StatelessWidget {
+class _PreviewRow extends StatelessWidget {
   final String label;
   final String value;
   final bool emphasize;
 
-  const _StreakRow({
+  const _PreviewRow({
     required this.label,
     required this.value,
     this.emphasize = false,

@@ -754,18 +754,6 @@ abstract class AppLocalizations {
   /// **'Retry'**
   String get statsErrorRetry;
 
-  /// No description provided for @currentStreak.
-  ///
-  /// In en, this message translates to:
-  /// **'Current Streak'**
-  String get currentStreak;
-
-  /// No description provided for @longestStreak.
-  ///
-  /// In en, this message translates to:
-  /// **'Longest Streak'**
-  String get longestStreak;
-
   /// No description provided for @consistencyScore.
   ///
   /// In en, this message translates to:
@@ -825,24 +813,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show Consistency Score'**
   String get showConsistencyScore;
-
-  /// No description provided for @showCurrentStreak.
-  ///
-  /// In en, this message translates to:
-  /// **'Show Current Streak'**
-  String get showCurrentStreak;
-
-  /// No description provided for @alwaysShowStreakOnHomepage.
-  ///
-  /// In en, this message translates to:
-  /// **'Always show streak on homepage'**
-  String get alwaysShowStreakOnHomepage;
-
-  /// No description provided for @displayPreferenceSaved.
-  ///
-  /// In en, this message translates to:
-  /// **'Display preference saved'**
-  String get displayPreferenceSaved;
 
   /// No description provided for @gotIt.
   ///
@@ -951,12 +921,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **' and '**
   String get andText;
-
-  /// No description provided for @streakFreezeEarned.
-  ///
-  /// In en, this message translates to:
-  /// **'Congratulations! You earned a streak freeze for reaching a 7-day milestone!'**
-  String get streakFreezeEarned;
 
   /// No description provided for @emailVerificationText.
   ///
@@ -1405,14 +1369,8 @@ abstract class AppLocalizations {
   /// No description provided for @dailyPracticeMessage.
   ///
   /// In en, this message translates to:
-  /// **'Practicing daily grows your streak, but it also makes you more mindful and happier!'**
+  /// **'Coming back is the practice.'**
   String get dailyPracticeMessage;
-
-  /// No description provided for @dayStreak.
-  ///
-  /// In en, this message translates to:
-  /// **'day streak'**
-  String get dayStreak;
 
   /// No description provided for @dailyQuote.
   ///
@@ -1660,11 +1618,11 @@ abstract class AppLocalizations {
   /// **'No stats snapshots are stored on this device yet.'**
   String get noBackupsAvailable;
 
-  /// No description provided for @backupSummary.
+  /// Resumen de sesiones y minutos en una copia del historial.
   ///
   /// In en, this message translates to:
-  /// **'Streak {streak} · {sessions, plural, =1{1 session} other{{sessions} sessions}} · {minutes} min'**
-  String backupSummary(int streak, int sessions, int minutes);
+  /// **'{sessions, plural, =1{1 session} other{{sessions} sessions}} · {minutes} min'**
+  String backupSummary(int sessions, int minutes);
 
   /// No description provided for @restoreStatsConfirmTitle.
   ///
@@ -1701,12 +1659,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =1{1 day selected} other{{count} days selected}}'**
   String daysSelected(int count);
-
-  /// No description provided for @newStreak.
-  ///
-  /// In en, this message translates to:
-  /// **'New streak'**
-  String get newStreak;
 
   /// No description provided for @newSessions.
   ///
@@ -2224,54 +2176,6 @@ abstract class AppLocalizations {
   /// **'Continue'**
   String get donationContinue;
 
-  /// No description provided for @streakFreezesAvailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Streak Freezes Available'**
-  String get streakFreezesAvailable;
-
-  /// No description provided for @freezeUsedMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'A streak freeze was used to maintain your streak!'**
-  String get freezeUsedMessage;
-
-  /// No description provided for @streakAtRisk.
-  ///
-  /// In en, this message translates to:
-  /// **'You missed a day'**
-  String get streakAtRisk;
-
-  /// No description provided for @streakFreezeAvailable.
-  ///
-  /// In en, this message translates to:
-  /// **'You have 1 streak freeze available. Would you like to use it to protect your current streak?'**
-  String get streakFreezeAvailable;
-
-  /// No description provided for @streakFreezesAvailableMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'But it\'s OK! You have {count} streak freezes available. Would you like to use one to protect your current streak?'**
-  String streakFreezesAvailableMessage(Object count);
-
-  /// No description provided for @useStreakFreeze.
-  ///
-  /// In en, this message translates to:
-  /// **'Use Streak Freeze'**
-  String get useStreakFreeze;
-
-  /// No description provided for @streakFreezesBeta.
-  ///
-  /// In en, this message translates to:
-  /// **'Streak Freezes (Beta)'**
-  String get streakFreezesBeta;
-
-  /// No description provided for @streakFreezesBetaDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Enable the ability to use streak freezes to maintain your meditation streak when you miss a day'**
-  String get streakFreezesBetaDescription;
-
   /// No description provided for @notNow.
   ///
   /// In en, this message translates to:
@@ -2617,13 +2521,13 @@ abstract class AppLocalizations {
   /// Description under the Off option in the Zen Mode sheet
   ///
   /// In en, this message translates to:
-  /// **'Show your streak, stats and consistency score.'**
+  /// **'Show your practice stats.'**
   String get zenModeOffDescription;
 
   /// Description under the On option in the Zen Mode sheet
   ///
   /// In en, this message translates to:
-  /// **'Hide your streak, stats and consistency score everywhere in the app.'**
+  /// **'Hide your practice stats throughout the app.'**
   String get zenModeOnDescription;
 
   /// Small note under the Zen Mode options
@@ -3049,7 +2953,7 @@ abstract class AppLocalizations {
   /// No description provided for @consistencyScoreInfoMessage.
   ///
   /// In en, this message translates to:
-  /// **'Your consistency score reflects how regularly you\'ve meditated since you started. Recent days carry more weight, but earlier missed days still gently affect the score. Unlike streaks, it doesn\'t reset on a missed day.'**
+  /// **'Your consistency score reflects how regularly you\'ve meditated since you started. Recent days carry more weight.'**
   String get consistencyScoreInfoMessage;
 
   /// No description provided for @accountDeletionInitiated.
@@ -3493,121 +3397,121 @@ abstract class AppLocalizations {
   /// Daily reminder day 1 title variant 1
   ///
   /// In en, this message translates to:
-  /// **'Keep your streak going 🌱'**
+  /// **'Your practice is here for you'**
   String get reminderDay1TitleVar1;
 
-  /// Daily reminder day 1 body variant 1
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'You are on a {streak} day streak. Keep it going?'**
-  String reminderDay1BodyVar1(String streak);
+  /// **'Coming back is the practice.'**
+  String get reminderDay1BodyVar1;
 
   /// Daily reminder day 1 title variant 2
   ///
   /// In en, this message translates to:
-  /// **'Strong step ✨'**
+  /// **'Take a breath'**
   String get reminderDay1TitleVar2;
 
-  /// Daily reminder day 1 body variant 2
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Consistency {consistency}%. Let’s keep it going.'**
-  String reminderDay1BodyVar2(String consistency);
+  /// **'Give yourself a moment to breathe.'**
+  String get reminderDay1BodyVar2;
 
   /// Daily reminder day 1 title variant 3
   ///
   /// In en, this message translates to:
-  /// **'Tiny wins add up 💜'**
+  /// **'A moment for yourself'**
   String get reminderDay1TitleVar3;
 
-  /// Daily reminder day 1 body variant 3
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'A few minutes now keeps your momentum alive.'**
+  /// **'Take a few minutes to notice how you feel.'**
   String get reminderDay1BodyVar3;
 
   /// Daily reminder day 1 title variant 4
   ///
   /// In en, this message translates to:
-  /// **'Your practice awaits 🌸'**
+  /// **'Make room for calm'**
   String get reminderDay1TitleVar4;
 
-  /// Daily reminder day 1 body variant 4
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Take a moment to reconnect with yourself.'**
+  /// **'Try taking a moment to sit quietly.'**
   String get reminderDay1BodyVar4;
 
   /// Daily reminder day 1 title variant 5
   ///
   /// In en, this message translates to:
-  /// **'One breath at a time 🫧'**
+  /// **'One breath at a time'**
   String get reminderDay1TitleVar5;
 
-  /// Daily reminder day 1 body variant 5
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Every session counts, no matter how short.'**
+  /// **'Start with a single breath.'**
   String get reminderDay1BodyVar5;
 
   /// Daily reminder day 2 title variant 1
   ///
   /// In en, this message translates to:
-  /// **'Keep the flow 🔁'**
+  /// **'Back to your practice'**
   String get reminderDay2TitleVar1;
 
-  /// Daily reminder day 2 body variant 1
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Let’s get that streak going again. Just a few minutes can make a big difference.'**
+  /// **'Take a few minutes to reconnect.'**
   String get reminderDay2BodyVar1;
 
   /// Daily reminder day 2 title variant 2
   ///
   /// In en, this message translates to:
-  /// **'Build your rhythm 🧘'**
+  /// **'Time to pause'**
   String get reminderDay2TitleVar2;
 
-  /// Daily reminder day 2 body variant 2
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Another gentle practice awaits.'**
+  /// **'A short practice is here when you’re ready.'**
   String get reminderDay2BodyVar2;
 
   /// Daily reminder day 2 title variant 3
   ///
   /// In en, this message translates to:
-  /// **'You have got this 🌟'**
+  /// **'Follow your breath'**
   String get reminderDay2TitleVar3;
 
-  /// Daily reminder day 2 body variant 3
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Return to your breath, one moment at a time.'**
+  /// **'Notice what each breath feels like.'**
   String get reminderDay2BodyVar3;
 
   /// Daily reminder day 2 title variant 4
   ///
   /// In en, this message translates to:
-  /// **'Small steps forward 🚶'**
+  /// **'A quiet moment'**
   String get reminderDay2TitleVar4;
 
-  /// Daily reminder day 2 body variant 4
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Consistency builds strength. Start with just a few minutes.'**
+  /// **'Take a few minutes to be with yourself.'**
   String get reminderDay2BodyVar4;
 
   /// Daily reminder day 2 title variant 5
   ///
   /// In en, this message translates to:
-  /// **'Gentle return 💚'**
+  /// **'Come as you are'**
   String get reminderDay2TitleVar5;
 
-  /// Daily reminder day 2 body variant 5
+  /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Your mindful practice is here whenever you are ready.'**
+  /// **'Take a moment to check in with yourself.'**
   String get reminderDay2BodyVar5;
 
   /// Daily reminder day 3 title variant 1
@@ -3883,7 +3787,7 @@ abstract class AppLocalizations {
   /// Confirmation message shown when the user long-presses a session to delete it
   ///
   /// In en, this message translates to:
-  /// **'Are you sure you want to delete this session? This will update your streak and stats.'**
+  /// **'Delete this session from your practice history?'**
   String get deleteSessionConfirmation;
 
   /// Error snackbar shown when deleting a session fails
@@ -4132,12 +4036,6 @@ abstract class AppLocalizations {
   /// **'These defaults are set from your last selection on any track. Home uses them to skip the selection screen when you continue a pack.'**
   String get defaultsNote;
 
-  /// Text shown when a streak freeze was used on a particular day
-  ///
-  /// In en, this message translates to:
-  /// **'Streak freeze used'**
-  String get streakFreezeUsed;
-
   /// Singular form of session
   ///
   /// In en, this message translates to:
@@ -4221,12 +4119,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Report issue'**
   String get reportIssue;
-
-  /// Accessibility label for the streak circle button on the home screen
-  ///
-  /// In en, this message translates to:
-  /// **'View streak'**
-  String get viewStreak;
 
   /// Accessibility label for the retry/refresh button
   ///
@@ -4561,7 +4453,7 @@ abstract class AppLocalizations {
   /// Body of the end-screen account-conversion card
   ///
   /// In en, this message translates to:
-  /// **'Add your email so your streak and history follow you to a new phone.'**
+  /// **'Add your email to take your practice history to a new phone.'**
   String get accountPromptBody;
 
   /// Primary button on the end-screen account-conversion card
@@ -5211,6 +5103,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open timer'**
   String get openTimer;
+
+  /// Etiqueta del contador de regresos en Inicio.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve returned'**
+  String get returnsHomeLabel;
+
+  /// Texto debajo del contador de regresos en Inicio.
+  ///
+  /// In en, this message translates to:
+  /// **'times to your practice'**
+  String get returnsHomeCaption;
+
+  /// Nombre del total de días de práctica.
+  ///
+  /// In en, this message translates to:
+  /// **'Returns'**
+  String get returnsLabel;
+
+  /// Total previsto tras agregar sesiones manuales.
+  ///
+  /// In en, this message translates to:
+  /// **'New returns total'**
+  String get projectedReturnsLabel;
+
+  /// Total de regresos al terminar una sesión.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve returned {count, plural, =1{once} other{{count} times}}'**
+  String returnsCompletion(int count);
+
+  /// Encabezado al terminar una sesión después de una pausa.
+  ///
+  /// In en, this message translates to:
+  /// **'You came back.'**
+  String get returnedHeadline;
+
+  /// Duración de la pausa entre dos días de práctica.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} days passed. That\'s okay: coming back is exactly what we\'re practicing.'**
+  String returnedAfterPause(int count);
+
+  /// Días de práctica en los últimos siete días, incluido hoy.
+  ///
+  /// In en, this message translates to:
+  /// **'You showed up {count, plural, =1{1 day} other{{count} days}} this week'**
+  String practiceDaysThisWeek(int count);
+
+  /// Etiqueta de accesibilidad del botón de estadísticas en modo Zen.
+  ///
+  /// In en, this message translates to:
+  /// **'View practice stats'**
+  String get viewPracticeStats;
+
+  /// Título del selector de inicio del día.
+  ///
+  /// In en, this message translates to:
+  /// **'When does your day start?'**
+  String get dayBoundaryTitle;
+
+  /// Explica el ajuste de inicio del día de práctica.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose when your practice day starts. If you meditate after midnight, you can count it toward the previous day.'**
+  String get dayBoundaryDescription;
+
+  /// Explica cómo se agrupan las sesiones anteriores.
+  ///
+  /// In en, this message translates to:
+  /// **'Changing this setting groups past sessions into days using the new start time.'**
+  String get dayBoundaryNote;
+
+  /// Opción predeterminada del selector de inicio del día.
+  ///
+  /// In en, this message translates to:
+  /// **'Midnight (default)'**
+  String get dayBoundaryMidnight;
+
+  /// Opción en horas para el inicio del día.
+  ///
+  /// In en, this message translates to:
+  /// **'{hour}:00 AM'**
+  String dayBoundaryHour(int hour);
+
+  /// Botón para guardar el inicio del día.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get dayBoundarySave;
 }
 
 class _AppLocalizationsDelegate

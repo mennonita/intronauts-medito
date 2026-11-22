@@ -4,13 +4,7 @@ import SwiftUI
 
 private let appGroupId = "group.org.medito.widget"
 
-/// The user-perceived calendar day that contains [date], honouring the
-/// day-boundary offset. Mirrors Dart's `dayOf` and the Android
-/// StreakCalculator: shift the instant back by the offset, then take the
-/// local start-of-day. MUST match those so the widget buckets days the same
-/// way the in-app streak/calendar do — otherwise a session inside the offset
-/// window (e.g. just after midnight with a "day starts at 3am" setting) gets
-/// circled on a different day than the streak counts it.
+/// Devuelve el inicio del día de práctica según la hora elegida en la app.
 func logicalDayStart(_ date: Date, offsetHours: Int) -> Date {
     let shifted = date.addingTimeInterval(-Double(offsetHours) * 3600)
     return Calendar.current.startOfDay(for: shifted)
@@ -19,6 +13,9 @@ func logicalDayStart(_ date: Date, offsetHours: Int) -> Date {
 struct WidgetData {
     let meditationDates: Set<Date>
     let freezeDates: Set<Date>
+    let practiceDates: Set<Date>
+    let minimumReturns: Int
+    let returnsOffsetHours: Int
     let dayLabel: String
     let daysLabel: String
     let themePreference: String
@@ -30,25 +27,17 @@ struct WidgetData {
         logicalDayStart(now, offsetHours: dayBoundaryOffsetHours)
     }
 
-    // The streak and score are recomputed here (like the Android widgets) rather than read from
-    // the "streak_current" / "consistency_score" the app pushes, which only change when the app
-    // runs: a missed day left the old streak showing until the next app open.
-    func streak(at now: Date) -> Int {
-        StatCalculator.streak(activityDays: allActivityDates, today: today(at: now))
-    }
-
     func consistencyScore(at now: Date) -> Int {
         StatCalculator.consistencyScore(activityDays: allActivityDates, today: today(at: now))
     }
 
-    /// Timeline entries for the stat widgets: now, and the moment the logical day rolls over, so
-    /// the streak and the strip turn over on time without the app.
+    /// Actualiza la tira cuando empieza el siguiente día de práctica.
     func timelineDates(from now: Date) -> [Date] {
         let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today(at: now))!
         return [now, tomorrow.addingTimeInterval(Double(dayBoundaryOffsetHours) * 3600)]
     }
 
-    /// Seven days running plus one earlier session: a 7-day streak at 67%.
+    /// Muestra días de práctica de ejemplo.
     static var placeholder: WidgetData {
         let today = Calendar.current.startOfDay(for: Date())
         let days = [0, -1, -2, -3, -4, -5, -6, -11].map {
@@ -57,6 +46,9 @@ struct WidgetData {
         return WidgetData(
             meditationDates: Set(days),
             freezeDates: [],
+            practiceDates: Set(days),
+            minimumReturns: days.count,
+            returnsOffsetHours: 0,
             dayLabel: "day",
             daysLabel: "days",
             themePreference: "system",
@@ -67,6 +59,12 @@ struct WidgetData {
     static func load() -> WidgetData {
         let defaults = UserDefaults(suiteName: appGroupId)
         let offsetHours = defaults?.integer(forKey: "day_boundary_offset_hours") ?? 0
+        let returnsJSON = defaults?.string(forKey: "returns_data")?.data(using: .utf8)
+        let returnsData = returnsJSON.flatMap {
+            (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+        }
+        let returnsOffsetHours = returnsData?["offset"] as? Int ?? offsetHours
+        let timestamps = returnsData?["timestamps"] as? [Double] ?? []
         return WidgetData(
             meditationDates: parseDates(
                 from: defaults?.string(forKey: "meditation_dates") ?? "[]",
@@ -76,6 +74,9 @@ struct WidgetData {
                 from: defaults?.string(forKey: "freeze_dates") ?? "[]",
                 offsetHours: offsetHours
             ),
+            practiceDates: bucketDates(timestamps, offsetHours: returnsOffsetHours),
+            minimumReturns: returnsData?["count"] as? Int ?? 0,
+            returnsOffsetHours: returnsOffsetHours,
             dayLabel: defaults?.string(forKey: "day_label") ?? "day",
             daysLabel: defaults?.string(forKey: "days_label") ?? "days",
             themePreference: defaults?.string(forKey: "theme_preference") ?? "system",
@@ -89,7 +90,11 @@ struct WidgetData {
             let timestamps = try? JSONSerialization.jsonObject(with: data) as? [Double]
         else { return [] }
 
-        return Set(timestamps.map {
+        return bucketDates(timestamps, offsetHours: offsetHours)
+    }
+
+    private static func bucketDates(_ timestamps: [Double], offsetHours: Int) -> Set<Date> {
+        Set(timestamps.map {
             logicalDayStart(Date(timeIntervalSince1970: $0 / 1000), offsetHours: offsetHours)
         })
     }

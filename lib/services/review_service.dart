@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ReviewService {
   static const _reviewRequestKey = 'last_review_request_timestamp';
   static const _minimumDaysBetweenRequests = 90; // 3 months
-  static const _minimumStreakForReview = 10;
+  static const _minimumReturnsForReview = 10;
 
   final InAppReview _inAppReview = InAppReview.instance;
   final StatsManager _statsManager;
@@ -16,10 +16,7 @@ class ReviewService {
 
   Future<void> checkAndRequestReview() async {
     try {
-      final stats = await _statsManager.localAllStats;
-
-      // 2. Check if streak is at least 2
-      if (stats.streakCurrent < _minimumStreakForReview) {
+      if (await _statsManager.returns < _minimumReturnsForReview) {
         return;
       }
 

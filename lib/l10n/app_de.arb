@@ -108,8 +108,6 @@
   "statsLoading": "Statistiken werden geladen...",
   "loading": "Wird geladen...",
   "statsErrorRetry": "Wiederholen",
-  "currentStreak": "Aktuelle Serie",
-  "longestStreak": "Längste Serie",
   "consistencyScore": "Beständigkeitswert",
   "totalTracksCompleted": "Abgeschlossene Titel",
   "totalTimeListened": "Gesamte Hörzeit",
@@ -121,9 +119,6 @@
   "minutes": "Minuten",
   "minute": "Minute",
   "showConsistencyScore": "Beständigkeitswert anzeigen",
-  "showCurrentStreak": "Aktuelle Serie anzeigen",
-  "alwaysShowStreakOnHomepage": "Serie immer auf der Startseite anzeigen",
-  "displayPreferenceSaved": "Anzeigeeinstellung gespeichert",
   "gotIt": "Verstanden",
   "signUpLogInTitle": "Bei Medito anmelden",
   "createAccountTitle": "Konto erstellen",
@@ -141,7 +136,6 @@
   "resendCodeInSeconds": "Code erneut senden in {seconds} Sek.",
   "byContinuingAgreeTo": "Wenn du fortfährst, stimmst du Folgendem zu: ",
   "andText": " und ",
-  "streakFreezeEarned": "Glückwunsch! Du hast sieben Tage in Folge meditiert und dir einen Serienschutz verdient!",
   "emailVerificationText": "Wir senden Ihnen per E-Mail einen Code zur Bestätigung Ihres Kontos zu.",
   "createAccountBenefits": "• Verfolge deinen Weg zu mehr Achtsamkeit\n• Behalte deinen Meditationsfortschritt dauerhaft\n• Entwickle eine beständige Meditationsroutine 💜",
   "loginBenefits": "• Lade deine zuvor gespeicherten Daten herunter\n• Setze deinen Meditationsweg dort fort, wo du aufgehört hast",
@@ -200,8 +194,6 @@
   "friday": "Fr",
   "saturday": "Sa",
   "sunday": "So",
-  "dailyPracticeMessage": "Tägliches Meditieren verlängert deine Serie und macht dich auch achtsamer und glücklicher!",
-  "dayStreak": "Tage in Folge",
   "dailyQuote": "Zitat des Tages",
   "termsOfService": "Nutzungsbedingungen",
   "privacyPolicy": "Datenschutzerklärung",
@@ -243,20 +235,6 @@
   "restorePreviousStats": "Frühere Statistiken wiederherstellen",
   "restorePreviousStatsExplainer": "Wählen Sie eine Sicherung aus, den Sie wiederherstellen möchten. Sicherungen werden automatisch gespeichert, wenn Ihre Statistiken synchronisiert werden, und die letzten 20 werden auf diesem Gerät aufbewahrt – einschließlich der Sicherungen aus anderen Konten, bei denen Sie sich hier angemeldet haben.",
   "noBackupsAvailable": "Auf diesem Gerät sind noch keine Sicherungen deiner Statistiken gespeichert.",
-  "backupSummary": "Serie {streak} · {sessions, plural, =1{1 Sitzung} other{{sessions} Sitzungen}} · {minutes} Min.",
-  "@backupSummary": {
-    "placeholders": {
-      "streak": {
-        "type": "int"
-      },
-      "sessions": {
-        "type": "int"
-      },
-      "minutes": {
-        "type": "int"
-      }
-    }
-  },
   "restoreStatsConfirmTitle": "Diese Statistiken wiederherstellen?",
   "restoreStatsConfirmBody": "Ihre aktuellen Statistiken auf diesem Gerät werden durch die ausgewählte Sicherung ersetzt, und die Sicherung wird für das derzeit angemeldete Konto hochgeladen. Dieser Vorgang kann nicht rückgängig gemacht werden.",
   "restore": "Wiederherstellen",
@@ -270,7 +248,6 @@
       }
     }
   },
-  "newStreak": "Neue Serie",
   "newSessions": "Neue Sitzungen",
   "addSessionsToSelectedDays": "Sitzungen an ausgewählten Tagen hinzufügen",
   "addSessionsTitle": "{count, plural, =1{1 Sitzung hinzufügen} other{{count} Sitzungen hinzufügen}}",
@@ -455,14 +432,6 @@
   "donationThankYouBody": "Ihre Großzügigkeit trägt dazu bei, dass Medito kostenlos und für alle zugänglich bleibt. Wir sind Ihnen zutiefst dankbar für Ihren Beitrag zur weltweiten Verbreitung der Achtsamkeit.",
   "donationVisitFoundation": "Medito Foundation besuchen",
   "donationContinue": "Weiter",
-  "streakFreezesAvailable": "Verfügbarer Serienschutz",
-  "freezeUsedMessage": "Ein Serienschutz wurde eingesetzt, um deine Serie zu erhalten!",
-  "streakAtRisk": "Du hast einen Tag ausgelassen",
-  "streakFreezeAvailable": "Du hast einen Serienschutz verfügbar. Möchtest du ihn einsetzen, um deine aktuelle Serie zu schützen?",
-  "streakFreezesAvailableMessage": "Aber das ist kein Problem! Dir stehen {count} Serienschutze zur Verfügung. Möchtest du einen davon nutzen, um deine aktuelle Serie zu sichern?",
-  "useStreakFreeze": "Serienschutz einsetzen",
-  "streakFreezesBeta": "Serienschutz (Beta)",
-  "streakFreezesBetaDescription": "Aktiviere den Serienschutz, um deine Meditationsserie zu erhalten, wenn du einen Tag auslässt",
   "notNow": "Jetzt nicht",
   "helpTitle": "Hilfe",
   "meditationInterruptionTitle": "Meditationen brechen unerwartet ab",
@@ -612,7 +581,6 @@
   "tracksSectionHeader": "Titel",
   "noResultsFound": "Keine Ergebnisse für deine Suche gefunden",
   "consistencyScoreInfoTitle": "Beständigkeitswert",
-  "consistencyScoreInfoMessage": "Dein Beständigkeitswert spiegelt wider, wie regelmäßig du seit Beginn meditiert hast. Die letzten Tage haben ein größeres Gewicht, aber auch früher versäumte Tage wirken sich noch leicht auf den Wert aus. Anders als bei den Meditationsserien wird der Wert an einem versäumten Tag nicht zurückgesetzt.",
   "accountDeletionInitiated": "Die Kontolöschung wurde eingeleitet. Bitte schließe die Schritte in deinem Browser ab.",
   "reportError": "Fehler melden",
   "errorReportedMessage": "Danke, deine Meldung wurde gesendet.",
@@ -881,98 +849,6 @@
   "@reminderPromptDismissedMessage": {
     "description": "Message shown when user dismisses the reminder prompt on the end screen"
   },
-  "reminderDay1TitleVar1": "Setze deine Serie fort 🌱",
-  "@reminderDay1TitleVar1": {
-    "description": "Smart reminder day 1 title variant 1"
-  },
-  "reminderDay1BodyVar1": "Du meditierst seit {streak} Tagen in Folge. Machst du weiter?",
-  "@reminderDay1BodyVar1": {
-    "description": "Smart reminder day 1 body variant 1",
-    "placeholders": {
-      "streak": {
-        "type": "String",
-        "description": "Current streak count"
-      }
-    }
-  },
-  "reminderDay1TitleVar2": "Ein starker Schritt ✨",
-  "@reminderDay1TitleVar2": {
-    "description": "Smart reminder day 1 title variant 2"
-  },
-  "reminderDay1BodyVar2": "Dein Beständigkeitswert: {consistency} %. Bleib dran.",
-  "@reminderDay1BodyVar2": {
-    "description": "Smart reminder day 1 body variant 2",
-    "placeholders": {
-      "consistency": {
-        "type": "String",
-        "description": "Consistency percentage"
-      }
-    }
-  },
-  "reminderDay1TitleVar3": "Kleine Erfolge summieren sich 💜",
-  "@reminderDay1TitleVar3": {
-    "description": "Smart reminder day 1 title variant 3"
-  },
-  "reminderDay1BodyVar3": "Ein paar Minuten jetzt helfen dir, dranzubleiben.",
-  "@reminderDay1BodyVar3": {
-    "description": "Smart reminder day 1 body variant 3"
-  },
-  "reminderDay1TitleVar4": "Deine Meditation wartet 🌸",
-  "@reminderDay1TitleVar4": {
-    "description": "Smart reminder day 1 title variant 4"
-  },
-  "reminderDay1BodyVar4": "Nimm dir einen Moment, um wieder bei dir anzukommen.",
-  "@reminderDay1BodyVar4": {
-    "description": "Smart reminder day 1 body variant 4"
-  },
-  "reminderDay1TitleVar5": "Atemzug für Atemzug 🫧",
-  "@reminderDay1TitleVar5": {
-    "description": "Smart reminder day 1 title variant 5"
-  },
-  "reminderDay1BodyVar5": "Jede Sitzung zählt, egal wie kurz sie ist.",
-  "@reminderDay1BodyVar5": {
-    "description": "Smart reminder day 1 body variant 5"
-  },
-  "reminderDay2TitleVar1": "Bleib im Rhythmus 🔁",
-  "@reminderDay2TitleVar1": {
-    "description": "Smart reminder day 2 title variant 1"
-  },
-  "reminderDay2BodyVar1": "Starte deine Serie wieder. Schon wenige Minuten können viel bewirken.",
-  "@reminderDay2BodyVar1": {
-    "description": "Smart reminder day 2 body variant 1"
-  },
-  "reminderDay2TitleVar2": "Finde deinen Rhythmus 🧘",
-  "@reminderDay2TitleVar2": {
-    "description": "Smart reminder day 2 title variant 2"
-  },
-  "reminderDay2BodyVar2": "Eine weitere sanfte Meditation wartet auf dich.",
-  "@reminderDay2BodyVar2": {
-    "description": "Smart reminder day 2 body variant 2"
-  },
-  "reminderDay2TitleVar3": "Du schaffst das 🌟",
-  "@reminderDay2TitleVar3": {
-    "description": "Smart reminder day 2 title variant 3"
-  },
-  "reminderDay2BodyVar3": "Kehre zu deinem Atem zurück, Moment für Moment.",
-  "@reminderDay2BodyVar3": {
-    "description": "Smart reminder day 2 body variant 3"
-  },
-  "reminderDay2TitleVar4": "Mit kleinen Schritten voran 🚶",
-  "@reminderDay2TitleVar4": {
-    "description": "Smart reminder day 2 title variant 4"
-  },
-  "reminderDay2BodyVar4": "Regelmäßigkeit macht dich stärker. Beginne mit nur wenigen Minuten.",
-  "@reminderDay2BodyVar4": {
-    "description": "Smart reminder day 2 body variant 4"
-  },
-  "reminderDay2TitleVar5": "Sanft zurückfinden 💚",
-  "@reminderDay2TitleVar5": {
-    "description": "Smart reminder day 2 title variant 5"
-  },
-  "reminderDay2BodyVar5": "Deine Achtsamkeitspraxis wartet auf dich, wann immer du bereit bist.",
-  "@reminderDay2BodyVar5": {
-    "description": "Smart reminder day 2 body variant 5"
-  },
   "reminderDay3TitleVar1": "Entwickle eine Routine 📆",
   "@reminderDay3TitleVar1": {
     "description": "Smart reminder day 3 title variant 1"
@@ -1137,7 +1013,6 @@
   "@deleteSessionTitle": {
     "description": "Title for the dialog confirming deletion of a tracked session"
   },
-  "deleteSessionConfirmation": "Möchtest du diese Sitzung wirklich löschen? Deine Serie und deine Statistiken werden dadurch aktualisiert.",
   "@deleteSessionConfirmation": {
     "description": "Confirmation message shown when the user long-presses a session to delete it"
   },
@@ -1328,10 +1203,6 @@
   "@defaultsNote": {
     "description": "Note explaining how defaults work in Up Next"
   },
-  "streakFreezeUsed": "Serienschutz eingesetzt",
-  "@streakFreezeUsed": {
-    "description": "Text shown when a streak freeze was used on a particular day"
-  },
   "session": "Sitzung",
   "@session": {
     "description": "Singular form of session"
@@ -1379,10 +1250,6 @@
   "reportIssue": "Problem melden",
   "@reportIssue": {
     "description": "Accessibility label for the report button in the player"
-  },
-  "viewStreak": "Serie ansehen",
-  "@viewStreak": {
-    "description": "Accessibility label for the streak circle button on the home screen"
   },
   "refresh": "Aktualisieren",
   "@refresh": {
@@ -1617,8 +1484,6 @@
   "errorHostLookupMessage": "Die Server von Medito sind nicht erreichbar. Prüfe, ob ein VPN, Werbeblocker oder privates DNS aktiv ist.",
   "errorConnectTimeoutMessage": "Zeitüberschreitung bei der Verbindung zu den Servern von Medito. Bitte versuche es erneut.",
   "errorServerUnreachableMessage": "Keine Verbindung zu den Servern von Medito möglich. Bitte versuche es später erneut.",
-  "zenModeOffDescription": "Zeige deine Serie, Statistiken und deinen Beständigkeitswert an.",
-  "zenModeOnDescription": "Blende deine Serie, Statistiken und deinen Beständigkeitswert überall in der App aus.",
   "zenModeFootnote": "Dein Fortschritt wird in beiden Fällen aufgezeichnet.",
   "dndOn": "An",
   "dndOff": "Aus",
@@ -1642,7 +1507,6 @@
   "openPack": "Paket öffnen",
   "yourPathAllDone": "Alle Sitzungen abgeschlossen",
   "accountPromptTitle": "Sichere deinen Fortschritt",
-  "accountPromptBody": "Füge deine E-Mail-Adresse hinzu, damit deine Serie und dein Verlauf dich auf ein neues Telefon begleiten.",
   "accountPromptCta": "Fortschritt speichern",
   "donateAmountPerMonth": "{amount}/Monat spenden",
   "donateWithApplePayPrefix": "Spenden mit",

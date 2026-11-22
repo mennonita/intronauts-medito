@@ -1,12 +1,11 @@
+import 'package:medito/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:medito/constants/constants.dart';
 import 'package:medito/utils/utils.dart';
 import 'package:medito/widgets/dialogs/medito_dialog.dart';
 import 'package:medito/widgets/dialogs/medito_dialog_buttons.dart';
 
-/// Dialog for picking when a new "day" begins for streak calculation.
-///
-/// Returns the chosen offset in whole hours on save, or `null` on cancel.
+/// Permite elegir la hora en que empieza el día de práctica.
 class DayBoundaryOffsetDialog extends StatefulWidget {
   final int currentHours;
 
@@ -28,28 +27,22 @@ class _DayBoundaryOffsetDialogState extends State<DayBoundaryOffsetDialog> {
     _selected = widget.currentHours.clamp(0, 6);
   }
 
-  String _labelFor(int hours) {
-    if (hours == 0) return 'Midnight (default)';
-    return '$hours:00 AM';
-  }
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
     final dirty = _selected != widget.currentHours;
 
     return MeditoDialog(
-      title: 'When does your day start?',
+      title: l10n.dayBoundaryTitle,
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Pick when a new day begins for your streak. Useful if you '
-              'usually meditate late at night and want sessions after '
-              'midnight to still count for the previous day.',
+              l10n.dayBoundaryDescription,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontFamily: googleSans,
                 height: 1.5,
@@ -59,7 +52,9 @@ class _DayBoundaryOffsetDialogState extends State<DayBoundaryOffsetDialog> {
             const SizedBox(height: 16),
             for (final hours in _options)
               _OffsetOptionTile(
-                label: _labelFor(hours),
+                label: hours == 0
+                    ? l10n.dayBoundaryMidnight
+                    : l10n.dayBoundaryHour(hours),
                 selected: hours == _selected,
                 onTap: () => setState(() => _selected = hours),
               ),
@@ -85,9 +80,7 @@ class _DayBoundaryOffsetDialogState extends State<DayBoundaryOffsetDialog> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Experimental. Changing this updates how every past '
-                      'session is grouped into days, so your current and '
-                      'longest streak may shift.',
+                      l10n.dayBoundaryNote,
                       style: theme.textTheme.bodySmall?.copyWith(
                         fontFamily: googleSans,
                         height: 1.4,
@@ -103,11 +96,11 @@ class _DayBoundaryOffsetDialogState extends State<DayBoundaryOffsetDialog> {
       ),
       actions: [
         MeditoDialogSecondaryButton(
-          label: 'Cancel',
+          label: l10n.cancel,
           onPressed: () => Navigator.of(context).pop(),
         ),
         MeditoDialogPrimaryButton(
-          label: 'Save',
+          label: l10n.dayBoundarySave,
           onPressed: dirty ? () => Navigator.of(context).pop(_selected) : null,
         ),
       ],

@@ -10,10 +10,8 @@ import androidx.glance.currentState
 import androidx.glance.state.GlanceStateDefinition
 import es.antonborri.home_widget.HomeWidgetGlanceState
 import es.antonborri.home_widget.HomeWidgetGlanceStateDefinition
-import org.json.JSONArray
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
+import meditofoundation.medito.R
+import org.json.JSONObject
 
 class MeditationWidget : GlanceAppWidget() {
 
@@ -32,48 +30,24 @@ class MeditationWidget : GlanceAppWidget() {
     @Composable
     private fun WidgetContent(context: Context) {
         val prefs = currentState<HomeWidgetGlanceState>().preferences
-        val totalTracksCompleted = prefs.getInt("total_tracks_completed", 0)
-        val meditationDatesJson = prefs.getString("meditation_dates", "[]") ?: "[]"
-        val freezeDatesJson = prefs.getString("freeze_dates", "[]") ?: "[]"
-        val dayBoundaryOffsetHours = prefs.getInt("day_boundary_offset_hours", 0)
-        val dayLabel = prefs.getString("day_label", "day") ?: "day"
-        val daysLabel = prefs.getString("days_label", "days") ?: "days"
-
-        // Raw (not truncated) timestamps so the streak, strip, and flame all
-        // bucket days by the day-boundary offset — truncating to midnight here
-        // would lose the sub-day info the offset needs, leaving the dots/flame
-        // on the old plain-local behaviour while the streak number is offset-aware.
-        val meditationRaw = parseRawTimestamps(meditationDatesJson)
-        val freezeRaw = parseRawTimestamps(freezeDatesJson)
-
-        // Computed on-device (not read from the cached "streak_current" pref) so
-        // the streak stays live between app opens instead of only updating when
-        // Dart last pushed a snapshot.
-        val streakCurrent = StreakCalculator.calculate(
-            meditationRaw,
-            freezeRaw,
-            dayBoundaryOffsetHours,
-        )
-        // Use singular "day" if streak is 1, plural "days" otherwise
-        val label = if (streakCurrent == 1) dayLabel else daysLabel
-
-        // Bucket activity into logical days using the same day-boundary offset,
-        // so the strip and flame agree with the streak number.
-        val zone = ZoneId.systemDefault()
-        fun bucketDay(millis: Long): LocalDate =
-            Instant.ofEpochMilli(millis)
-                .minusSeconds(dayBoundaryOffsetHours * 3600L)
-                .atZone(zone)
-                .toLocalDate()
-        val activityDays = (meditationRaw + freezeRaw).map(::bucketDay).toSet()
-        val today = bucketDay(System.currentTimeMillis())
+        val data = runCatching { JSONObject(prefs.getString("returns_data", "{}") ?: "{}") }
+            .getOrDefault(JSONObject())
+        val raw = data.optJSONArray("timestamps")
+        val timestamps = raw?.let { dates ->
+            (0 until dates.length()).mapNotNull { dates.opt(it) as? Number }
+                .map { it.toLong() }
+        }.orEmpty()
+        val offsetHours = data.optInt("offset")
+        val today = StreakCalculator.dayOf(System.currentTimeMillis(), offsetHours)
+        val activityDays = StreakCalculator.practiceDays(timestamps, offsetHours, today)
+        val returns = maxOf(data.optInt("count"), activityDays.size)
 
         val themePreference = prefs.getString("theme_preference", "system") ?: "system"
 
         StatWidgetContent(
             context = context,
-            value = streakCurrent.toString(),
-            unit = label,
+            value = returns.toString(),
+            unit = context.getString(R.string.returns_widget_label),
             doneToday = activityDays.contains(today),
             today = today,
             activityDays = activityDays,
@@ -82,14 +56,4 @@ class MeditationWidget : GlanceAppWidget() {
         )
     }
 
-    // Raw timestamps (not truncated to midnight) so the streak, strip, and
-    // flame can all bucket days by the day-boundary offset themselves.
-    private fun parseRawTimestamps(jsonString: String): List<Long> {
-        return try {
-            val jsonArray = JSONArray(jsonString)
-            (0 until jsonArray.length()).map { jsonArray.getLong(it) }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
 }

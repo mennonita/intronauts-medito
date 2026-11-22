@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared parity fixture for the streak algorithm. Consumed identically by test/stats_manager/streak_parity_test.dart (Dart, source of truth: calculateStreak in lib/utils/stats_manager.dart) and android/app/src/test/kotlin/.../StreakCalculatorParityTest.kt (Kotlin, on-device widget port in StreakCalculator.kt). All offsets are hours relative to referenceInstant. nowOffsetHours positions the simulated 'now'; dayBoundaryOffsetHours is the user's configurable day-boundary offset (both 'today' and every activity date are bucketed via the same offset-aware dayOf). If you change calculateStreak, add/update cases here and re-verify both suites pass before touching StreakCalculator.kt.",
+  "_comment": "Casos del cálculo de rachas que conserva el contrato del servidor. Las horas son relativas a referenceInstant.",
   "referenceInstant": "2024-03-15T00:00:00Z",
   "cases": [
     {

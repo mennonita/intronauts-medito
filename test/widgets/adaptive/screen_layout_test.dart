@@ -1,3 +1,7 @@
+import 'package:medito/models/local_audio_completed.dart';
+import 'package:medito/utils/stats_manager.dart';
+import 'package:medito/views/stats/stats_screen.dart';
+import 'package:medito/views/home/widgets/stats/streak_circle.dart';
 import 'package:medito/providers/shop/shop_providers.dart';
 import 'package:medito/providers/home/up_next_provider.dart';
 import 'package:medito/views/home/widgets/home_gradient_border.dart';
@@ -113,6 +117,14 @@ class _OnboardingStats extends StatsNotifier {
   Future<LocalAllStats> build() async => previewStats;
 }
 
+class _ReturnsStats extends StatsNotifier {
+  _ReturnsStats(this.stats);
+  final LocalAllStats stats;
+
+  @override
+  Future<LocalAllStats> build() async => stats;
+}
+
 PaywallConfigModel _onboardingPaywall(bool native) => PaywallConfigModel(
   defaults: PaywallDefaults(config: {'nativePaywall': native}),
   pricing: const PaymentPricing(
@@ -181,6 +193,121 @@ void main() {
         entry.key,
       )..addFont(rootBundle.load(entry.value))).load();
     }
+  });
+
+  testWidgets('Completion welcomes a return after a pause in Spanish', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter.baseflow.com/permissions/methods'),
+          (call) async => 0,
+        );
+    final today = DateTime(2026, 11, 21, 12);
+    final manager = StatsManager()..setCurrentDateForTesting(today);
+    addTearDown(manager.resetForTesting);
+    final prior = LocalAllStats.empty().copyWith(
+      audioCompleted: [
+        LocalAudioCompleted(
+          id: 'prior-track',
+          timestamp: DateTime(2026, 11, 19, 12).millisecondsSinceEpoch,
+        ),
+      ],
+    );
+    final stats = prior.copyWith(
+      audioCompleted: [
+        ...prior.audioCompleted!,
+        LocalAudioCompleted(
+          id: 'track',
+          timestamp: today.millisecondsSinceEpoch,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      PreviewShell(
+        prefs: {
+          SharedPreferenceConstants.endScreenDonationAskVariant: 'A',
+          SharedPreferenceConstants.accountPromptDismissedForever: true,
+        },
+        locale: const Locale('es'),
+        overrides: [
+          statsProvider.overrideWith(() => _ReturnsStats(stats)),
+          reviewServiceProvider.overrideWithValue(_JourneyReview()),
+          fetchDonationPageProvider.overrideWith(
+            (ref) async =>
+                const DonationPageModel(title: '', text: '', buttons: []),
+          ),
+        ],
+        child: EndScreenView(request: request, priorStats: prior),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Volviste.'), findsOneWidget);
+    expect(
+      find.text(
+        'Pasaron 2 días. No importa: regresar es justo lo que entrenamos.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Has vuelto 2 veces'), findsNothing);
+  });
+
+  testWidgets('Home and stats show returns and history shows weekly practice', (
+    tester,
+  ) async {
+    final today = DateTime.now();
+    final stats = LocalAllStats.empty().copyWith(
+      audioCompleted: [
+        LocalAudioCompleted(
+          id: 'track',
+          timestamp: DateTime(
+            today.year,
+            today.month,
+            today.day - 2,
+            12,
+          ).millisecondsSinceEpoch,
+        ),
+        LocalAudioCompleted(
+          id: TypeConstants.streakFreeze,
+          timestamp: DateTime(
+            today.year,
+            today.month,
+            today.day - 1,
+            12,
+          ).millisecondsSinceEpoch,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      PreviewShell(
+        prefs: const {},
+        locale: const Locale('es'),
+        overrides: [statsProvider.overrideWith(() => _ReturnsStats(stats))],
+        child: Scaffold(
+          body: Builder(
+            builder: (context) => StreakCircle(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const StatsScreen()),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Has vuelto'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('veces a tu práctica'), findsOneWidget);
+
+    await tester.tap(find.text('Has vuelto'));
+    await tester.pumpAndSettle();
+    expect(find.text('1\nRegresos', findRichText: true), findsOneWidget);
+    await tester.tap(find.text('Historial'));
+    await tester.pumpAndSettle();
+    expect(find.text('Esta semana estuviste aquí 1 día'), findsOneWidget);
   });
 
   testWidgets('Your Path replaces session text without an outgoing overlap', (

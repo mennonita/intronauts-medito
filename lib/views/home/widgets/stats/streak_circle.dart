@@ -1,9 +1,8 @@
+import 'package:medito/providers/practice_history_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/icons/medito_icons.dart';
-import 'package:medito/constants/styles/widget_styles.dart';
 import 'package:medito/providers/stats_provider.dart';
-import 'package:medito/providers/streak_circle_display_provider.dart';
 import 'package:medito/providers/settings/settings_providers.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/views/home/widgets/stats/streak_circle_controller.dart';
@@ -11,7 +10,6 @@ import 'package:medito/widgets/medito_icon.dart';
 import '../../../../constants/colors/color_constants.dart';
 import 'streak_circle_constants.dart';
 import 'streak_ring.dart';
-import 'package:medito/utils/utils.dart';
 
 class StreakCircle extends ConsumerStatefulWidget {
   final VoidCallback onTap;
@@ -40,217 +38,65 @@ class StreakCircleState extends ConsumerState<StreakCircle>
 
   @override
   Widget build(BuildContext context) {
-    // Read here, not in the controller: it needs a BuildContext, and every
-    // updateAnimation call below then honours it.
     _controller.reduceMotion = MediaQuery.disableAnimationsOf(context);
-    return Consumer(
-      builder: (context, ref, child) {
-        final statsAsync = ref.watch(statsProvider);
-        final displayTypeAsync = ref.watch(streakCircleDisplayProvider);
-        final isZenModeEnabled = ref.watch(zenModeProvider);
+    final history = ref.watch(practiceHistoryProvider);
+    final zen = ref.watch(zenModeProvider);
 
-        return statsAsync.when(
-          loading: () => _buildShimmer(),
-          error: (error, stackTrace) {
-            if (statsAsync.hasValue) {
-              final stats = statsAsync.value!;
-              final isStreakDoneToday = _controller.isStreakDoneToday(
-                stats.audioCompleted,
-              );
-
-              if (isZenModeEnabled) {
-                _controller.updateAnimation(isStreakDoneToday);
-                return _buildZenModeCircle(isStreakDoneToday);
-              }
-
-              return displayTypeAsync.when(
-                loading: () => _buildShimmer(),
-                error: (_, _) {
-                  // Fallback to default behavior on error
-                  final displayValue = _controller.getDisplayValue(stats);
-                  final progressValue = _controller.getProgressValue(stats);
-                  final showConsistencyScore = _controller
-                      .shouldShowConsistencyScore(stats);
-
-                  _controller.updateAnimation(isStreakDoneToday);
-
-                  return _buildStreakCircle(
-                    isStreakDoneToday,
-                    displayValue,
-                    progressValue,
-                    showConsistencyScore,
-                  );
-                },
-                data: (displayType) {
-                  final displayValue = _controller.getDisplayValue(
-                    stats,
-                    displayType,
-                  );
-                  final progressValue = _controller.getProgressValue(
-                    stats,
-                    displayType,
-                  );
-                  final showConsistencyScore = _controller
-                      .shouldShowConsistencyScore(stats, displayType);
-
-                  _controller.updateAnimation(isStreakDoneToday);
-
-                  return _buildStreakCircle(
-                    isStreakDoneToday,
-                    displayValue,
-                    progressValue,
-                    showConsistencyScore,
-                  );
-                },
-              );
-            } else {
-              return _buildErrorState(ref);
-            }
-          },
-          data: (stats) {
-            final isStreakDoneToday = _controller.isStreakDoneToday(
-              stats.audioCompleted,
-            );
-
-            if (isZenModeEnabled) {
-              _controller.updateAnimation(isStreakDoneToday);
-              return _buildZenModeCircle(isStreakDoneToday);
-            }
-
-            return displayTypeAsync.when(
-              loading: () => _buildShimmer(),
-              error: (_, _) {
-                // Fallback to default behavior on error
-                final displayValue = _controller.getDisplayValue(stats);
-                final progressValue = _controller.getProgressValue(stats);
-                final showConsistencyScore = _controller
-                    .shouldShowConsistencyScore(stats);
-
-                _controller.updateAnimation(isStreakDoneToday);
-
-                return _buildStreakCircle(
-                  isStreakDoneToday,
-                  displayValue,
-                  progressValue,
-                  showConsistencyScore,
-                );
-              },
-              data: (displayType) {
-                final displayValue = _controller.getDisplayValue(
-                  stats,
-                  displayType,
-                );
-                final progressValue = _controller.getProgressValue(
-                  stats,
-                  displayType,
-                );
-                final showConsistencyScore = _controller
-                    .shouldShowConsistencyScore(stats, displayType);
-
-                _controller.updateAnimation(isStreakDoneToday);
-
-                return _buildStreakCircle(
-                  isStreakDoneToday,
-                  displayValue,
-                  progressValue,
-                  showConsistencyScore,
-                );
-              },
-            );
-          },
-        );
+    return history.when(
+      loading: _buildShimmer,
+      error: (_, _) => _buildErrorState(ref),
+      data: (history) {
+        final practicedToday = history.days.contains(history.today);
+        _controller.updateAnimation(practicedToday);
+        return zen
+            ? _buildZenModeCircle(practicedToday)
+            : _buildReturnsCircle(history.returns, practicedToday);
       },
     );
   }
 
-  Widget _buildStreakCircle(
-    bool isStreakDoneToday,
-    String displayValue,
-    double progressValue,
-    bool showConsistencyScore,
-  ) {
+  Widget _buildReturnsCircle(int returns, bool practicedToday) {
     final l10n = AppLocalizations.of(context)!;
-    final semanticLabel = showConsistencyScore
-        ? '${l10n.consistencyScore}: $displayValue%'
-        : '$displayValue ${l10n.dayStreak}';
+    final theme = Theme.of(context);
+    final borderRadius = BorderRadius.circular(
+      StreakCircleConstants.borderRadius,
+    );
 
     return _ring(
-      active: isStreakDoneToday,
+      active: practicedToday,
       child: Material(
         color: Colors.transparent,
         child: Semantics(
-          label: semanticLabel,
+          label: l10n.returnsCompletion(returns),
           button: true,
           child: InkWell(
             onTap: widget.onTap,
-            borderRadius: BorderRadius.circular(
-              StreakCircleConstants.borderRadius,
-            ),
+            borderRadius: borderRadius,
             child: Ink(
               decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(
-                  StreakCircleConstants.borderRadius,
-                ),
+                color: theme.cardColor,
+                borderRadius: borderRadius,
               ),
               child: Padding(
                 padding: StreakCircleConstants.padding,
                 child: ExcludeSemantics(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+                  child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (showConsistencyScore)
-                        SizedBox(
-                          width: StreakCircleConstants.iconSize,
-                          height: StreakCircleConstants.iconSize,
-                          child: CircularProgressIndicator(
-                            value: progressValue,
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withOpacityValue(0.2),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              isStreakDoneToday
-                                  ? context.brandAccent
-                                  : Theme.of(context).colorScheme.onSurface,
-                            ),
-                            strokeWidth: 2,
-                            strokeCap: StrokeCap.round,
-                          ),
-                        )
-                      else
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            if (isStreakDoneToday)
-                              MeditoIcon(
-                                assetName: MeditoIcons.fire,
-                                size: StreakCircleConstants.iconSize,
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                            MeditoIcon(
-                              assetName: MeditoIcons.fire,
-                              color: isStreakDoneToday
-                                  ? context.brandAccent
-                                  : Theme.of(context).colorScheme.onSurface,
-                              size: StreakCircleConstants.innerIconSize,
-                            ),
-                          ],
-                        ),
-                      const SizedBox(width: 8),
                       Text(
-                        displayValue + (showConsistencyScore ? '%' : ''),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontSize: StreakCircleConstants.fontSize,
-                          fontWeight: isStreakDoneToday
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                          fontFamily: googleSans,
+                        l10n.returnsHomeLabel,
+                        style: theme.textTheme.labelSmall,
+                      ),
+                      Text(
+                        '$returns',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
                           fontFeatures: const [FontFeature.tabularFigures()],
-                          letterSpacing: -0.2,
-                          height: StreakCircleConstants.lineHeight,
                         ),
+                      ),
+                      Text(
+                        l10n.returnsHomeCaption,
+                        style: theme.textTheme.labelSmall,
                       ),
                     ],
                   ),
@@ -263,7 +109,6 @@ class StreakCircleState extends ConsumerState<StreakCircle>
     );
   }
 
-  /// Wraps [child] in the travelling-glow ring when the streak is done today.
   Widget _ring({required bool active, required Widget child}) {
     if (!active) return child;
     return StreakRing(
@@ -300,13 +145,13 @@ class StreakCircleState extends ConsumerState<StreakCircle>
     );
   }
 
-  Widget _buildZenModeCircle(bool isStreakDoneToday) {
+  Widget _buildZenModeCircle(bool practicedToday) {
     return _ring(
-      active: isStreakDoneToday,
+      active: practicedToday,
       child: Material(
         color: Colors.transparent,
         child: Semantics(
-          label: AppLocalizations.of(context)!.viewStreak,
+          label: AppLocalizations.of(context)!.viewPracticeStats,
           button: true,
           child: InkWell(
             onTap: widget.onTap,
@@ -324,11 +169,11 @@ class StreakCircleState extends ConsumerState<StreakCircle>
                 padding: StreakCircleConstants.padding,
                 child: ExcludeSemantics(
                   child: MeditoIcon(
-                    assetName: isStreakDoneToday
+                    assetName: practicedToday
                         ? MeditoIcons.fire
                         : MeditoIcons.sun,
                     size: StreakCircleConstants.iconSize,
-                    color: isStreakDoneToday
+                    color: practicedToday
                         ? context.brandAccent
                         : Theme.of(context).colorScheme.onSurface,
                   ),

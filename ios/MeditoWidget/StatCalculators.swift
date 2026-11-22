@@ -1,31 +1,7 @@
 import Foundation
 
-// Ported from `calculateStreak` / `calculateConsistencyScore` in lib/utils/stats_manager.dart
-// (Android: StreakCalculator.kt / ConsistencyScoreCalculator.kt) so the widgets recompute their
-// figures from activity days instead of showing the last value the app pushed — that went stale
-// between app opens (a broken streak kept its old number until the app was next opened).
-// ⚠️ KEEP IN SYNC: there is no shared source of truth. The Dart and Kotlin copies are checked
-// against test/fixtures/streak_score_fixtures.json and consistency_score_fixtures.json; update
-// this copy alongside any algorithm change.
-//
-// Days are logical-day starts (`logicalDayStart`), so the day-boundary offset is already applied;
-// `today` is the logical day containing now.
+// La puntuación usa las mismas fechas de actividad que el cálculo en Flutter.
 enum StatCalculator {
-    static func streak(activityDays: Set<Date>, today: Date, calendar: Calendar = .current) -> Int {
-        let days = activityDays.filter { $0 <= today }
-        let yesterday = addDays(-1, to: today, calendar)
-        let hasActivityToday = days.contains(today)
-        guard hasActivityToday || days.contains(yesterday) else { return 0 }
-
-        var streak = hasActivityToday ? 1 : 0
-        var checkDate = yesterday
-        while days.contains(checkDate) {
-            streak += 1
-            checkDate = addDays(-1, to: checkDate, calendar)
-        }
-        return streak
-    }
-
     static func consistencyScore(activityDays: Set<Date>, today: Date, calendar: Calendar = .current) -> Int {
         let days = activityDays.filter { $0 <= today }
         guard let firstSessionDate = days.min() else { return 0 }

@@ -7,10 +7,8 @@ import 'package:timezone/timezone.dart' as tz;
 import '../../constants/constants.dart';
 import '../../constants/strings/analytics_event_constants.dart';
 import '../../l10n/app_localizations.dart';
-import '../../l10n/app_localizations_en.dart';
 import '../../providers/notification/reminder_provider.dart';
 import '../../utils/logger.dart';
-import '../../utils/stats_manager.dart';
 
 /// Identifies a daily reminder to the notification tap handler. Deliberately
 /// carries no `type`/`path`, so a tap does not deep-link — the point is
@@ -23,8 +21,7 @@ String reminderPayload(int day) => json.encode({
   AnalyticsEventConstants.paramNotificationDay: day,
 });
 
-/// The series re-anchors after every session so the streak and consistency
-/// numbers baked into each day's copy stay current. That part is deliberate.
+/// La serie de recordatorios se actualiza después de cada sesión.
 /// Moving the TIME OF DAY was not: it overwrote an hour the user had chosen at
 /// onboarding with whenever they last happened to meditate, and then showed
 /// that new time back to them in Settings as if they had picked it.
@@ -129,31 +126,10 @@ class DailyRemindersScheduler {
     final localizations = l10n ?? _getFallbackLocalizations();
     final items = <_SeriesItem>[];
 
-    var streakCount = '1';
-    var consistencyPercentage = '0';
-
-    try {
-      final statsManager = StatsManager();
-      await statsManager.initialize();
-      final stats = await statsManager.localAllStats;
-      streakCount = '${stats.streakCurrent}';
-      consistencyPercentage = '${(stats.consistencyScore * 100).round()}';
-    } catch (e) {
-      AppLogger.w(
-        'REMINDER',
-        'Failed to fetch stats for daily reminders, using defaults: $e',
-      );
-    }
-
     for (var i = 0; i < 15; i++) {
       final when = anchorLocal.add(Duration(days: i));
       final tzWhen = tz.TZDateTime.from(when, tz.local);
-      final copy = _copyForDay(
-        i + 1,
-        l10n: localizations,
-        streakCount: streakCount,
-        consistencyPercentage: consistencyPercentage,
-      );
+      final copy = _copyForDay(i + 1, l10n: localizations);
       items.add(
         _SeriesItem(
           id: reminderSeriesBaseId + i,
@@ -167,12 +143,7 @@ class DailyRemindersScheduler {
 
     final day30When = anchorLocal.add(Duration(days: 29));
     final day30TzWhen = tz.TZDateTime.from(day30When, tz.local);
-    final day30Copy = _copyForDay(
-      30,
-      l10n: localizations,
-      streakCount: streakCount,
-      consistencyPercentage: consistencyPercentage,
-    );
+    final day30Copy = _copyForDay(30, l10n: localizations);
     items.add(
       _SeriesItem(
         id: reminderSeriesBaseId + 15,
@@ -253,20 +224,12 @@ class DailyRemindersScheduler {
     await scheduleSeriesFromAnchor(anchor, l10n: l10n);
   }
 
-  (String, String) _copyForDay(
-    int day, {
-    required AppLocalizations l10n,
-    String streakCount = '1',
-    String consistencyPercentage = '0',
-  }) {
+  (String, String) _copyForDay(int day, {required AppLocalizations l10n}) {
     switch (day) {
       case 1:
         final variants = <(String, String)>[
-          (l10n.reminderDay1TitleVar1, l10n.reminderDay1BodyVar1(streakCount)),
-          (
-            l10n.reminderDay1TitleVar2,
-            l10n.reminderDay1BodyVar2(consistencyPercentage),
-          ),
+          (l10n.reminderDay1TitleVar1, l10n.reminderDay1BodyVar1),
+          (l10n.reminderDay1TitleVar2, l10n.reminderDay1BodyVar2),
           (l10n.reminderDay1TitleVar3, l10n.reminderDay1BodyVar3),
           (l10n.reminderDay1TitleVar4, l10n.reminderDay1BodyVar4),
           (l10n.reminderDay1TitleVar5, l10n.reminderDay1BodyVar5),
@@ -325,11 +288,11 @@ class DailyRemindersScheduler {
   }
 
   AppLocalizations _getFallbackLocalizations() {
-    // For background operations where we don't have a BuildContext,
-    // we return a fallback that should work for most cases
-    // This is a simple implementation - in a production app you might
-    // want to store the user's language preference and load accordingly
-    return AppLocalizationsEn();
+    final locale = basicLocaleListResolution(
+      WidgetsBinding.instance.platformDispatcher.locales,
+      AppLocalizations.supportedLocales,
+    );
+    return lookupAppLocalizations(locale);
   }
 }
 

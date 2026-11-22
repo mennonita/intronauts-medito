@@ -7,13 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/constants.dart';
 import 'package:medito/constants/icons/medito_icons.dart';
 import 'package:medito/l10n/app_localizations.dart';
-import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/models/local_audio_completed.dart';
-import 'package:medito/providers/day_boundary_offset_provider.dart';
 import 'package:medito/providers/meditation/track_provider.dart';
 import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/utils/calendar_range.dart';
-import 'package:medito/utils/day_boundary.dart';
+import 'package:medito/utils/practice_history.dart';
 import 'package:medito/utils/stats_updater.dart';
 import 'package:medito/utils/utils.dart';
 import 'package:medito/views/track/track_view.dart';
@@ -25,9 +23,9 @@ import 'bulk_add_sessions_dialog.dart';
 import 'manual_session_dialog.dart';
 
 class MeditationCalendarWidget extends ConsumerStatefulWidget {
-  final LocalAllStats stats;
+  final PracticeHistory history;
 
-  const MeditationCalendarWidget({super.key, required this.stats});
+  const MeditationCalendarWidget({super.key, required this.history});
 
   @override
   ConsumerState<MeditationCalendarWidget> createState() =>
@@ -52,7 +50,7 @@ class _MeditationCalendarWidgetState
   @override
   void initState() {
     super.initState();
-    final today = DateTime.now();
+    final today = widget.history.today;
     final todayStart = DateTime(today.year, today.month, today.day);
     _focusedDay = today;
     _selectedDay = today;
@@ -74,7 +72,7 @@ class _MeditationCalendarWidgetState
   void _checkAndSelectToday() {
     if (!mounted) return;
 
-    final today = DateTime.now();
+    final today = widget.history.today;
     final todayStart = DateTime(today.year, today.month, today.day);
 
     setState(() {
@@ -87,96 +85,6 @@ class _MeditationCalendarWidgetState
   void dispose() {
     _animationController.dispose();
     super.dispose();
-  }
-
-  /// The user's configured day-boundary offset. MUST match the one
-  /// `StatsManager.calculateStreak`/`calculateConsistencyScore` use, otherwise
-  /// the calendar dots disagree with the streak for users who meditate inside
-  /// the offset window (e.g. just after midnight with a "day starts at 3am"
-  /// setting) — a session gets circled on one day but counted on another.
-  Duration get _dayOffset {
-    final hours = ref.read(dayBoundaryOffsetProvider).value ?? 0;
-    return Duration(hours: hours);
-  }
-
-  Set<DateTime> _getMeditationDates(LocalAllStats stats) {
-    final dates = <DateTime>{};
-    final offset = _dayOffset;
-    final todayStart = dayOf(DateTime.now(), offset);
-
-    if (stats.audioCompleted != null && stats.audioCompleted!.isNotEmpty) {
-      for (final audio in stats.audioCompleted!) {
-        if (isFreezeSession(audio)) continue;
-        final date = DateTime.fromMillisecondsSinceEpoch(audio.timestamp);
-        final dayStart = dayOf(date, offset);
-        if (!dayStart.isAfter(todayStart)) {
-          dates.add(dayStart);
-        }
-      }
-    }
-
-    return dates;
-  }
-
-  Set<DateTime> _getFreezeDates(LocalAllStats stats) {
-    final dates = <DateTime>{};
-    final offset = _dayOffset;
-    final todayStart = dayOf(DateTime.now(), offset);
-    final meditationDates = _getMeditationDates(stats);
-
-    // Legacy freeze dates stored in freezeUsageDates
-    for (final timestamp in stats.freezeUsageDates) {
-      final date = DateTime.fromMillisecondsSinceEpoch(timestamp);
-      final dayStart = dayOf(date, offset);
-      if (!dayStart.isAfter(todayStart) &&
-          !meditationDates.contains(dayStart)) {
-        dates.add(dayStart);
-      }
-    }
-
-    // New freeze entries stored in audioCompleted
-    if (stats.audioCompleted != null) {
-      for (final audio in stats.audioCompleted!) {
-        if (!isFreezeSession(audio)) continue;
-        final date = DateTime.fromMillisecondsSinceEpoch(audio.timestamp);
-        final dayStart = dayOf(date, offset);
-        if (!dayStart.isAfter(todayStart) &&
-            !meditationDates.contains(dayStart)) {
-          dates.add(dayStart);
-        }
-      }
-    }
-
-    return dates;
-  }
-
-  bool _isFreezeDay(DateTime day) {
-    final freezeDates = _getFreezeDates(widget.stats);
-    final dayStart = DateTime(day.year, day.month, day.day);
-
-    return freezeDates.contains(dayStart);
-  }
-
-  List<LocalAudioCompleted> _getSessionsForDay(DateTime day) {
-    final sessions = <LocalAudioCompleted>[];
-    final offset = _dayOffset;
-    // A cell represents the logical day `dayStart`; a session belongs to it
-    // when `dayOf(session, offset)` lands on that same logical day.
-    final dayStart = DateTime(day.year, day.month, day.day);
-
-    if (widget.stats.audioCompleted != null &&
-        widget.stats.audioCompleted!.isNotEmpty) {
-      sessions.addAll(
-        widget.stats.audioCompleted!.where((audio) {
-          if (isFreezeSession(audio)) return false;
-          final date = DateTime.fromMillisecondsSinceEpoch(audio.timestamp);
-          return dayOf(date, offset).isAtSameMomentAs(dayStart);
-        }),
-      );
-    }
-
-    sessions.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    return sessions;
   }
 
   void _toggleDaySessions(DateTime day) {
@@ -253,7 +161,7 @@ class _MeditationCalendarWidgetState
 
   void _handleLongPress(DateTime day) {
     final dayStart = startOfDay(day);
-    final todayStart = startOfDay(DateTime.now());
+    final todayStart = widget.history.today;
     if (dayStart.isAfter(todayStart)) return;
 
     final next = expandRange(RangeBounds(_rangeStart, _rangeEnd), dayStart);
@@ -273,61 +181,22 @@ class _MeditationCalendarWidgetState
     });
   }
 
-  /// Raw session timestamps (not midnight-flattened) so the streak
-  /// projection buckets them under the active day-boundary offset the same
-  /// way [StatsManager.calculateStreak] will.
-  List<DateTime> _getMeditationTimestamps(LocalAllStats stats) {
-    final out = <DateTime>[];
-    for (final audio in stats.audioCompleted ?? const <LocalAudioCompleted>[]) {
-      if (isFreezeSession(audio)) continue;
-      out.add(DateTime.fromMillisecondsSinceEpoch(audio.timestamp));
-    }
-    return out;
-  }
-
-  List<DateTime> _getFreezeTimestamps(LocalAllStats stats) {
-    final out = <DateTime>[];
-    for (final ts in stats.freezeUsageDates) {
-      out.add(DateTime.fromMillisecondsSinceEpoch(ts));
-    }
-    for (final audio in stats.audioCompleted ?? const <LocalAudioCompleted>[]) {
-      if (!isFreezeSession(audio)) continue;
-      out.add(DateTime.fromMillisecondsSinceEpoch(audio.timestamp));
-    }
-    return out;
-  }
-
-  /// Shifts a calendar-picked midnight to the same hour the bulk-add helper
-  /// will actually save it at, so the offset bucketing agrees.
-  DateTime _anchorBulkAddDate(DateTime d) =>
-      DateTime(d.year, d.month, d.day, manualSessionAnchorHour);
-
-  int _projectedStreak(Iterable<DateTime> activityDates) {
-    final hours = ref.read(dayBoundaryOffsetProvider).value ?? 0;
-    return projectStreak(
-      activityDates,
-      DateTime.now(),
-      dayBoundaryOffset: Duration(hours: hours),
-    );
+  int _projectedReturns(PracticeHistory history, Iterable<DateTime> days) {
+    return history.returns +
+        days.toSet().difference(history.lifetimeDays).length;
   }
 
   Future<void> _showBulkAddDialog(BuildContext context) async {
     if (!_hasCompleteRange) return;
     final dates = _datesInRange();
 
-    final existing = <DateTime>{
-      ..._getMeditationDates(widget.stats),
-      ..._getFreezeDates(widget.stats),
-    };
+    final history = widget.history;
+    final existing = history.days;
     final newSessionDays = dates.where((d) {
       final start = DateTime(d.year, d.month, d.day);
       return !existing.contains(start);
     }).toList();
-    final projected = _projectedStreak([
-      ..._getMeditationTimestamps(widget.stats),
-      ..._getFreezeTimestamps(widget.stats),
-      ...dates.map(_anchorBulkAddDate),
-    ]);
+    final projected = _projectedReturns(history, dates);
 
     final minutes = await showDialog<int>(
       context: context,
@@ -336,8 +205,8 @@ class _MeditationCalendarWidgetState
         rangeEnd: _rangeEnd!,
         dayCount: dates.length,
         newSessionsCount: newSessionDays.length,
-        currentStreak: widget.stats.streakCurrent,
-        projectedStreak: projected,
+        currentReturns: history.returns,
+        projectedReturns: projected,
       ),
     );
 
@@ -373,21 +242,15 @@ class _MeditationCalendarWidgetState
 
   BulkSessionPreview _computeBulkPreview(DateTime start, DateTime end) {
     final dates = enumerateDays(start, end);
-    final existing = <DateTime>{
-      ..._getMeditationDates(widget.stats),
-      ..._getFreezeDates(widget.stats),
-    };
+    final history = widget.history;
+    final existing = history.days;
     final newSessions = dates.where((d) => !existing.contains(d)).length;
-    final projected = _projectedStreak([
-      ..._getMeditationTimestamps(widget.stats),
-      ..._getFreezeTimestamps(widget.stats),
-      ...dates.map(_anchorBulkAddDate),
-    ]);
+    final projected = _projectedReturns(history, dates);
     return BulkSessionPreview(
       dayCount: dates.length,
       newSessionsCount: newSessions,
-      currentStreak: widget.stats.streakCurrent,
-      projectedStreak: projected,
+      currentReturns: history.returns,
+      projectedReturns: projected,
     );
   }
 
@@ -442,10 +305,8 @@ class _MeditationCalendarWidgetState
         :final duration,
       ):
         final dates = enumerateDays(rangeStart, rangeEnd);
-        final existing = <DateTime>{
-          ..._getMeditationDates(widget.stats),
-          ..._getFreezeDates(widget.stats),
-        };
+        final history = widget.history;
+        final existing = history.days;
         final newSessionDays = dates
             .where((d) => !existing.contains(d))
             .toList();
@@ -478,38 +339,27 @@ class _MeditationCalendarWidgetState
 
   @override
   Widget build(BuildContext context) {
-    final meditationDates = _getMeditationDates(widget.stats);
-    final freezeDates = _getFreezeDates(widget.stats);
-    final sessions = _getSessionsForDay(_selectedDayForSessions);
+    final history = widget.history;
+    final meditationDates = history.days;
+    final sessions = [...?history.sessionsByDay[_selectedDayForSessions]]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final rangeDays = _datesInRange();
-    final rangeNewSessions = _hasCompleteRange
-        ? rangeDays.where((d) {
-            final s = DateTime(d.year, d.month, d.day);
-            return !meditationDates.contains(s) && !freezeDates.contains(s);
-          }).length
-        : 0;
-    final rangeProjectedStreak = _hasCompleteRange
-        ? _projectedStreak([
-            ..._getMeditationTimestamps(widget.stats),
-            ..._getFreezeTimestamps(widget.stats),
-            ...rangeDays.map(_anchorBulkAddDate),
-          ])
-        : widget.stats.streakCurrent;
+    final rangeNewSessions = rangeDays
+        .where((day) => !meditationDates.contains(day))
+        .length;
+    final rangeProjectedReturns = _projectedReturns(history, rangeDays);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildCalendarCard(
-          context,
-          meditationDates: meditationDates,
-          freezeDates: freezeDates,
-        ),
+        _buildCalendarCard(context, meditationDates: meditationDates),
         _buildDayDetailsCard(
           context,
           sessions: sessions,
           rangeDays: rangeDays,
           rangeNewSessions: rangeNewSessions,
-          rangeProjectedStreak: rangeProjectedStreak,
+          currentReturns: history.returns,
+          rangeProjectedReturns: rangeProjectedReturns,
         ),
       ],
     );
@@ -518,15 +368,17 @@ class _MeditationCalendarWidgetState
   Widget _buildCalendarCard(
     BuildContext context, {
     required Set<DateTime> meditationDates,
-    required Set<DateTime> freezeDates,
   }) {
     return Container(
       decoration: _cardDecoration(context),
       padding: const EdgeInsets.all(16),
       child: TableCalendar<dynamic>(
         firstDay: DateTime.utc(2020, 1, 1),
-        lastDay: DateTime.now(),
-        focusedDay: _focusedDay,
+        lastDay: widget.history.today,
+        currentDay: widget.history.today,
+        focusedDay: _focusedDay.isAfter(widget.history.today)
+            ? widget.history.today
+            : _focusedDay,
         selectedDayPredicate: (day) {
           // While a range is active, only range endpoints get selected styling.
           if (_rangeStart != null) return _isRangeEndpoint(day);
@@ -541,16 +393,14 @@ class _MeditationCalendarWidgetState
             context,
             date,
             meditationDates: meditationDates,
-            freezeDates: freezeDates,
           ),
           todayBuilder: (context, date, events) => _buildTodayDayCell(
             context,
             date,
             meditationDates: meditationDates,
-            freezeDates: freezeDates,
           ),
           selectedBuilder: (context, date, events) =>
-              _buildSelectedDayCell(context, date, freezeDates: freezeDates),
+              _buildSelectedDayCell(context, date),
         ),
         daysOfWeekStyle: _daysOfWeekStyle(context),
         onDaySelected: _onDaySelected,
@@ -627,14 +477,12 @@ class _MeditationCalendarWidgetState
     BuildContext context,
     DateTime date, {
     required Set<DateTime> meditationDates,
-    required Set<DateTime> freezeDates,
   }) {
     final dayStart = startOfDay(date);
     final hasMeditation = meditationDates.contains(dayStart);
-    final hasFreeze = freezeDates.contains(dayStart);
     final inRange = _isInRange(date);
 
-    if (inRange && !hasMeditation && !hasFreeze) {
+    if (inRange && !hasMeditation) {
       return _buildDayCircle(
         context,
         date,
@@ -651,15 +499,6 @@ class _MeditationCalendarWidgetState
       );
     }
 
-    if (hasFreeze) {
-      return _buildDayCircle(
-        context,
-        date,
-        color: ColorConstants.lightBlue.withOpacityValue(inRange ? 0.32 : 0.15),
-        fontWeight: FontWeight.w600,
-      );
-    }
-
     return null;
   }
 
@@ -667,15 +506,11 @@ class _MeditationCalendarWidgetState
     BuildContext context,
     DateTime date, {
     required Set<DateTime> meditationDates,
-    required Set<DateTime> freezeDates,
   }) {
     final dayStart = startOfDay(date);
     final hasMeditation = meditationDates.contains(dayStart);
-    final hasFreeze = freezeDates.contains(dayStart);
     final backgroundColor = hasMeditation
         ? context.brandAccent.withOpacityValue(0.25)
-        : hasFreeze
-        ? ColorConstants.lightBlue.withOpacityValue(0.25)
         : Theme.of(context).colorScheme.surface;
 
     return _buildDayCircle(
@@ -687,15 +522,8 @@ class _MeditationCalendarWidgetState
     );
   }
 
-  Widget _buildSelectedDayCell(
-    BuildContext context,
-    DateTime date, {
-    required Set<DateTime> freezeDates,
-  }) {
-    final dayStart = startOfDay(date);
-    final fillColor = freezeDates.contains(dayStart)
-        ? ColorConstants.lightBlue
-        : context.brandAccent;
+  Widget _buildSelectedDayCell(BuildContext context, DateTime date) {
+    final fillColor = context.brandAccent;
 
     if (_isRangeEndpoint(date)) {
       return Container(
@@ -784,7 +612,8 @@ class _MeditationCalendarWidgetState
     required List<LocalAudioCompleted> sessions,
     required List<DateTime> rangeDays,
     required int rangeNewSessions,
-    required int rangeProjectedStreak,
+    required int currentReturns,
+    required int rangeProjectedReturns,
   }) {
     return FadeTransition(
       opacity: _fadeAnimation,
@@ -806,7 +635,8 @@ class _MeditationCalendarWidgetState
                 ? _buildRangeActions(
                     context,
                     rangeNewSessions: rangeNewSessions,
-                    rangeProjectedStreak: rangeProjectedStreak,
+                    currentReturns: currentReturns,
+                    rangeProjectedReturns: rangeProjectedReturns,
                   )
                 : _buildAddSessionButton(context),
           ],
@@ -841,27 +671,6 @@ class _MeditationCalendarWidgetState
           fontFamily: googleSans,
           color: Theme.of(context).colorScheme.onSurface,
         ),
-      );
-    }
-
-    if (_isFreezeDay(_selectedDayForSessions)) {
-      return Row(
-        children: [
-          MeditoIcon(
-            assetName: MeditoIcons.snow,
-            size: 16,
-            color: ColorConstants.lightBlue,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            l10n.streakFreezeUsed,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontFamily: googleSans,
-              color: ColorConstants.lightBlue,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
       );
     }
 
@@ -909,16 +718,10 @@ class _MeditationCalendarWidgetState
   Widget _buildRangeActions(
     BuildContext context, {
     required int rangeNewSessions,
-    required int rangeProjectedStreak,
+    required int currentReturns,
+    required int rangeProjectedReturns,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    final dayLabel = widget.stats.streakCurrent == 1
-        ? l10n.day.toLowerCase()
-        : l10n.days;
-    final projectedDayLabel = rangeProjectedStreak == 1
-        ? l10n.day.toLowerCase()
-        : l10n.days;
-
     return Column(
       children: [
         Container(
@@ -932,14 +735,14 @@ class _MeditationCalendarWidgetState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _RangePreviewRow(
-                label: l10n.currentStreak,
-                value: '${widget.stats.streakCurrent} $dayLabel',
+                label: l10n.returnsLabel,
+                value: '$currentReturns',
               ),
               const SizedBox(height: 6),
               _RangePreviewRow(
-                label: l10n.newStreak,
-                value: '$rangeProjectedStreak $projectedDayLabel',
-                emphasize: rangeProjectedStreak != widget.stats.streakCurrent,
+                label: l10n.projectedReturnsLabel,
+                value: '$rangeProjectedReturns',
+                emphasize: rangeProjectedReturns != currentReturns,
               ),
               const SizedBox(height: 6),
               _RangePreviewRow(

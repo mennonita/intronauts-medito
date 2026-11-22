@@ -45,17 +45,7 @@ private val STAT_WIDE_TALL = DpSize(280.dp, 180.dp) // 4×2 and up: room for big
 
 internal val statSizeMode = SizeMode.Responsive(setOf(STAT_COMPACT, STAT_TALL, STAT_WIDE, STAT_WIDE_TALL))
 
-/**
- * Shared body of the Streak and Consistency widgets. Mirrors the in-app streak chip: once today
- * is practised the icon lights up in the accent and the figure goes bold; before that both stay
- * quiet. The icon is a flame for the streak and, given a [ringScore], the consistency ring.
- *
- * - Compact (2×1): icon + figure over the last five days.
- * - Tall (2×2): figure up top, the last four weeks as a calendar below.
- * - Wide (4×2+): figure on the left, the last five weeks on the right.
- *
- * [unit] may be empty (e.g. "62%").
- */
+/** Comparte el diseño y el calendario entre Regresos y Consistencia. */
 @Composable
 internal fun StatWidgetContent(
     context: Context,
@@ -78,6 +68,7 @@ internal fun StatWidgetContent(
     )
     val size = LocalSize.current
     val stat = StatParts(value, unit, ringScore, doneToday, palette)
+    val showUnit = unit.isNotEmpty()
 
     Box(
         modifier = GlanceModifier
@@ -111,10 +102,10 @@ internal fun StatWidgetContent(
                 Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
                     stat.Icon(24.dp)
                     Spacer(modifier = GlanceModifier.width(6.dp))
-                    stat.Figure(32f)
-                    if (unit.isNotEmpty()) {
+                    stat.Figure(if (showUnit && value.length > 2) 22f else 32f)
+                    if (showUnit) {
                         Spacer(modifier = GlanceModifier.width(4.dp))
-                        stat.Unit(14f)
+                        stat.Unit(12f)
                     }
                 }
                 Spacer(modifier = GlanceModifier.defaultWeight())
@@ -122,16 +113,16 @@ internal fun StatWidgetContent(
             }
 
             else -> Column(
-                modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = GlanceModifier.fillMaxWidth().padding(horizontal = if (showUnit) 6.dp else 12.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.Horizontal.CenterHorizontally,
             ) {
                 Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-                    stat.Icon(22.dp)
+                    stat.Icon(if (showUnit) 16.dp else 22.dp)
                     Spacer(modifier = GlanceModifier.width(4.dp))
-                    stat.Figure(24f)
-                    if (unit.isNotEmpty()) {
+                    stat.Figure(if (showUnit && value.length > 2) 16f else 24f)
+                    if (showUnit) {
                         Spacer(modifier = GlanceModifier.width(4.dp))
-                        stat.Unit(14f)
+                        stat.Unit(10f)
                     }
                 }
                 Spacer(modifier = GlanceModifier.height(4.dp))

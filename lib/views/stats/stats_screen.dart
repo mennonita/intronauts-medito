@@ -7,7 +7,7 @@ import 'package:medito/constants/icons/medito_icons.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/providers/stats_provider.dart';
-import 'package:medito/providers/streak_circle_display_provider.dart';
+import 'package:medito/providers/practice_history_provider.dart';
 import 'package:medito/widgets/dialogs/medito_dialog.dart';
 import 'package:medito/widgets/dialogs/medito_dialog_buttons.dart';
 import 'package:medito/widgets/medito_icon.dart';
@@ -130,7 +130,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
                 error: (error, stack) {
                   if (statsAsync.hasValue) {
                     final stats = statsAsync.value!;
-                    return _statsList(context, stats, ref);
+                    return _statsList(context, stats);
                   } else {
                     return Center(
                       child: Padding(
@@ -154,7 +154,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
                   }
                 },
                 data: (stats) {
-                  return _statsList(context, stats, ref);
+                  return _statsList(context, stats);
                 },
               ),
               const SizedBox(height: 16),
@@ -166,7 +166,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
   }
 
   Widget _buildHistoryTab() {
-    var statsAsync = ref.watch(statsProvider);
+    final historyAsync = ref.watch(practiceHistoryProvider);
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -177,7 +177,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: 16),
-              statsAsync.when(
+              historyAsync.when(
                 loading: () => const Center(
                   child: Padding(
                     padding: EdgeInsets.all(32.0),
@@ -189,9 +189,20 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
                   ),
                 ),
                 error: (_, _) => const SizedBox.shrink(),
-                data: (stats) {
-                  if (stats.updated == 0) return const SizedBox.shrink();
-                  return MeditationCalendarWidget(stats: stats);
+                data: (history) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        AppLocalizations.of(
+                          context,
+                        )!.practiceDaysThisWeek(history.daysThisWeek),
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      MeditationCalendarWidget(history: history),
+                    ],
+                  );
                 },
               ),
               const SizedBox(height: 16),
@@ -207,10 +218,13 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
     String title,
     String value, {
     bool hasUnderline = true,
+    String? icon,
     VoidCallback? onTap,
   }) {
     return RowItemWidget(
-      icon: MeditoRemoteIcon(icon: title),
+      icon: icon == null
+          ? MeditoRemoteIcon(icon: title)
+          : MeditoIcon(assetName: icon),
       iconColor: Theme.of(context).colorScheme.onSurface,
       trailingIconSize: 20,
       title: value,
@@ -247,7 +261,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
     }
   }
 
-  Column _statsList(BuildContext context, LocalAllStats stats, WidgetRef ref) {
+  Column _statsList(BuildContext context, LocalAllStats stats) {
+    final returns = ref.watch(practiceHistoryProvider).value?.returns ?? 0;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -273,13 +288,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
               ),
               _buildStatRow(
                 context,
-                AppLocalizations.of(context)!.currentStreak,
-                '${stats.streakCurrent} ${stats.streakCurrent == 1 ? AppLocalizations.of(context)!.day : AppLocalizations.of(context)!.days}',
-              ),
-              _buildStatRow(
-                context,
-                AppLocalizations.of(context)!.longestStreak,
-                '${stats.streakLongest} ${stats.streakLongest == 1 ? AppLocalizations.of(context)!.day : AppLocalizations.of(context)!.days}',
+                AppLocalizations.of(context)!.returnsLabel,
+                '$returns',
+                icon: MeditoIcons.calendar,
               ),
               _buildStatRow(
                 context,
@@ -295,7 +306,6 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
             ],
           ),
         ),
-        _buildStreakCircleDisplayPreference(context, ref),
         Align(
           alignment: Alignment.center,
           child: TextButton.icon(
@@ -320,90 +330,6 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildStreakCircleDisplayPreference(
-    BuildContext context,
-    WidgetRef ref,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
-      child: Consumer(
-        builder: (context, ref, _) {
-          final displayTypeAsync = ref.watch(streakCircleDisplayProvider);
-
-          return displayTypeAsync.when(
-            loading: () => const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            error: (_, _) => const SizedBox.shrink(),
-            data: (displayType) {
-              final isStreakSelected =
-                  displayType == StreakCircleDisplayType.currentStreak;
-
-              void handleToggle() {
-                final newType = !isStreakSelected
-                    ? StreakCircleDisplayType.currentStreak
-                    : StreakCircleDisplayType.consistencyScore;
-                ref
-                    .read(streakCircleDisplayProvider.notifier)
-                    .setDisplayType(newType);
-              }
-
-              return MergeSemantics(
-                child: InkWell(
-                  onTap: handleToggle,
-                  borderRadius: BorderRadius.circular(8),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: Checkbox(
-                            value: isStreakSelected,
-                            onChanged: (_) => handleToggle(),
-                            activeColor: context.brandAccent,
-                            checkColor: Theme.of(context).colorScheme.onPrimary,
-                            side: BorderSide(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withOpacityValue(0.6),
-                              width: 1.5,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            AppLocalizations.of(
-                              context,
-                            )!.alwaysShowStreakOnHomepage,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  fontSize: 14,
-                                  fontFamily: googleSans,
-                                ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
     );
   }
 }

@@ -8,19 +8,18 @@ import 'package:medito/utils/utils.dart';
 import 'package:medito/widgets/dialogs/dialogs.dart';
 import 'package:medito/widgets/inputs/medito_text_field.dart';
 
-/// Streak/session preview for a chosen date range, computed by the caller so
-/// the dialog stays free of stats wiring.
+/// Vista previa de regresos y sesiones para las fechas elegidas.
 class BulkSessionPreview {
   final int dayCount;
   final int newSessionsCount;
-  final int currentStreak;
-  final int projectedStreak;
+  final int currentReturns;
+  final int projectedReturns;
 
   const BulkSessionPreview({
     required this.dayCount,
     required this.newSessionsCount,
-    required this.currentStreak,
-    required this.projectedStreak,
+    required this.currentReturns,
+    required this.projectedReturns,
   });
 }
 
@@ -59,7 +58,7 @@ class ManualSessionDialog extends StatefulWidget {
   final DateTime selectedDate;
 
   /// When non-null, the dialog exposes a "Date range" tab and uses this to
-  /// render the live streak/session preview for the chosen range.
+  /// Muestra los regresos y las sesiones del rango elegido.
   final BulkPreviewBuilder? bulkPreviewBuilder;
 
   const ManualSessionDialog({
@@ -273,8 +272,8 @@ class _ManualSessionDialogState extends State<ManualSessionDialog>
     final preview = _rangeOrderValid
         ? widget.bulkPreviewBuilder!(_rangeStart, _rangeEnd)
         : null;
-    final streakChanged =
-        preview != null && preview.projectedStreak != preview.currentStreak;
+    final returnsChanged =
+        preview != null && preview.projectedReturns != preview.currentReturns;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -323,16 +322,14 @@ class _ManualSessionDialogState extends State<ManualSessionDialog>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _PreviewRow(
-                  label: l10n.currentStreak,
-                  value:
-                      '${preview.currentStreak} ${preview.currentStreak == 1 ? l10n.day.toLowerCase() : l10n.days}',
+                  label: l10n.returnsLabel,
+                  value: '${preview.currentReturns}',
                 ),
                 const SizedBox(height: 6),
                 _PreviewRow(
-                  label: l10n.newStreak,
-                  value:
-                      '${preview.projectedStreak} ${preview.projectedStreak == 1 ? l10n.day.toLowerCase() : l10n.days}',
-                  emphasize: streakChanged,
+                  label: l10n.projectedReturnsLabel,
+                  value: '${preview.projectedReturns}',
+                  emphasize: returnsChanged,
                 ),
                 const SizedBox(height: 6),
                 _PreviewRow(

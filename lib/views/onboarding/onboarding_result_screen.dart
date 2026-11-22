@@ -1,10 +1,12 @@
+import 'package:medito/models/local_all_stats.dart';
+import 'package:medito/providers/practice_history_provider.dart';
+import 'package:medito/views/end_screen/widgets/return_message.dart';
 import 'dart:async';
 
 import 'package:medito/widgets/onboarding/onboarding_content.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/colors/color_constants.dart';
-import 'package:medito/constants/icons/medito_icons.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/constants/styles/widget_styles.dart';
 import 'package:medito/constants/types/type_constants.dart';
@@ -17,7 +19,6 @@ import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/track_variant_selector.dart';
 import 'package:medito/utils/utils.dart';
-import 'package:medito/widgets/medito_icon.dart';
 import 'package:medito/widgets/onboarding/onboarding_header_image.dart';
 
 /// The three possible outcome states for the onboarding result screen.
@@ -70,7 +71,7 @@ OnboardingResultState deriveOnboardingState({required int experienceIndex}) {
 
 /// The onboarding payoff screen. When [showMeditation] is true (beginners —
 /// never_tried / a_little) it also hosts a short guided
-/// meditation INLINE — play it right here, then a streak-up reveal — so there's
+/// meditation INLINE — play it right here, then the session result — so there's
 /// a single screen rather than a redundant "Get started" page followed by a
 /// separate meditation. "Get started" is the one app-entry, after the session.
 class OnboardingResultScreen extends ConsumerStatefulWidget {
@@ -100,7 +101,7 @@ class _OnboardingResultScreenState
   bool _loading = false;
   bool _done = false;
   bool _completionHandled = false;
-  int _priorStreak = 0;
+  LocalAllStats? _priorStats;
 
   // Keep the regular-practice experience fixed while its offered/control
   // experiment is running. Beginner presentation changes must stay behind this
@@ -126,7 +127,7 @@ class _OnboardingResultScreenState
   void initState() {
     super.initState();
     if (widget.showMeditation) {
-      _priorStreak = ref.read(statsProvider).value?.streakCurrent ?? 0;
+      ref.read(statsProvider);
       unawaited(
         ref
             .read(analyticsServiceProvider)
@@ -139,6 +140,7 @@ class _OnboardingResultScreenState
   }
 
   Future<void> _begin(PlaybackRequest request) async {
+    _priorStats = ref.read(statsProvider).value;
     unawaited(
       ref
           .read(analyticsServiceProvider)
@@ -216,7 +218,7 @@ class _OnboardingResultScreenState
         ? null
         : PlaybackRequest.fromTrack(track!, selection.voice, selection.file);
 
-    // Flip to the streak reveal the moment the inline session completes.
+    // Muestra el resultado al terminar la sesión.
     ref.listen(audioStateProvider.select((s) => s.isCompleted), (
       prev,
       isCompleted,
@@ -337,7 +339,7 @@ class _OnboardingResultScreenState
         borderRadius: BorderRadius.circular(16),
       ),
       child: _done
-          ? _buildStreak(context, l10n)
+          ? _buildReturns(context, l10n)
           : _buildPlayer(context, l10n, request),
     );
   }
@@ -478,54 +480,38 @@ class _OnboardingResultScreenState
     );
   }
 
-  Widget _buildStreak(BuildContext context, AppLocalizations l10n) {
-    final onSurface = Theme.of(context).colorScheme.onSurface;
-    final currentStreak =
-        ref.watch(statsProvider).value?.streakCurrent ?? (_priorStreak + 1);
+  Widget _buildReturns(BuildContext context, AppLocalizations l10n) {
+    final historyState = ref.watch(practiceHistoryProvider);
+    final history = historyState.value;
+    if (history == null) {
+      if (historyState.hasError) {
+        return Text(
+          l10n.onboardingFirstMeditationDone,
+          textAlign: TextAlign.center,
+        );
+      }
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final pauseDays = returnPauseDays(ref, history, _priorStats);
+    final theme = Theme.of(context);
+
     return Column(
       children: [
-        Text(
-          l10n.onboardingFirstMeditationDone,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: onSurface,
+        if (pauseDays == null) ...[
+          Text(
+            l10n.onboardingFirstMeditationDone,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
           ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 16),
-        TweenAnimationBuilder<double>(
-          tween: Tween(
-            begin: _priorStreak.toDouble(),
-            end: currentStreak.toDouble(),
-          ),
-          duration: const Duration(milliseconds: 900),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, _) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              MeditoIcon(
-                assetName: MeditoIcons.fire,
-                size: 44,
-                color: context.brandAccent,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '${value.round()}',
-                style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                  fontSize: 48,
-                  fontWeight: FontWeight.w700,
-                  color: onSurface,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          l10n.dayStreak,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: onSurface.withOpacityValue(0.9),
-          ),
+          const SizedBox(height: 16),
+        ],
+        ReturnMessage(
+          returns: history.returns,
+          pauseDays: pauseDays,
+          style: theme.textTheme.headlineMedium,
         ),
       ],
     );

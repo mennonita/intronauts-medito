@@ -35,23 +35,21 @@ import 'package:medito/views/previews/preview_support.dart';
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/// Streak number in the pill, explainer strip already dismissed.
+/// Inicio con el contador de regresos.
 const Map<String, Object> homePrefsDark = {
   SharedPreferenceConstants.themePreference: 'dark',
-  SharedPreferenceConstants.streakCircleDisplayPreference: 'currentStreak',
 };
 
 const Map<String, Object> homePrefsLight = {
   SharedPreferenceConstants.themePreference: 'light',
-  SharedPreferenceConstants.streakCircleDisplayPreference: 'currentStreak',
 };
 
-/// First run: explainer strip visible, consistency score in the pill.
+/// Primera visita a Inicio.
 const Map<String, Object> homePrefsFirstRun = {
   SharedPreferenceConstants.themePreference: 'dark',
 };
 
-/// Zen mode hides the streak number: icon-only pill over the hero.
+/// Inicio en modo Zen, con el ícono sin contador.
 const Map<String, Object> homePrefsZen = {
   ...homePrefsDark,
   SharedPreferenceConstants.zenModeEnabled: true,
@@ -107,9 +105,9 @@ final previewHome = HomeModel(
       icon: 'solidRoundedTime01',
     ),
     ShortcutsModel(
-      id: 'shortcut-streak',
+      id: 'shortcut-practice',
       type: 'pack',
-      title: 'Streak',
+      title: 'Practice',
       path: 'packs/pack-3',
       icon: 'solidRoundedMedal06',
     ),
@@ -345,7 +343,7 @@ Widget wrapHomeAnnouncement(Widget child) => PreviewShell(
   child: child,
 );
 
-Widget wrapHomeStreakDone(Widget child) => PreviewShell(
+Widget wrapHomePracticedToday(Widget child) => PreviewShell(
   prefs: homePrefsDark,
   overrides: _homeOverrides(stats: previewStatsDoneToday),
   child: child,
@@ -439,11 +437,11 @@ Widget homeAnnouncement() => const HomeView();
 
 @Preview(
   group: 'Home',
-  name: 'Dark · streak done today',
+  name: 'Dark · practiced today',
   size: phoneSize,
-  wrapper: wrapHomeStreakDone,
+  wrapper: wrapHomePracticedToday,
 )
-Widget homeStreakDone() => const HomeView();
+Widget homePracticedToday() => const HomeView();
 
 @Preview(
   group: 'Home',
@@ -532,11 +530,11 @@ Widget pathFirstRun() => const HomeView();
 
 @Preview(
   group: 'Your Path hero',
-  name: '8 · Streak done today',
+  name: '8 · Practiced today',
   size: phoneSize,
-  wrapper: wrapHomeStreakDone,
+  wrapper: wrapHomePracticedToday,
 )
-Widget pathStreakDone() => const HomeView();
+Widget pathPracticedToday() => const HomeView();
 
 @Preview(
   group: 'Your Path hero',

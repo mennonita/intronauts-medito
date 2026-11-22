@@ -1,3 +1,4 @@
+import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/widgets/adaptive/adaptive_page_body.dart';
 import 'dart:async';
 
@@ -9,13 +10,12 @@ import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/constants/icons/medito_icons.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/local_all_stats.dart';
-import 'package:medito/models/local_audio_completed.dart';
 import 'package:medito/models/models.dart';
 import 'package:medito/providers/notification/reminder_provider.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/review_service_provider.dart';
 import 'package:medito/providers/settings/account_prompt_provider.dart';
-import 'package:medito/providers/stats_provider.dart';
+import 'package:medito/providers/practice_history_provider.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/services/reminders/daily_reminders_service.dart';
 import 'package:medito/utils/logger.dart';
@@ -39,6 +39,7 @@ import 'package:medito/widgets/snackbar_widget.dart';
 import 'widgets/account_prompt_card.dart';
 import 'widgets/animated_end_screen_section.dart';
 import 'widgets/donation_widget.dart';
+import 'widgets/return_message.dart';
 import 'widgets/soft_ask_card.dart';
 import 'widgets/zen_mode_animation.dart';
 
@@ -52,9 +53,7 @@ const _endScreenSourceParams = <String, Object>{
 class EndScreenView extends ConsumerStatefulWidget {
   final PlaybackRequest request;
 
-  /// Snapshot of stats taken in PlayerView before this session affected them.
-  /// Displayed on entry so the streak number animates from old -> current
-  /// once the entrance slide completes. Null on first-ever session.
+  /// Historial anterior a la sesión que acaba de terminar.
   final LocalAllStats? priorStats;
 
   const EndScreenView({super.key, required this.request, this.priorStats});
@@ -65,13 +64,8 @@ class EndScreenView extends ConsumerStatefulWidget {
 
 class _EndScreenViewState extends ConsumerState<EndScreenView>
     with TickerProviderStateMixin {
-  final _animatedSwitcherKey = GlobalKey();
   final _analytics = FirebaseAnalyticsService();
 
-  // While true, render stats from widget.priorStats. Flipped to false after
-  // the entrance slide finishes — that frame change is what triggers the
-  // AnimatedSwitcher transition from old streak -> new streak.
-  bool _showPriorStats = true;
   bool _reminderPromptImpressionLogged = false;
   bool _accountPromptImpressionLogged = false;
 
@@ -169,22 +163,6 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
     Future.delayed(const Duration(milliseconds: 400), () {
       if (mounted) {
         _cardAnimationController.forward();
-      }
-    });
-
-    // Skip the prior->current transition if we never got a snapshot (e.g.
-    // first-ever session) — there's nothing to animate from.
-    if (widget.priorStats == null) {
-      _showPriorStats = false;
-      return;
-    }
-
-    // Once the entrance slide settles, swap the displayed stats to the
-    // current values. The streak AnimatedSwitcher picks up the value change
-    // and animates from the old number to the new one.
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) {
-        setState(() => _showPriorStats = false);
       }
     });
   }
@@ -292,7 +270,6 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
                       child: _buildCard(),
                     ),
                   ),
-                // _buildFreezeRewardBanner(ref.watch(statsProvider).valueOrNull!),
               ],
             ),
           ),
@@ -309,138 +286,59 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
   }
 
   Widget _buildStatsArea() {
-    final statsAsyncValue = ref.watch(statsProvider);
-    // Use the pre-session snapshot for the first beat after the entrance
-    // slide, then fall back to the live stats so AnimatedSwitcher animates.
-    final displayedStats = _showPriorStats && widget.priorStats != null
-        ? AsyncValue<LocalAllStats>.data(widget.priorStats!)
-        : statsAsyncValue;
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    return ref
+        .watch(practiceHistoryProvider)
+        .when(
+          loading: () => const SizedBox(
+            height: 200,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (_, _) => const SizedBox.shrink(),
+          data: (history) {
+            final pauseDays = returnPauseDays(ref, history, widget.priorStats);
+            final today = history.today;
+            final lastFiveDays = List.generate(
+              5,
+              (index) =>
+                  DateTime(today.year, today.month, today.day - 4 + index),
+            );
 
-    return displayedStats.when(
-      loading: () => const SizedBox(
-        height: 200,
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (err, _) =>
-          SizedBox(height: 200, child: Center(child: Text('Error: $err'))),
-      data: (localAllStats) {
-        var streak = localAllStats.streakCurrent;
-        var daysMeditated = _getDaysMeditated(localAllStats.audioCompleted);
-        var lastFiveDays = List.generate(
-          5,
-          (index) => DateTime.now().subtract(Duration(days: index)),
-        );
-
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedSwitcher(
-              key: _animatedSwitcherKey,
-              duration: const Duration(milliseconds: 500),
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                return FadeTransition(
-                  opacity: animation,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.8, end: 1.0).animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutBack,
-                      ),
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ReturnMessage(
+                    returns: history.returns,
+                    pauseDays: pauseDays,
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontFamily: googleSans,
+                      color: context.brandAccent,
                     ),
-                    child: child,
                   ),
-                );
-              },
-              child: Container(
-                key: ValueKey<int>(streak),
-                child: Text(
-                  streak.toString(),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontFamily: googleSans,
-                    fontSize: 100,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  textAlign: TextAlign.left,
-                ),
+                  const SizedBox(height: 24),
+                  _buildDayLettersAndIcons(lastFiveDays, history.days),
+                  if (pauseDays == null) ...[
+                    const SizedBox(height: 24),
+                    Text(
+                      l10n.dailyPracticeMessage,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyLarge,
+                    ),
+                  ],
+                ],
               ),
-            ),
-            Text(
-              AppLocalizations.of(context)!.dayStreak,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                fontFamily: googleSans,
-                fontSize: 40,
-                fontWeight: FontWeight.w400,
-                height: 1,
-                color: context.brandAccent,
-              ),
-              textAlign: TextAlign.left,
-            ),
-            const SizedBox(height: 24),
-            AnimatedSwitcher(
-              duration: const Duration(seconds: 1),
-              child: _buildDayLettersAndIcons(
-                lastFiveDays,
-                daysMeditated,
-                key: ValueKey(daysMeditated.join()),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Text(
-                AppLocalizations.of(context)!.dailyPracticeMessage,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontFamily: googleSans,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                  height: 1.3,
-                ),
-              ),
-            ),
-            const SizedBox(height: 40),
-          ],
+            );
+          },
         );
-      },
-    );
-  }
-
-  List<String> _getDaysMeditated(List<LocalAudioCompleted>? audioCompleted) {
-    return audioCompleted
-            ?.map(
-              (audio) => DateTime.fromMillisecondsSinceEpoch(
-                audio.timestamp,
-              ).toIso8601String().split('T')[0],
-            )
-            .toList() ??
-        [];
-  }
-
-  List<String> _getDaysWithStreakFreeze(LocalAllStats stats) {
-    return stats.freezeUsageDates
-        .map(
-          (timestamp) => DateTime.fromMillisecondsSinceEpoch(
-            timestamp,
-          ).toIso8601String().split('T')[0],
-        )
-        .toList();
   }
 
   Widget _buildDayLettersAndIcons(
     List<DateTime> lastFiveDays,
-    List<String> daysMeditated, {
-    Key? key,
-  }) {
-    lastFiveDays = lastFiveDays.reversed.toList();
-
-    final statsData = _showPriorStats && widget.priorStats != null
-        ? widget.priorStats
-        : ref.watch(statsProvider).value;
-    var daysWithFreeze = statsData != null
-        ? _getDaysWithStreakFreeze(statsData)
-        : <String>[];
-
+    Set<DateTime> daysMeditated,
+  ) {
     var dayLetters = lastFiveDays.map((day) {
       switch (day.weekday) {
         case 1:
@@ -463,38 +361,14 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
     }).toList();
 
     return Row(
-      key: key,
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(dayLetters.length, (index) {
-        var day = lastFiveDays[index];
-        var dayString = day.toIso8601String().split('T')[0];
-        var isMeditated = daysMeditated.contains(dayString);
-        var isFreeze = daysWithFreeze.contains(dayString);
-
-        var isConsecutive =
-            (isMeditated || isFreeze) &&
-            (index > 0 &&
-                    (daysMeditated.contains(
-                          lastFiveDays[index - 1].toIso8601String().split(
-                            'T',
-                          )[0],
-                        ) ||
-                        daysWithFreeze.contains(
-                          lastFiveDays[index - 1].toIso8601String().split(
-                            'T',
-                          )[0],
-                        )) ||
-                index < dayLetters.length - 1 &&
-                    (daysMeditated.contains(
-                          lastFiveDays[index + 1].toIso8601String().split(
-                            'T',
-                          )[0],
-                        ) ||
-                        daysWithFreeze.contains(
-                          lastFiveDays[index + 1].toIso8601String().split(
-                            'T',
-                          )[0],
-                        )));
+        final isMeditated = daysMeditated.contains(lastFiveDays[index]);
+        final isConsecutive =
+            isMeditated &&
+            ((index > 0 && daysMeditated.contains(lastFiveDays[index - 1])) ||
+                (index + 1 < lastFiveDays.length &&
+                    daysMeditated.contains(lastFiveDays[index + 1])));
 
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -506,13 +380,9 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontFamily: googleSans,
                   fontSize: 14,
-                  fontWeight: (isMeditated || isFreeze)
-                      ? FontWeight.w600
-                      : FontWeight.w500,
+                  fontWeight: isMeditated ? FontWeight.w600 : FontWeight.w500,
                   height: 1.2,
-                  color: isFreeze
-                      ? ColorConstants.graphite
-                      : isMeditated
+                  color: isMeditated
                       ? context.brandAccent
                       : ColorConstants.moon,
                 ),
@@ -539,13 +409,7 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
                         ),
                       ),
                     ),
-                    if (isFreeze)
-                      MeditoIcon(
-                        assetName: MeditoIcons.snow,
-                        size: 32,
-                        color: ColorConstants.graphite,
-                      )
-                    else if (isMeditated)
+                    if (isMeditated)
                       MeditoIcon(
                         assetName: MeditoIcons.checkCircleSolid,
                         size: 32,
@@ -628,7 +492,7 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
   }
 
   /// End-screen soft-ask inviting an anonymous user to attach an email so their
-  /// streak and history survive a reinstall or a new phone. Gated by
+  /// practice history survives a reinstall or a new phone. Gated by
   /// [shouldShowAccountPromptProvider]; shares the reminder animation slot.
   Widget _buildAccountPrompt() {
     final shouldShow = ref.watch(shouldShowAccountPromptProvider);

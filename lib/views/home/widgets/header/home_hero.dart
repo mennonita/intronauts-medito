@@ -27,14 +27,7 @@ final homeHeroCoverProvider = Provider.autoDispose<String?>((ref) {
   return (cover == null || cover.isEmpty) ? null : cover;
 });
 
-/// Home's top section: the pinned pack's cover as a full-bleed image that
-/// runs under the status bar, with the streak pill top right.
-///
-/// With a [child] (Your Path or the quote, when the user put it first) the
-/// image takes at least half the screen and the section is laid over its
-/// lower part. Without one the image is a short banner behind the pill only,
-/// and the first section renders below it on the page as usual. With no
-/// cover at all it is just the pill row.
+/// Muestra la portada del paquete y el botón de estadísticas de práctica.
 class HomeHero extends ConsumerWidget {
   const HomeHero({
     super.key,
@@ -54,13 +47,10 @@ class HomeHero extends ConsumerWidget {
   /// white text, dark translucent cards, no page-coloured fades.
   final Widget? child;
 
-  /// Announcement card, shown above [child] over the image (below the streak
-  /// pill). Only used when there is an overlaid section; in banner mode the
-  /// home list places it under the hero instead. Collapses itself when there
-  /// is nothing to show.
+  /// Anuncio sobre [child], debajo del contador de regresos.
   final Widget? announcement;
 
-  /// Space reserved for the status bar and streak pill above [child].
+  /// Espacio para la barra de estado y el contador de regresos sobre [child].
   static const _headerReserve = 72.0;
 
   /// Banner mode: pill row plus room for the fade into the page.
@@ -79,7 +69,7 @@ class HomeHero extends ConsumerWidget {
         size.width >= 600 ? 32 : padding16,
         0,
       ),
-      // Just the streak pill, top right; the section title carries the hero.
+      // El contador de regresos abre las estadísticas.
       child: Align(
         alignment: Alignment.centerRight,
         child: StreakCircle(onTap: onStatsButtonTap),
@@ -158,11 +148,7 @@ class HomeHero extends ConsumerWidget {
   }
 }
 
-/// The cover plus its scrims, tinted toward the page colour at both ends:
-/// near-black in dark mode (white text on it), white in light mode (dark text
-/// on it). The top carries the status bar and streak pill, the bottom the
-/// section, and the image dissolves into the page instead of a dark band
-/// meeting a white one. A short seam finishes the edge.
+/// Portada con degradados adaptados al tema o al formato de banner.
 class _HeroBackdrop extends StatelessWidget {
   const _HeroBackdrop({required this.coverUrl, required this.banner});
 

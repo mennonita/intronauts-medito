@@ -40,8 +40,8 @@ void main() {
                           const BulkSessionPreview(
                             dayCount: 1,
                             newSessionsCount: 1,
-                            currentStreak: 0,
-                            projectedStreak: 1,
+                            currentReturns: 0,
+                            projectedReturns: 1,
                           ),
                     ),
                   );

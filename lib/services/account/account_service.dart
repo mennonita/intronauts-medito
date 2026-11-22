@@ -13,6 +13,7 @@ import 'package:medito/services/secure_storage_service.dart';
 import 'package:medito/services/stats_backup_service.dart';
 import 'package:medito/utils/completed_tracks_storage.dart';
 import 'package:medito/utils/logger.dart';
+import 'package:medito/utils/practice_history.dart';
 import 'package:medito/utils/stats_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -187,9 +188,13 @@ class AccountService {
   /// authenticated call would recreate a profile, so drop it before anything
   /// else can fire. The server session is already gone, so no tokens/signout.
   Future<void> _finishLocalDeletion() async {
+    final owner = _preferences.getString(
+      SharedPreferenceConstants.serverUserId,
+    );
     await _setAccountFlag(_replacementPendingKey, true);
     _httpApiService.clearAuthHeader();
     await _authRepository.signOutLocally();
+    await PracticeHistory.clear(_preferences, owner);
     await _clearPlayback();
     await _clearFavorites?.call();
     await _statsManager.clearAllStats(preservePending: false);
