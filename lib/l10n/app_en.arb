@@ -2175,5 +2175,39 @@
   "timerPresetLimit": "You have 20 timers. Delete one to save another.",
   "timerBellsDescription": "Timer bells follow your settings",
   "timerPresetWriteError": "Unable to save the change. Try again.",
-  "timerStopError": "Unable to stop the timer. Try again."
+  "timerStopError": "Unable to stop the timer. Try again.",
+  "bellSoundActual": "Current bell",
+  "bellSoundTibetanBowl": "Tibetan bowl",
+  "bellSoundWoodBlock": "Wood block",
+  "bellSoundSmallBell": "Small bell",
+  "bellSoundSoftGong": "Soft gong",
+  "bellSoundCrystalBowl": "Crystal bowl",
+  "bellSoundTuningFork": "Tuning fork",
+  "bellSoundWindGong": "Wind gong",
+  "bellSoundFrameDrum": "Frame drum",
+  "bellSoundHandpan": "Handpan",
+  "bellSoundRainstick": "Rainstick",
+  "bellSoundTempleBell": "Temple bell",
+  "bellSoundLargeBowl": "Large bowl",
+  "bellSoundTingsha": "Tingsha cymbals",
+  "bellSoundKalimba": "Kalimba",
+  "bellSoundBambooFlute": "Bamboo flute",
+  "bellSoundWindChimes": "Wind chimes",
+  "bellSoundSelection": "Sound: {name}",
+  "@bellSoundSelection": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bellSoundPremium": "Premium",
+  "bellSoundPreview": "Preview {name}",
+  "@bellSoundPreview": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  }
 }

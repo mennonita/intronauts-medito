@@ -2,33 +2,30 @@ import 'dart:async';
 
 import 'package:just_audio/just_audio.dart';
 import '../../models/background_sounds/background_sounds_model.dart';
+import '../../models/timer/timer_bell_settings.dart';
 import '../../utils/logger.dart';
 import 'session_bell_schedule.dart';
 import 'timer_bell_schedule.dart';
 
-/// Owns one-shot bell playback; ambient loops never enter this controller.
 class IosSessionBells {
-  IosSessionBells(this.primary, {AudioPlayer? bell})
-    : _bell = bell ?? AudioPlayer() {
-    _bell.positionStream.listen(_checkEndStarted);
+  IosSessionBells(this.primary, {AudioPlayer Function()? createPlayer})
+    : _createPlayer = createPlayer ?? AudioPlayer.new {
     primary.positionStream.listen((_) => _update());
     primary.playerStateStream.listen((_) => _update());
     primary.positionDiscontinuityStream.listen((event) {
       if (event.reason == PositionDiscontinuityReason.autoAdvance) {
         _schedule.reset();
       } else if (event.reason == PositionDiscontinuityReason.seek) {
-        unawaited(_bell.pause());
-        _pendingEnd = false;
         final timer = _timerSchedule;
         if (timer == null) {
+          unawaited(_trackBell?.pause());
           _schedule.seek(
             primary.position,
             primary.duration ?? Duration.zero,
             speed: primary.speed,
           );
         } else {
-          _timerSeekGeneration++;
-          timer.seek(primary.position.inMilliseconds);
+          seekTimer(event.event.updatePosition);
         }
       }
       _update();
@@ -36,182 +33,270 @@ class IosSessionBells {
   }
 
   final AudioPlayer primary;
-  final AudioPlayer _bell;
+  final AudioPlayer Function() _createPlayer;
   final _schedule = SessionBellSchedule();
+  final _timerPlayers = <String, AudioPlayer>{};
+  AudioPlayer? _trackBell;
+  AudioPlayer? _activeBell;
+  StreamSubscription<Duration>? _endPosition;
+  Future<void>? _clearingBell;
   TimerBellSchedule? _timerSchedule;
-  int? _endOffsetMs;
   bool _endStarted = false;
   bool _pendingEnd = false;
   bool _timerStopped = false;
   bool _timerInstalling = false;
-  bool _timerInstallEnabled = false;
-  int _timerSeekGeneration = 0;
   bool _enabled = false;
-  bool _ready = false;
+  bool _trackReady = false;
+  double _volume = 1;
   int _generation = 0;
-  Future<void>? _loading;
+  int _ringGeneration = 0;
+  Future<void>? _trackLoading;
 
   bool get enabled => _enabled;
 
   Future<void> setBellCues({
-    required List<int>? offsetsMs,
-    int? endOffsetMs,
+    required List<TimerBellCue>? cues,
     required bool enabled,
     required double volume,
   }) async {
-    if (offsetsMs == null && _timerSchedule == null && !_timerInstalling) {
-      return;
-    }
+    if (cues == null && _timerSchedule == null) return;
     final stopping = disable();
     final generation = _generation;
-    _timerInstalling = offsetsMs != null;
-    _timerInstallEnabled = enabled;
+    _timerSchedule = cues == null ? null : TimerBellSchedule(cues);
+    _timerInstalling = cues != null;
+    _enabled = cues != null && enabled;
+    setVolume(volume);
+    await stopping;
+    if (generation != _generation || cues == null) return;
+
+    final assets = cues.map((cue) => cue.assetKey).toSet();
+    final loaded = await Future.wait([
+      for (final asset in assets) _loadTimerAsset(asset, generation),
+    ]);
+    if (generation != _generation) return;
+    if (loaded.contains(false) && !assets.contains(kSessionBellAsset)) {
+      await _loadTimerAsset(kSessionBellAsset, generation);
+    }
+    if (generation != _generation) return;
+    _timerInstalling = false;
+    _timerStopped = false;
+    _update();
+  }
+
+  Future<bool> _loadTimerAsset(String asset, int generation) async {
+    final player = _createPlayer();
+    _timerPlayers[asset] = player;
     try {
-      await stopping;
-      if (generation != _generation) return;
-      _timerSchedule = offsetsMs == null ? null : TimerBellSchedule(offsetsMs);
-      _endOffsetMs = endOffsetMs;
-      _endStarted = false;
-      if (offsetsMs != null) await _loadBell(volume, generation);
-    } catch (error, stack) {
-      AppLogger.e('BELLS', 'No se pudo cargar la campana', error, stack);
-    } finally {
+      await player.setAsset(asset);
+      if (generation != _generation) return false;
+      await player.setVolume(_volume);
+      if (generation != _generation) return false;
+      return true;
+    } catch (error) {
       if (generation == _generation) {
-        _timerInstalling = false;
-        _timerStopped = false;
-        _enabled = offsetsMs != null && _timerInstallEnabled;
-        _update();
+        AppLogger.w('BELLS', 'No se pudo cargar $asset: $error');
+        _timerPlayers.remove(asset);
+        await player.dispose();
       }
+      return false;
     }
   }
 
   Future<void> setTimerEnabled(bool enabled, double volume) async {
-    if (_timerInstalling) {
-      _timerInstallEnabled = enabled;
-      return;
-    }
-    if (_timerStopped) return;
+    if (_timerStopped && !_timerInstalling) return;
     if (enabled && !_enabled) _update();
     _enabled = enabled;
-    final generation = ++_generation;
-    if (enabled) {
-      await _loadBell(volume, generation);
-    } else {
-      _pendingEnd = false;
-      await _bell.pause();
-      if (generation == _generation && _ready) await _bell.seek(Duration.zero);
-    }
+    setVolume(volume);
+    if (!enabled) await _clearTimerBell();
   }
 
   bool stopBellsAndReportEnd() {
-    // Riesgo aceptado: la posición estimada puede avanzar antes de que suene la campana.
-    _checkEndStarted(_bell.position);
+    _checkEndStarted(_activeBell?.position ?? Duration.zero);
+    _generation++;
     _timerInstalling = false;
     _timerStopped = true;
     _enabled = false;
-    _pendingEnd = false;
-    _generation++;
-    unawaited(_bell.pause());
+    unawaited(_clearTimerBell());
     return _endStarted;
   }
 
   Future<void> enable(double volume) async {
-    if (_enabled && _ready) return;
+    if (_enabled && _trackReady) return;
     final generation = ++_generation;
     _enabled = true;
-    _ready = false;
+    _trackReady = false;
     _schedule.reset();
-    await _loadBell(volume, generation);
+    final bell = _trackBell ??= _createPlayer();
+    setVolume(volume);
+    _trackLoading ??= bell.setAsset(kSessionBellAsset).then<void>((_) {});
+    try {
+      await _trackLoading;
+      if (generation != _generation) return;
+      _trackReady = true;
+      _update();
+    } catch (_) {
+      if (generation != _generation) return;
+      _trackLoading = null;
+      rethrow;
+    }
   }
 
-  Future<void> _loadBell(double volume, int generation) async {
-    _loading ??= _bell
-        .setAsset(kSessionBellAsset)
-        .then<void>((_) {})
-        .catchError((Object error) {
-          _loading = null;
-          throw error;
-        });
-    await _loading;
-    if (generation != _generation) return;
-    await _bell.setVolume(volume);
-    if (generation != _generation) return;
-    _ready = true;
-    _update();
+  void setVolume(double volume) {
+    _volume = volume;
+    unawaited(_trackBell?.setVolume(volume));
+    for (final player in _timerPlayers.values) {
+      unawaited(player.setVolume(volume));
+    }
   }
 
-  void setVolume(double volume) => unawaited(_bell.setVolume(volume));
+  void seekTimer(Duration position) {
+    final timer = _timerSchedule;
+    if (timer == null) return;
+    unawaited(_clearTimerBell());
+    timer.seek(position.inMilliseconds);
+  }
 
   void reset() {
     _schedule.reset();
     _timerSchedule?.reset();
     _endStarted = false;
-    _pendingEnd = false;
-    unawaited(_bell.pause());
+    unawaited(_clearTimerBell());
+    unawaited(_trackBell?.pause());
   }
 
   Future<void> disable() async {
     _generation++;
     _timerInstalling = false;
     _enabled = false;
-    _ready = false;
+    _trackReady = false;
     _timerStopped = true;
-    reset();
-    _loading = null;
-    await _bell.stop();
+    _schedule.reset();
+    _timerSchedule?.reset();
+    _endStarted = false;
+    final clearing = _clearTimerBell();
+    _trackLoading = null;
+    final players = _timerPlayers.values.toList();
+    _timerPlayers.clear();
+    await Future.wait([
+      clearing,
+      if (_trackBell case final bell?) bell.stop(),
+      for (final player in players) player.dispose(),
+    ]);
+  }
+
+  Future<void> _clearTimerBell() async {
+    _ringGeneration++;
+    _pendingEnd = false;
+    final bell = _activeBell;
+    _activeBell = null;
+    final subscription = _endPosition;
+    _endPosition = null;
+    final previous = _clearingBell;
+    if (bell == null && subscription == null) {
+      await previous;
+      return;
+    }
+    final clearing = Future.wait([
+      ?previous,
+      if (bell != null) bell.pause(),
+      if (subscription != null) subscription.cancel(),
+    ]).then<void>((_) {});
+    _clearingBell = clearing;
+    try {
+      await clearing;
+    } finally {
+      if (identical(_clearingBell, clearing)) _clearingBell = null;
+    }
   }
 
   void _update() {
     final timer = _timerSchedule;
-    if (timer != null && _timerStopped) return;
-    if (timer == null && (!_enabled || !_ready)) return;
+    if (timer == null) {
+      _updateTrack();
+      return;
+    }
+    if (_timerStopped || _timerInstalling) return;
     if (primary.processingState == ProcessingState.completed) {
-      unawaited(_bell.pause());
+      unawaited(_clearTimerBell());
       return;
     }
-    if (!primary.playing || primary.processingState != ProcessingState.ready) {
-      unawaited(_bell.pause());
+    if (!_primaryPlaying) {
+      unawaited(_activeBell?.pause());
       return;
     }
-    final canRing = _enabled && _ready;
-    final timerCue = timer?.update(
+    final cue = timer.update(
       primary.position.inMilliseconds,
-      enabled: canRing,
+      enabled: _enabled,
     );
-    if (timerCue != null ||
-        (timer == null &&
-            _schedule.update(
-              primary.position,
-              primary.duration ?? Duration.zero,
-              speed: primary.speed,
-            ))) {
-      unawaited(_ring(isEnd: timerCue != null && timerCue == _endOffsetMs));
-    } else if (canRing &&
-        _bell.processingState == ProcessingState.ready &&
-        !_bell.playing &&
-        _bell.position > Duration.zero) {
-      unawaited(_bell.play());
+    if (cue != null) {
+      unawaited(_ringTimer(cue));
+    } else if (_activeBell case final bell?
+        when _enabled &&
+            bell.processingState == ProcessingState.ready &&
+            !bell.playing) {
+      unawaited(bell.play());
     }
   }
 
-  Future<void> _ring({required bool isEnd}) async {
+  bool get _primaryPlaying =>
+      primary.playing && primary.processingState == ProcessingState.ready;
+
+  void _updateTrack() {
+    final bell = _trackBell;
+    if (!_enabled || !_trackReady || bell == null) return;
+    if (!_primaryPlaying) {
+      unawaited(bell.pause());
+      return;
+    }
+    if (_schedule.update(
+      primary.position,
+      primary.duration ?? Duration.zero,
+      speed: primary.speed,
+    )) {
+      unawaited(_ringTrack(bell));
+    } else if (bell.processingState == ProcessingState.ready &&
+        !bell.playing &&
+        bell.position > Duration.zero) {
+      unawaited(bell.play());
+    }
+  }
+
+  Future<void> _ringTrack(AudioPlayer bell) async {
     final generation = _generation;
-    final seekGeneration = _timerSeekGeneration;
     try {
-      await _bell.seek(Duration.zero);
-      if (!_enabled ||
-          generation != _generation ||
-          seekGeneration != _timerSeekGeneration) {
+      await bell.seek(Duration.zero);
+      if (generation == _generation && _enabled && _primaryPlaying) {
+        await bell.play();
+      }
+    } catch (error, stack) {
+      AppLogger.e('BELLS', 'No se pudo tocar la campana', error, stack);
+    }
+  }
+
+  Future<void> _ringTimer(TimerBellCue cue) async {
+    final clearing = _clearTimerBell();
+    final generation = _ringGeneration;
+    final bell =
+        _timerPlayers[cue.assetKey] ?? _timerPlayers[kSessionBellAsset];
+    try {
+      await clearing;
+      if (bell == null || generation != _ringGeneration) return;
+      await bell.seek(Duration.zero);
+      if (generation != _ringGeneration || !_enabled || !_primaryPlaying) {
         return;
       }
-      if (!primary.playing ||
-          primary.processingState != ProcessingState.ready) {
-        return;
+      _activeBell = bell;
+      if (cue.kind == TimerBellKind.end) {
+        _pendingEnd = true;
+        _endPosition = bell.positionStream.listen((position) {
+          if (generation == _ringGeneration) _checkEndStarted(position);
+        });
       }
-      _pendingEnd = isEnd;
-      await _bell.play();
-    } catch (error) {
-      AppLogger.e('BELLS', 'Bell playback failed: $error');
+      await bell.play();
+    } catch (error, stack) {
+      if (generation == _ringGeneration) {
+        AppLogger.e('BELLS', 'No se pudo tocar la campana', error, stack);
+      }
     }
   }
 

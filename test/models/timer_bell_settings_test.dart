@@ -1,8 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:medito/models/timer/bell_sound.dart';
 import 'package:medito/models/timer/timer_bell_settings.dart';
 import 'package:medito/models/timer/timer_session.dart';
 
-TimerBellCues cues(
+extension on List<TimerBellCue> {
+  List<int> get offsetsMs => map((cue) => cue.offsetMs).toList();
+  int? get endOffsetMs =>
+      where((cue) => cue.kind == TimerBellKind.end).firstOrNull?.offsetMs;
+}
+
+List<TimerBellCue> cues(
   int seconds, {
   TimerBellSettings settings = const TimerBellSettings(),
   TimerMode mode = TimerMode.countdown,
@@ -17,11 +24,71 @@ TimerBellCues cues(
 );
 
 void main() {
+  const selections = TimerBellSettings(
+    intervalMinutes: 1,
+    randomCount: 1,
+    startSound: 'cuenco_tibetano',
+    endSound: 'campana_templo',
+    intervalSound: 'bloque_madera',
+    randomSound: 'diapason',
+  );
+
+  test(
+    'guarda cuatro sonidos y usa la campana actual para valores antiguos',
+    () {
+      final json = selections.toJson();
+      expect(TimerBellSettings.fromJson(json).toJson(), json);
+      final legacy = Map<String, Object>.of(json)
+        ..removeWhere((key, _) => key.endsWith('Sound'));
+      expect(TimerBellSettings.fromJson(legacy).toJson(), {
+        ...legacy,
+        for (final key in json.keys.where((key) => key.endsWith('Sound')))
+          key: defaultBellSoundId,
+      });
+      expect(
+        TimerBellSettings.fromJson({...json, 'endSound': 'eliminado'}).endSound,
+        defaultBellSoundId,
+      );
+    },
+  );
+
+  test('cada tipo usa su archivo y el cierre respeta su duración y margen', () {
+    final schedule = cues(180, settings: selections);
+    expect(schedule.map((cue) => cue.kind).toSet(), {
+      TimerBellKind.start,
+      TimerBellKind.interval,
+      TimerBellKind.random,
+      TimerBellKind.end,
+    });
+    for (final cue in schedule) {
+      final id = switch (cue.kind) {
+        TimerBellKind.start => selections.startSound,
+        TimerBellKind.end => selections.endSound,
+        TimerBellKind.interval => selections.intervalSound,
+        TimerBellKind.random => selections.randomSound,
+        TimerBellKind.midpoint => throw StateError('Campana inesperada'),
+      };
+      expect(cue.assetKey, BellSound.resolve(id).assetKey);
+    }
+    expect(schedule.endOffsetMs, 164453);
+    expect(cues(30, settings: selections).endOffsetMs, 15000);
+    final midpoint = cues(
+      0,
+      settings: selections.copyWith(intervalMinutes: 0),
+      mode: TimerMode.stopwatch,
+    )[1];
+    expect(midpoint.kind, TimerBellKind.midpoint);
+    expect(
+      midpoint.assetKey,
+      BellSound.resolve(selections.intervalSound).assetKey,
+    );
+  });
+
   test('respeta las campanas de inicio y cierre por separado', () {
-    expect(cues(60).offsetsMs, [0, 54000]);
+    expect(cues(60).offsetsMs, [0, 53500]);
     expect(
       cues(60, settings: const TimerBellSettings(start: false)).offsetsMs,
-      [54000],
+      [53500],
     );
     expect(cues(60, settings: const TimerBellSettings(end: false)).offsetsMs, [
       0,
@@ -53,7 +120,7 @@ void main() {
         0,
         60000,
         120000,
-        174000,
+        173500,
       ]);
       expect(cues(180, settings: settings, extraTime: true).offsetsMs, [
         0,
@@ -65,14 +132,13 @@ void main() {
         0,
         60000,
         120000,
-        184000,
+        183500,
       ]);
       expect(cues(194, settings: settings).offsetsMs, [
         0,
         60000,
         120000,
-        180000,
-        188000,
+        187500,
       ]);
       expect(
         cues(
@@ -106,7 +172,7 @@ void main() {
     'el cronómetro conserva las tres campanas o sustituye la de la mitad',
     () {
       const mode = TimerMode.stopwatch;
-      expect(cues(0, mode: mode).offsetsMs, [0, 9000000, 17994000]);
+      expect(cues(0, mode: mode).offsetsMs, [0, 9000000, 17993500]);
       expect(
         cues(
           0,
@@ -127,7 +193,7 @@ void main() {
       expect(intervals.offsetsMs, [
         0,
         for (var k = 1; k <= 14; k++) 1200000 * k,
-        17994000,
+        17993500,
       ]);
     },
   );

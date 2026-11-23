@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/models/models.dart';
+import 'package:medito/models/timer/bell_sound.dart';
+import 'package:medito/models/timer/timer_bell_settings.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/services/account/playback_account.dart';
@@ -43,6 +45,10 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
   PlaybackRequest? _activeTimer;
   TimerSessionCloser? _timerCloser;
 
+  Object get playbackIdentity => (_start, _start?.cancelled);
+  PlaybackRequest? get activeTimerRequest =>
+      _start?.isCurrent == true ? _activeTimer : null;
+
   Stream<TimerCloseResult> get timerCloses => _timerCloses.stream;
 
   @override
@@ -72,12 +78,34 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     // The audio state outlives sessions; drop the previous track's (possibly
     // completed, full-position) values so nothing reads them as this one's.
     ref.read(audioStateProvider.notifier).resetState();
-    _start?.cancelled = true;
+    final previous = _start;
+    final previousTimer = activeTimerRequest;
+    previous?.cancelled = true;
     final start = _PlaybackStart();
     _start = start;
     _activeTimer = request.isTimer ? request : null;
     _timerCloser = request.isTimer ? TimerSessionCloser() : null;
     try {
+      start.check();
+      if (previousTimer != null && !_usesAndroidAudio) {
+        iosAudioHandler.cancelPendingTimerStart();
+      }
+      try {
+        await Future.wait([
+          ref.read(sessionBellPreviewProvider).stop(),
+          if (_usesAndroidAudio &&
+              previous?.requested == true &&
+              previousTimer?.timerSeed != null)
+            _api.stopTimerPlayback(previousTimer!.timerSeed!),
+        ]);
+      } catch (error, stack) {
+        AppLogger.e(
+          'PLAYER',
+          'No se pudo detener el audio anterior',
+          error,
+          stack,
+        );
+      }
       start.check();
       await _playTrack(request, start);
       start.check();
@@ -193,8 +221,6 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       // here propagates immediately. That's intentional: callers need to know.
       setRepeatMode(repeatMode);
       setSpeed(1.0);
-      await iosAudioHandler.setUrl(downloadPath, request, trackData);
-      start.check();
       iosAudioHandler.onTimerStop = request.isTimer
           ? () async {
               if (identical(_start, start)) await closeTimer();
@@ -203,13 +229,11 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       final sound = ref.read(backgroundSoundsNotifierProvider.notifier);
       sound.setTimerScope(request.isTimer);
       final bells = request.isTimer ? sound.prepareTimerBells() : null;
-      await iosAudioHandler.sessionBells.setBellCues(
-        offsetsMs: request.isTimer
-            ? request.timerBellOffsetsMs ?? const []
-            : null,
-        endOffsetMs: request.timerEndBellOffsetMs,
-        enabled: bells?.enabled ?? false,
-        volume: bells?.volume ?? 0,
+      await iosAudioHandler.setUrl(
+        downloadPath,
+        request,
+        trackData,
+        timerBells: bells,
       );
       start.check();
       start.requested = true;
@@ -263,10 +287,14 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
 
         final sound = ref.read(backgroundSoundsNotifierProvider.notifier);
         sound.setTimerScope(request.isTimer);
-        await _api.setBellCues(
-          !request.isTimer,
-          request.timerBellOffsetsMs ?? const [],
-        );
+        await _api.setBellCues(!request.isTimer, [
+          for (final cue in request.timerBellCues ?? const <TimerBellCue>[])
+            pigeon.BellCue(
+              offsetMs: cue.offsetMs,
+              kind: cue.kind.name,
+              assetKey: cue.assetKey,
+            ),
+        ]);
         start.check();
         if (request.isTimer) {
           pigeon.MeditoTimerStopCallbackApi.setUp(this);
@@ -287,7 +315,6 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
             url: url,
             track: trackData,
             timerSeed: request.timerSeed,
-            timerEndBellOffsetMs: request.timerEndBellOffsetMs,
             timerHasExtraTime: request.hasExtraTime,
             timerStopLabel: request.timerStopLabel,
           ),
@@ -391,7 +418,10 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
                 return;
               }
               try {
-                await preview.play(volume);
+                await preview.play(
+                  volume,
+                  assetKey: BellSound.resolve(request.timerEndSound).assetKey,
+                );
               } catch (error, stack) {
                 AppLogger.e(
                   'BELLS',

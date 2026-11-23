@@ -8,7 +8,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../models/background_sounds/background_sounds_model.dart';
 import '../../models/player/playback_request.dart';
+import '../../models/timer/bell_sound.dart';
 import '../../models/timer/timer_session.dart';
+import '../../services/account/playback_account.dart';
 import '../../repositories/background_sounds/background_sounds_repository.dart';
 import '../../repositories/downloader/downloader_repository.dart';
 import '../../src/audio_pigeon.g.dart';
@@ -319,6 +321,13 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     required bool preview,
     required int? toggle,
   }) async {
+    final player = ref.read(playerProvider.notifier);
+    final session = player.playbackIdentity;
+    final account = PlaybackAccount.generation;
+    final endSound = _timerScope
+        ? player.activeTimerRequest?.timerEndSound
+        : null;
+    final timerScope = _timerScope;
     try {
       final volume = scaledVolume(state.volume);
       if (Platform.isAndroid) {
@@ -330,14 +339,24 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
       } else {
         await iosAudioHandler.sessionBells.disable();
       }
-      if (enabled &&
+      if (PlaybackAccount.isCurrent(account) &&
+          session == player.playbackIdentity &&
+          timerScope == _timerScope &&
+          enabled &&
           preview &&
           state.bellsEnabled &&
           (toggle == null || toggle == _timerBellToggle)) {
-        await ref.read(sessionBellPreviewProvider).play(volume);
+        await ref
+            .read(sessionBellPreviewProvider)
+            .play(volume, assetKey: BellSound.resolve(endSound).assetKey);
       }
     } catch (error, stack) {
-      AppLogger.e('BELLS', 'Failed to switch session bells', error, stack);
+      AppLogger.e(
+        'BELLS',
+        'No se pudo cambiar el ajuste de campanas',
+        error,
+        stack,
+      );
     }
   }
 

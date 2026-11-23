@@ -1,6 +1,8 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:medito/models/track/track.dart';
 import '../background_sounds/background_sounds_model.dart';
+import '../timer/bell_sound.dart';
+import '../timer/timer_bell_settings.dart';
 
 part 'playback_request.freezed.dart';
 part 'playback_request.g.dart';
@@ -25,8 +27,8 @@ abstract class PlaybackRequest with _$PlaybackRequest {
     int? timerPlannedDurationMs,
     int? timerSeed,
     String? timerStopLabel,
-    List<int>? timerBellOffsetsMs,
-    int? timerEndBellOffsetMs,
+    @JsonKey(toJson: _timerCuesToJson) List<TimerBellCue>? timerBellCues,
+    @Default(defaultBellSoundId) BellSoundId timerEndSound,
     @Default(true) bool timerEndBellEnabled,
     @Default(false) bool overrideBackgroundSound,
     BackgroundSoundsModel? backgroundSound,
@@ -52,3 +54,6 @@ abstract class PlaybackRequest with _$PlaybackRequest {
     artist: track.artist,
   );
 }
+
+List<Map<String, Object>>? _timerCuesToJson(List<TimerBellCue>? cues) =>
+    cues?.map((cue) => cue.toJson()).toList();

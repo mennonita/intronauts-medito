@@ -1,6 +1,7 @@
 import 'package:medito/models/player/playback_request.dart';
 
 import '../background_sounds/background_sounds_model.dart';
+import 'bell_sound.dart';
 import 'timer_bell_settings.dart';
 
 /// The two ways the home Timer runs: down from a chosen length, or up until
@@ -112,8 +113,8 @@ PlaybackRequest timerPlaybackRequest({
     timerPlannedDurationMs: duration.inMilliseconds,
     timerSeed: sessionSeed,
     timerStopLabel: stopLabel,
-    timerBellOffsetsMs: cues.offsetsMs,
-    timerEndBellOffsetMs: cues.endOffsetMs,
+    timerBellCues: cues,
+    timerEndSound: BellSound.resolve(bells.endSound).id,
     timerEndBellEnabled: bells.end,
     overrideBackgroundSound: overrideBackgroundSound,
     backgroundSound: backgroundSound,

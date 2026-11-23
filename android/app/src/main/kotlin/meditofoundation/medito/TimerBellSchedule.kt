@@ -1,8 +1,10 @@
 package meditofoundation.medito
 
+import meditofoundation.medito.pigeon.BellCue
+
 /** Consume las campanas cruzadas, incluso cuando están apagadas o llegan tarde. */
-internal class TimerBellSchedule(offsetsMs: List<Long>) {
-    private val offsets = offsetsMs.toList()
+internal class TimerBellSchedule(cues: List<BellCue>) {
+    private val cues = cues.toList()
     private var next = 0
 
     fun reset() {
@@ -11,15 +13,14 @@ internal class TimerBellSchedule(offsetsMs: List<Long>) {
 
     fun seek(positionMs: Long) {
         reset()
-        if (positionMs == 0L) return
-        while (next < offsets.size && offsets[next] <= positionMs) next++
+        while (next < cues.size && cues[next].offsetMs <= positionMs) next++
     }
 
-    fun update(positionMs: Long, enabled: Boolean): Long? {
-        var ring: Long? = null
-        while (next < offsets.size && offsets[next] <= positionMs) {
-            val cue = offsets[next++]
-            if (enabled && positionMs - cue < 2000) ring = cue
+    fun update(positionMs: Long, enabled: Boolean): BellCue? {
+        var ring: BellCue? = null
+        while (next < cues.size && cues[next].offsetMs <= positionMs) {
+            val cue = cues[next++]
+            if (enabled && positionMs - cue.offsetMs < 2000) ring = cue
         }
         return ring
     }

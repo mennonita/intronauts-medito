@@ -102,6 +102,7 @@ flutter:
   generate: true
   assets:
     - assets/audio/
+    - assets/audio/bells/
     - assets/
     - assets/images/
     - assets/images/app_icons/ios/

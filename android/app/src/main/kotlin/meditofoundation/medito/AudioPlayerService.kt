@@ -20,6 +20,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.util.NotificationUtil
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -82,7 +83,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private var lastTimerStop: Pair<Long, TimerStopReport>? = null
     private var playbackAttempt = 0L
     private var timerPlaybackStopped = false
-    private var pendingTimerBellOffsets: List<Long>? = null
+    private var pendingTimerBellCues: List<BellCue>? = null
+    private val timerStart = TimerStartGate()
     private var pendingTimerBellsEnabled = false
     private var isCompletionHandled = false
     private var hasAudioFocus = false
@@ -374,6 +376,34 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
     private fun createMediaSession(): MediaSession {
         val player = object : ForwardingPlayer(primaryPlayer) {
+            override fun play() {
+                if (timerSeed != null) playTimer() else super.play()
+            }
+
+            override fun pause() {
+                if (timerSeed != null) timerStart.pause()
+                super.pause()
+            }
+
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (timerSeed == null) {
+                    super.setPlayWhenReady(playWhenReady)
+                } else if (playWhenReady) {
+                    playTimer()
+                } else {
+                    timerStart.pause()
+                    primaryPlayer.pause()
+                }
+            }
+
+            override fun setPlaybackParameters(playbackParameters: PlaybackParameters) {
+                if (timerSeed == null) super.setPlaybackParameters(playbackParameters)
+            }
+
+            override fun setPlaybackSpeed(speed: Float) {
+                if (timerSeed == null) super.setPlaybackSpeed(speed)
+            }
+
             override fun stop() {
                 if (timerSeed != null) requestSystemTimerStop() else super.stop()
             }
@@ -436,7 +466,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     controller: MediaSession.ControllerInfo,
                     playerCommand: Int
                 ): Int {
-                    if (!TimerMediaCommands.allows(timerHasExtraTime, playerCommand)) {
+                    if ((timerSeed != null && playerCommand == Player.COMMAND_SET_SPEED_AND_PITCH) ||
+                        !TimerMediaCommands.allows(timerHasExtraTime, playerCommand)) {
                         return SessionResult.RESULT_ERROR_NOT_SUPPORTED
                     }
                     return SessionResult.RESULT_SUCCESS
@@ -465,6 +496,9 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private fun mediaPlayerCommands(): Player.Commands =
         if (timerHasExtraTime) Player.Commands.Builder()
             .addAll(*TimerMediaCommands.extraTime.toIntArray())
+            .build()
+        else if (timerSeed != null) MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+            .remove(Player.COMMAND_SET_SPEED_AND_PITCH)
             .build()
         else MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
 
@@ -607,6 +641,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     override fun onDestroy() {
+        timerStart.cancel()
         Log.d(TAG, "🔊 Service onDestroy called")
 
         // Always remove the foreground notification on teardown, even when the
@@ -693,6 +728,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         Log.d(TAG, "🔊 Playback state changed: $playbackState")
 
         if (playbackState == Player.STATE_ENDED) {
+            timerStart.cancel()
             // Drive completion + notification teardown natively and immediately.
             // This fires regardless of whether the Flutter engine is alive, unlike
             // the Dart-reply-gated poll path in updatePlaybackState(). Skipping the
@@ -954,6 +990,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
 
         val attempt = ++playbackAttempt
+        timerStart.cancel()
         isCompletionHandled = false
         playbackGeneration = SharedPreferencesManager.currentGeneration()
         val accountGeneration = playbackGeneration
@@ -969,6 +1006,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             if (audioData.timerSeed != null) primaryPlayer.pause()
             resetPrimaryQueue()
             timerSeed = audioData.timerSeed
+            if (timerSeed != null) timerStart.reset()
             timerStopLabel = audioData.timerStopLabel
             timerHasExtraTime = timerSeed != null && audioData.timerHasExtraTime == true
             ensureMediaSession()
@@ -978,8 +1016,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             if (timerSeed != null) currentRepeatMode = RepeatMode.NONE
             primaryPlayer.setPlaybackSpeed(1.0f)
             sessionBells.configure(
-                pendingTimerBellOffsets,
-                audioData.timerEndBellOffsetMs,
+                if (timerSeed != null) pendingTimerBellCues ?: emptyList() else null,
                 pendingTimerBellsEnabled,
                 backgroundMusicVolume
             )
@@ -1025,11 +1062,16 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                 }
             }
             
+            if (timerSeed != null) {
+                playTimer()
+                sessionBells.whenPrepared { timerStart.bellsReady() }
+            }
+
             val startWhenPrepared = {
-                if (audioData.timerSeed != null) {
-                    sessionBells.whenPrepared(startPlayback)
-                } else {
-                    startPlayback()
+                if (playbackAttempt == attempt &&
+                    accountGeneration == SharedPreferencesManager.currentGeneration()
+                ) {
+                    if (audioData.timerSeed != null) timerStart.primaryReady() else startPlayback()
                 }
             }
 
@@ -1065,6 +1107,10 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
             return true
         } catch (e: Exception) {
+            if (audioData.timerSeed != null) {
+                timerStart.cancel()
+                sessionBells.disable()
+            }
             Log.e(TAG, "❌ Error in playAudio: ${e.message}")
             e.printStackTrace()
             return false
@@ -1304,14 +1350,14 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             Log.w(TAG, "setSessionBells($enabled) before the service was ready")
             return
         }
-        if (pendingTimerBellOffsets != null) pendingTimerBellsEnabled = enabled
+        if (pendingTimerBellCues != null) pendingTimerBellsEnabled = enabled
         if (!installingTimerBellCues) sessionBells.setEnabled(enabled, backgroundMusicVolume)
     }
 
     private var installingTimerBellCues = false
 
-    override fun setBellCues(useTrackSchedule: Boolean, offsetsMs: List<Long>) {
-        pendingTimerBellOffsets = if (useTrackSchedule) null else offsetsMs
+    override fun setBellCues(useTrackSchedule: Boolean, cues: List<BellCue>) {
+        pendingTimerBellCues = if (useTrackSchedule) null else cues
         installingTimerBellCues = !useTrackSchedule
     }
 
@@ -1334,7 +1380,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     override fun setSpeed(speed: Double) {
-        if (timerHasExtraTime) return
+        if (timerSeed != null) return
         primaryPlayer.setPlaybackSpeed(speed.toFloat())
     }
 
@@ -1364,7 +1410,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     override fun setRepeatMode(mode: RepeatMode) {
         Log.d(TAG, "🔊 Setting repeat mode to: $mode")
         currentRepeatMode = mode
-        
+        if (timerSeed != null) return
+
         if (::primaryPlayer.isInitialized) {
             val currentMediaItem = primaryPlayer.currentMediaItem
             if (currentMediaItem == null) {
@@ -1425,6 +1472,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             NativeCompletionRecord.timerClose(fileId, position, System.currentTimeMillis())
         } else null
         playbackAttempt++
+        timerStart.cancel()
         var endCueRang = false
         try {
             endCueRang = sessionBells.stopAndReportEnd()
@@ -1454,6 +1502,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
     override fun stopAudio() {
         playbackAttempt++
+        timerStart.cancel()
         sessionBells.disable()
         stopPlayers(clearTimerQueue = timerSeed != null)
         finishManualStop()
@@ -1484,6 +1533,19 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
     }
 
+    private fun playTimer() {
+        val attempt = playbackAttempt
+        timerStart.play {
+            if (attempt != playbackAttempt ||
+                playbackGeneration != SharedPreferencesManager.currentGeneration()
+            ) return@play
+            requestAudioFocus()
+            primaryPlayer.play()
+            updateNotification()
+            startPositionUpdates()
+        }
+    }
+
     override fun playPauseAudio() {
         Log.d(TAG, "🔊 playPauseAudio called")
         try {
@@ -1495,6 +1557,16 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                 return
             }
             
+            if (timerSeed != null) {
+                if (primaryPlayer.playWhenReady) {
+                    timerStart.pause()
+                    primaryPlayer.pause()
+                } else {
+                    playTimer()
+                }
+                return
+            }
+
             if (primaryPlayer.isPlaying) {
                 Log.d(TAG, "🔊 Pausing primary player")
                 primaryPlayer.pause()
@@ -1723,5 +1795,53 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         private const val KEY_ARTIST_URL = "artistUrl"
         private const val KEY_FILE_ID = "fileId"
         private const val SEEK_INTERVAL_MS = 15_000L
+    }
+}
+
+
+/** Retiene Play hasta que estén listos el temporizador y sus campanas. */
+internal class TimerStartGate {
+    private var current = false
+    private var primaryReady = false
+    private var bellsReady = false
+    private var pendingPlay: (() -> Unit)? = null
+
+    fun reset() {
+        current = true
+        primaryReady = false
+        bellsReady = false
+        pendingPlay = null
+    }
+
+    fun cancel() {
+        current = false
+        pendingPlay = null
+    }
+
+    fun pause() {
+        pendingPlay = null
+    }
+
+    fun play(action: () -> Unit) {
+        if (!current) return
+        pendingPlay = action
+        startIfReady()
+    }
+
+    fun primaryReady() {
+        primaryReady = true
+        startIfReady()
+    }
+
+    fun bellsReady() {
+        bellsReady = true
+        startIfReady()
+    }
+
+    private fun startIfReady() {
+        if (!current || !primaryReady || !bellsReady) return
+        val action = pendingPlay
+        pendingPlay = null
+        action?.invoke()
     }
 }

@@ -1,6 +1,6 @@
 import 'package:pigeon/pigeon.dart';
 
-// to build the classes: flutter pub run pigeon --input pigeon_conf.dart
+// Genera el puente con dart run pigeon --input pigeon_conf.dart.
 
 // #docregion config
 @ConfigurePigeon(
@@ -21,7 +21,6 @@ class AudioData {
     required this.url,
     required this.track,
     this.timerSeed,
-    this.timerEndBellOffsetMs,
     this.timerHasExtraTime,
     this.timerStopLabel,
   });
@@ -29,9 +28,16 @@ class AudioData {
   String url;
   Track track;
   int? timerSeed;
-  int? timerEndBellOffsetMs;
   bool? timerHasExtraTime;
   String? timerStopLabel;
+}
+
+class BellCue {
+  BellCue({required this.offsetMs, required this.kind, required this.assetKey});
+
+  int offsetMs;
+  String kind;
+  String assetKey;
 }
 
 enum RepeatMode { none, once, infinite }
@@ -105,7 +111,7 @@ abstract class MeditoAudioServiceApi {
   /// Start/middle/end bells, independent of the ambient background sound.
   void setSessionBells(bool enabled);
 
-  void setBellCues(bool useTrackSchedule, List<int> offsetsMs);
+  void setBellCues(bool useTrackSchedule, List<BellCue> cues);
 
   TimerStopReport stopTimerPlayback(int sessionSeed);
 

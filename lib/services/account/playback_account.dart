@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:medito/providers/player/player_provider.dart';
+import 'package:medito/services/audio/session_bell_preview.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
+import 'package:medito/utils/logger.dart';
 
 class PlaybackAccount {
   static const _channel = MethodChannel('intronauts/playback_account');
@@ -61,6 +63,9 @@ class PlaybackAccount {
     _discarding++;
     try {
       await Future.wait([
+        sessionBellPreview.stop().catchError((Object error) {
+          AppLogger.w('BELLS', 'No se pudo detener la muestra: $error');
+        }),
         Future.sync(stop),
         AudioSessionTracker.instance.discard(),
       ]);

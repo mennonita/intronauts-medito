@@ -21,7 +21,15 @@ void main() {
     mode: TimerMode.countdown,
     minutes: 12,
     extraTime: true,
-    bells: TimerBellSettings(start: false, intervalMinutes: 3, randomCount: 4),
+    bells: TimerBellSettings(
+      start: false,
+      intervalMinutes: 3,
+      randomCount: 4,
+      startSound: 'diapason',
+      endSound: 'campana_templo',
+      intervalSound: 'kalimba',
+      randomSound: 'flauta',
+    ),
   );
   const sound = BackgroundSoundsModel(
     id: 'rain',
@@ -90,6 +98,31 @@ void main() {
       expect(presets.last.name, 'Temporizador 19');
     },
   );
+
+  test('lee un temporizador guardado sin campos de sonido', () async {
+    final legacy = settings.bells.toJson()
+      ..removeWhere((key, _) => key.endsWith('Sound'));
+    await prefs.setString(
+      SharedPreferenceConstants.timerPresets,
+      jsonEncode([
+        {
+          ...const TimerPreset(
+            name: 'Anterior',
+            settings: settings,
+            sound: null,
+          ).toJson(),
+          'bells': legacy,
+        },
+      ]),
+    );
+    expect(open().read(timerPresetsProvider).single.settings.bells.toJson(), {
+      ...legacy,
+      'startSound': 'actual',
+      'endSound': 'actual',
+      'intervalSound': 'actual',
+      'randomSound': 'actual',
+    });
+  });
 
   test('ignora un JSON roto y descarta solo las entradas inválidas', () async {
     await prefs.setString(

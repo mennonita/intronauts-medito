@@ -59,7 +59,11 @@ void main() {
         title: 'Temporizador',
         extraTime: true,
         seed: 1234,
-        bells: const TimerBellSettings(intervalMinutes: 1, randomCount: 3),
+        bells: const TimerBellSettings(
+          intervalMinutes: 1,
+          randomCount: 3,
+          endSound: 'kalimba',
+        ),
       );
       final restored = PlaybackRequest.fromJson(request.toJson());
       expect(restored, request);
@@ -69,7 +73,12 @@ void main() {
       expect(restored.trackId, 'timer-18000');
       expect(restored.fileId, 'timer-countdown-180000');
       expect(restored.timerSeed, 1234);
-      expect(restored.timerEndBellOffsetMs, 180000);
+      expect(restored.timerEndSound, 'kalimba');
+      final endCue = restored.timerBellCues!.singleWhere(
+        (cue) => cue.kind == TimerBellKind.end,
+      );
+      expect(endCue.offsetMs, 180000);
+      expect(endCue.assetKey, 'assets/audio/bells/p8-kalimba.mp3');
     },
   );
 

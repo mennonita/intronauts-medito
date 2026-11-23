@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/models/timer/timer_session.dart';
@@ -29,6 +32,10 @@ void main() {
       'end': true,
       'intervalMinutes': 0,
       'randomCount': 0,
+      'startSound': 'actual',
+      'endSound': 'actual',
+      'intervalSound': 'actual',
+      'randomSound': 'actual',
     });
   });
 
@@ -49,6 +56,28 @@ void main() {
     expect(settings.minutes, 20);
   });
 
+  test('lee preferencias antiguas con la campana actual', () async {
+    const legacy = {
+      'start': false,
+      'end': true,
+      'intervalMinutes': 3,
+      'randomCount': 2,
+    };
+    await prefs.setString(
+      SharedPreferenceConstants.timerBellSettings,
+      jsonEncode(legacy),
+    );
+    final container = newContainer();
+    addTearDown(container.dispose);
+    expect(container.read(timerSettingsProvider).bells.toJson(), {
+      ...legacy,
+      'startSound': 'actual',
+      'endSound': 'actual',
+      'intervalSound': 'actual',
+      'randomSound': 'actual',
+    });
+  });
+
   test('recuerda las campanas y el tiempo extra entre pantallas', () async {
     final first = newContainer();
     final settings = first.read(timerSettingsProvider);
@@ -58,6 +87,10 @@ void main() {
       end: false,
       intervalMinutes: 15,
       randomCount: 6,
+      startSound: 'diapason',
+      endSound: 'campana_templo',
+      intervalSound: 'kalimba',
+      randomSound: 'flauta',
     );
     await notifier.setBells(bells);
     await notifier.setExtraTime(true);

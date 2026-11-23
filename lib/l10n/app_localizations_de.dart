@@ -2973,4 +2973,68 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get timerStopError => 'Unable to stop the timer. Try again.';
+
+  @override
+  String get bellSoundActual => 'Aktuelle Glocke';
+
+  @override
+  String get bellSoundTibetanBowl => 'Tibetische Klangschale';
+
+  @override
+  String get bellSoundWoodBlock => 'Holzblock';
+
+  @override
+  String get bellSoundSmallBell => 'Glöckchen';
+
+  @override
+  String get bellSoundSoftGong => 'Sanfter Gong';
+
+  @override
+  String get bellSoundCrystalBowl => 'Kristallklangschale';
+
+  @override
+  String get bellSoundTuningFork => 'Stimmgabel';
+
+  @override
+  String get bellSoundWindGong => 'Windgong';
+
+  @override
+  String get bellSoundFrameDrum => 'Rahmentrommel';
+
+  @override
+  String get bellSoundHandpan => 'Handpan';
+
+  @override
+  String get bellSoundRainstick => 'Regenmacher';
+
+  @override
+  String get bellSoundTempleBell => 'Tempelglocke';
+
+  @override
+  String get bellSoundLargeBowl => 'Große Klangschale';
+
+  @override
+  String get bellSoundTingsha => 'Tingsha-Zimbeln';
+
+  @override
+  String get bellSoundKalimba => 'Kalimba';
+
+  @override
+  String get bellSoundBambooFlute => 'Bambusflöte';
+
+  @override
+  String get bellSoundWindChimes => 'Windspiel';
+
+  @override
+  String bellSoundSelection(String name) {
+    return 'Klang: $name';
+  }
+
+  @override
+  String get bellSoundPremium => 'Premium';
+
+  @override
+  String bellSoundPreview(String name) {
+    return '$name anhören';
+  }
 }

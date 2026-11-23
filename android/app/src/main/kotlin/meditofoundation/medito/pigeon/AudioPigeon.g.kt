@@ -224,7 +224,6 @@ data class AudioData (
   val url: String,
   val track: Track,
   val timerSeed: Long? = null,
-  val timerEndBellOffsetMs: Long? = null,
   val timerHasExtraTime: Boolean? = null,
   val timerStopLabel: String? = null
 )
@@ -234,10 +233,9 @@ data class AudioData (
       val url = pigeonVar_list[0] as String
       val track = pigeonVar_list[1] as Track
       val timerSeed = pigeonVar_list[2] as Long?
-      val timerEndBellOffsetMs = pigeonVar_list[3] as Long?
-      val timerHasExtraTime = pigeonVar_list[4] as Boolean?
-      val timerStopLabel = pigeonVar_list[5] as String?
-      return AudioData(url, track, timerSeed, timerEndBellOffsetMs, timerHasExtraTime, timerStopLabel)
+      val timerHasExtraTime = pigeonVar_list[3] as Boolean?
+      val timerStopLabel = pigeonVar_list[4] as String?
+      return AudioData(url, track, timerSeed, timerHasExtraTime, timerStopLabel)
     }
   }
   fun toList(): List<Any?> {
@@ -245,7 +243,6 @@ data class AudioData (
       url,
       track,
       timerSeed,
-      timerEndBellOffsetMs,
       timerHasExtraTime,
       timerStopLabel,
     )
@@ -258,7 +255,7 @@ data class AudioData (
       return true
     }
     val other = other as AudioData
-    return AudioPigeonPigeonUtils.deepEquals(this.url, other.url) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.timerSeed, other.timerSeed) && AudioPigeonPigeonUtils.deepEquals(this.timerEndBellOffsetMs, other.timerEndBellOffsetMs) && AudioPigeonPigeonUtils.deepEquals(this.timerHasExtraTime, other.timerHasExtraTime) && AudioPigeonPigeonUtils.deepEquals(this.timerStopLabel, other.timerStopLabel)
+    return AudioPigeonPigeonUtils.deepEquals(this.url, other.url) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.timerSeed, other.timerSeed) && AudioPigeonPigeonUtils.deepEquals(this.timerHasExtraTime, other.timerHasExtraTime) && AudioPigeonPigeonUtils.deepEquals(this.timerStopLabel, other.timerStopLabel)
   }
 
   override fun hashCode(): Int {
@@ -266,9 +263,50 @@ data class AudioData (
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.url)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.track)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerSeed)
-    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerEndBellOffsetMs)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerHasExtraTime)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerStopLabel)
+    return result
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class BellCue (
+  val offsetMs: Long,
+  val kind: String,
+  val assetKey: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): BellCue {
+      val offsetMs = pigeonVar_list[0] as Long
+      val kind = pigeonVar_list[1] as String
+      val assetKey = pigeonVar_list[2] as String
+      return BellCue(offsetMs, kind, assetKey)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      offsetMs,
+      kind,
+      assetKey,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as BellCue
+    return AudioPigeonPigeonUtils.deepEquals(this.offsetMs, other.offsetMs) && AudioPigeonPigeonUtils.deepEquals(this.kind, other.kind) && AudioPigeonPigeonUtils.deepEquals(this.assetKey, other.assetKey)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.offsetMs)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.kind)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.assetKey)
     return result
   }
 }
@@ -642,35 +680,40 @@ private open class AudioPigeonPigeonCodec : StandardMessageCodec() {
       }
       132.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlaybackState.fromList(it)
+          BellCue.fromList(it)
         }
       }
       133.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BackgroundSound.fromList(it)
+          PlaybackState.fromList(it)
         }
       }
       134.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          Speed.fromList(it)
+          BackgroundSound.fromList(it)
         }
       }
       135.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          Track.fromList(it)
+          Speed.fromList(it)
         }
       }
       136.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          TimerEndedData.fromList(it)
+          Track.fromList(it)
         }
       }
       137.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CompletionData.fromList(it)
+          TimerEndedData.fromList(it)
         }
       }
       138.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          CompletionData.fromList(it)
+        }
+      }
+      139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           TimerStopReport.fromList(it)
         }
@@ -692,32 +735,36 @@ private open class AudioPigeonPigeonCodec : StandardMessageCodec() {
         stream.write(131)
         writeValue(stream, value.toList())
       }
-      is PlaybackState -> {
+      is BellCue -> {
         stream.write(132)
         writeValue(stream, value.toList())
       }
-      is BackgroundSound -> {
+      is PlaybackState -> {
         stream.write(133)
         writeValue(stream, value.toList())
       }
-      is Speed -> {
+      is BackgroundSound -> {
         stream.write(134)
         writeValue(stream, value.toList())
       }
-      is Track -> {
+      is Speed -> {
         stream.write(135)
         writeValue(stream, value.toList())
       }
-      is TimerEndedData -> {
+      is Track -> {
         stream.write(136)
         writeValue(stream, value.toList())
       }
-      is CompletionData -> {
+      is TimerEndedData -> {
         stream.write(137)
         writeValue(stream, value.toList())
       }
-      is TimerStopReport -> {
+      is CompletionData -> {
         stream.write(138)
+        writeValue(stream, value.toList())
+      }
+      is TimerStopReport -> {
+        stream.write(139)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -993,7 +1040,7 @@ interface MeditoAudioServiceApi {
   fun stopBackgroundSound()
   /** Start/middle/end bells, independent of the ambient background sound. */
   fun setSessionBells(enabled: Boolean)
-  fun setBellCues(useTrackSchedule: Boolean, offsetsMs: List<Long>)
+  fun setBellCues(useTrackSchedule: Boolean, cues: List<BellCue>)
   fun stopTimerPlayback(sessionSeed: Long): TimerStopReport
   fun playBackgroundSound()
   fun pauseBackgroundSound()
@@ -1218,9 +1265,9 @@ interface MeditoAudioServiceApi {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val useTrackScheduleArg = args[0] as Boolean
-            val offsetsMsArg = args[1] as List<Long>
+            val cuesArg = args[1] as List<BellCue>
             val wrapped: List<Any?> = try {
-              api.setBellCues(useTrackScheduleArg, offsetsMsArg)
+              api.setBellCues(useTrackScheduleArg, cuesArg)
               listOf(null)
             } catch (exception: Throwable) {
               AudioPigeonPigeonUtils.wrapError(exception)

@@ -38,7 +38,15 @@ void main() {
     when(() => player.setAudioSource(any())).thenAnswer((_) async => null);
     when(() => player.setLoopMode(LoopMode.off)).thenAnswer((_) async {});
     when(player.play).thenAnswer((_) async {});
+    when(() => player.playing).thenReturn(false);
     when(bells.disable).thenAnswer((_) async {});
+    when(
+      () => bells.setBellCues(
+        cues: any(named: 'cues'),
+        enabled: any(named: 'enabled'),
+        volume: any(named: 'volume'),
+      ),
+    ).thenAnswer((_) async {});
 
     final stopGate = Completer<void>();
     when(player.stop).thenAnswer((_) => stopGate.future);
@@ -70,4 +78,82 @@ void main() {
     await handler.play();
     verify(player.play).called(1);
   });
+
+  for (final interrupted in [false, true]) {
+    test(
+      'Play del sistema espera la precarga del temporizador ($interrupted)',
+      () async {
+        final player = _AudioPlayer();
+        final bells = _Bells();
+        when(player.pause).thenAnswer((_) async {});
+        when(() => player.setSpeed(1)).thenAnswer((_) async {});
+        when(() => player.setAudioSource(any())).thenAnswer((_) async => null);
+        when(() => player.setLoopMode(LoopMode.off)).thenAnswer((_) async {});
+        when(player.play).thenAnswer((_) async {});
+        when(() => player.playing).thenReturn(false);
+        when(player.stop).thenAnswer((_) async {});
+        when(bells.disable).thenAnswer((_) async {});
+
+        final entered = Completer<void>();
+        final preload = Completer<void>();
+        when(
+          () => bells.setBellCues(
+            cues: any(named: 'cues'),
+            enabled: any(named: 'enabled'),
+            volume: any(named: 'volume'),
+          ),
+        ).thenAnswer((_) {
+          entered.complete();
+          return preload.future;
+        });
+        final handler = _Handler(player, bells);
+        final request = timerPlaybackRequest(
+          mode: TimerMode.countdown,
+          duration: const Duration(minutes: 1),
+          filePath: '/tmp/timer.wav',
+          title: 'Temporizador',
+        );
+        final opening = handler.setUrl(
+          null,
+          request,
+          Track(
+            id: request.trackId,
+            title: request.title,
+            fileId: request.fileId,
+            description: '',
+            imageUrl: '',
+          ),
+        );
+        await entered.future;
+        final systemPlay = handler.play();
+        await pumpEventQueue();
+        verifyNever(player.play);
+        await handler.setSpeed(1.5);
+        verifyNever(() => player.setSpeed(1.5));
+
+        if (interrupted) {
+          when(
+            () => player.playerState,
+          ).thenReturn(PlayerState(false, ProcessingState.completed));
+          var stoppedBySystem = false;
+          handler.onTimerStop = () async {
+            stoppedBySystem = true;
+            await handler.stopPlayback();
+          };
+          await handler.stop();
+          await systemPlay;
+          expect(stoppedBySystem, isTrue);
+        }
+        preload.complete();
+        await opening;
+        await systemPlay;
+        if (interrupted) {
+          verifyNever(player.play);
+          verifyNever(() => player.setAudioSource(any()));
+        } else {
+          verify(player.play).called(1);
+        }
+      },
+    );
+  }
 }

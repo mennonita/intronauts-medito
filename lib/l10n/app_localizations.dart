@@ -5343,6 +5343,126 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unable to stop the timer. Try again.'**
   String get timerStopError;
+
+  /// No description provided for @bellSoundActual.
+  ///
+  /// In en, this message translates to:
+  /// **'Current bell'**
+  String get bellSoundActual;
+
+  /// No description provided for @bellSoundTibetanBowl.
+  ///
+  /// In en, this message translates to:
+  /// **'Tibetan bowl'**
+  String get bellSoundTibetanBowl;
+
+  /// No description provided for @bellSoundWoodBlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Wood block'**
+  String get bellSoundWoodBlock;
+
+  /// No description provided for @bellSoundSmallBell.
+  ///
+  /// In en, this message translates to:
+  /// **'Small bell'**
+  String get bellSoundSmallBell;
+
+  /// No description provided for @bellSoundSoftGong.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft gong'**
+  String get bellSoundSoftGong;
+
+  /// No description provided for @bellSoundCrystalBowl.
+  ///
+  /// In en, this message translates to:
+  /// **'Crystal bowl'**
+  String get bellSoundCrystalBowl;
+
+  /// No description provided for @bellSoundTuningFork.
+  ///
+  /// In en, this message translates to:
+  /// **'Tuning fork'**
+  String get bellSoundTuningFork;
+
+  /// No description provided for @bellSoundWindGong.
+  ///
+  /// In en, this message translates to:
+  /// **'Wind gong'**
+  String get bellSoundWindGong;
+
+  /// No description provided for @bellSoundFrameDrum.
+  ///
+  /// In en, this message translates to:
+  /// **'Frame drum'**
+  String get bellSoundFrameDrum;
+
+  /// No description provided for @bellSoundHandpan.
+  ///
+  /// In en, this message translates to:
+  /// **'Handpan'**
+  String get bellSoundHandpan;
+
+  /// No description provided for @bellSoundRainstick.
+  ///
+  /// In en, this message translates to:
+  /// **'Rainstick'**
+  String get bellSoundRainstick;
+
+  /// No description provided for @bellSoundTempleBell.
+  ///
+  /// In en, this message translates to:
+  /// **'Temple bell'**
+  String get bellSoundTempleBell;
+
+  /// No description provided for @bellSoundLargeBowl.
+  ///
+  /// In en, this message translates to:
+  /// **'Large bowl'**
+  String get bellSoundLargeBowl;
+
+  /// No description provided for @bellSoundTingsha.
+  ///
+  /// In en, this message translates to:
+  /// **'Tingsha cymbals'**
+  String get bellSoundTingsha;
+
+  /// No description provided for @bellSoundKalimba.
+  ///
+  /// In en, this message translates to:
+  /// **'Kalimba'**
+  String get bellSoundKalimba;
+
+  /// No description provided for @bellSoundBambooFlute.
+  ///
+  /// In en, this message translates to:
+  /// **'Bamboo flute'**
+  String get bellSoundBambooFlute;
+
+  /// No description provided for @bellSoundWindChimes.
+  ///
+  /// In en, this message translates to:
+  /// **'Wind chimes'**
+  String get bellSoundWindChimes;
+
+  /// No description provided for @bellSoundSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Sound: {name}'**
+  String bellSoundSelection(String name);
+
+  /// No description provided for @bellSoundPremium.
+  ///
+  /// In en, this message translates to:
+  /// **'Premium'**
+  String get bellSoundPremium;
+
+  /// No description provided for @bellSoundPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview {name}'**
+  String bellSoundPreview(String name);
 }
 
 class _AppLocalizationsDelegate

@@ -26,6 +26,8 @@ class IosAudioHandler extends BaseAudioHandler {
   int _startGeneration = 0;
   bool _discarded = false;
   bool _timerPlayBlocked = false;
+  Completer<bool>? _timerReady;
+  int _playGeneration = 0;
   Future<void> Function()? onTimerStop;
   RepeatMode _currentRepeatMode = RepeatMode.none;
   bool _hasReplayedOnce = false;
@@ -67,7 +69,9 @@ class IosAudioHandler extends BaseAudioHandler {
               _player.setVolume(_player.volume * 2.0);
               break;
             case AudioInterruptionType.pause:
-              if (_player.playing && !_timerPlayBlocked) {
+              if (_player.playing &&
+                  !_timerPlayBlocked &&
+                  _timerReady == null) {
                 _player.play();
               }
               break;
@@ -179,8 +183,12 @@ class IosAudioHandler extends BaseAudioHandler {
         // The ambient background player loops and keeps rendering audio after
         // the narration ends; pause it first so the shared session is idle and
         // iOS will actually let us deactivate it (a busy session is rejected).
-        await iosBackgroundPlayer.pause();
-        await sessionBells.disable();
+        final generation = _startGeneration;
+        await Future.wait([
+          sessionBells.disable(),
+          iosBackgroundPlayer.pause(),
+        ]);
+        if (generation != _startGeneration) return;
         await _deactivateSession();
 
         if (!_discarded && PlaybackAccount.isCurrent(accountGeneration)) {
@@ -223,8 +231,8 @@ class IosAudioHandler extends BaseAudioHandler {
               MediaAction.seek,
               MediaAction.seekForward,
               MediaAction.seekBackward,
-              MediaAction.setSpeed,
             },
+            if (!_isTimer) MediaAction.setSpeed,
             MediaAction.pause,
             MediaAction.play,
             if (_isTimer) MediaAction.stop,
@@ -389,12 +397,13 @@ class IosAudioHandler extends BaseAudioHandler {
   @override
   Future<void> seek(Duration position) async {
     if (_hasExtraTime) return;
+    if (_isTimer) sessionBells.seekTimer(position);
     return _player.seek(position);
   }
 
   @override
   Future<void> setSpeed(double speed) async {
-    if (_hasExtraTime) return;
+    if (_isTimer) return;
     return _player.setSpeed(speed);
   }
 
@@ -418,13 +427,25 @@ class IosAudioHandler extends BaseAudioHandler {
   @override
   Future<void> play() async {
     final generation = _startGeneration;
-    if (_discarded || _timerPlayBlocked) return;
+    final playGeneration = ++_playGeneration;
+    final account = PlaybackAccount.generation;
+    bool isCurrent() =>
+        (!_discarded || _timerReady != null) &&
+        !_timerPlayBlocked &&
+        generation == _startGeneration &&
+        playGeneration == _playGeneration &&
+        PlaybackAccount.isCurrent(account);
+
+    if (!isCurrent()) return;
+    final ready = _timerReady;
+    if (ready != null && !await ready.future) return;
+    if (!isCurrent()) return;
     _cancelPauseDeactivationTimer();
 
     final session = await AudioSession.instance;
-    if (generation != _startGeneration) return;
+    if (!isCurrent()) return;
     await session.setActive(true);
-    if (generation != _startGeneration) return;
+    if (!isCurrent() || (_isTimer && _player.playing)) return;
 
     unawaited(_player.play());
     // Bells follow _player on their own; resume the ambient sound if any.
@@ -433,6 +454,7 @@ class IosAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> pause() async {
+    _playGeneration++;
     unawaited(_player.pause());
     unawaited(iosBackgroundPlayer.pause());
 
@@ -444,7 +466,7 @@ class IosAudioHandler extends BaseAudioHandler {
   @override
   Future<void> stop() async {
     final close = onTimerStop;
-    if (_isTimer && !isComplete && close != null) {
+    if (_isTimer && close != null && (_timerReady != null || !isComplete)) {
       await close();
       return;
     }
@@ -460,6 +482,7 @@ class IosAudioHandler extends BaseAudioHandler {
 
   Future<void> stopPlayback() async {
     if (_isTimer) _timerPlayBlocked = true;
+    _cancelTimerStart();
     final generation = ++_startGeneration;
     _cancelPauseDeactivationTimer();
     if (_isTimer) {
@@ -516,43 +539,83 @@ class IosAudioHandler extends BaseAudioHandler {
     }
   }
 
+  void cancelPendingTimerStart() {
+    if (!_isTimer) return;
+    _playGeneration++;
+    _timerPlayBlocked = true;
+    if (_timerReady == null) return;
+    _startGeneration++;
+    _cancelTimerStart();
+    unawaited(sessionBells.disable());
+  }
+
+  void _cancelTimerStart() {
+    _timerReady?.complete(false);
+    _timerReady = null;
+  }
+
   Future<void> setUrl(
     String? downloadPath,
     PlaybackRequest request,
-    Track trackData,
-  ) async {
+    Track trackData, {
+    ({bool enabled, double volume})? timerBells,
+  }) async {
     final generation = ++_startGeneration;
-    await ensureInitialized();
-    if (generation != _startGeneration) return;
-    if (_isTimer || request.isTimer) {
-      await _player.pause();
-      if (generation != _startGeneration) return;
-      await _player.setSpeed(1.0);
-      if (generation != _startGeneration) return;
-    }
-    _hasExtraTime = request.hasExtraTime;
+    final wasTimer = _isTimer;
     _isTimer = request.isTimer;
+    _hasExtraTime = request.hasExtraTime;
+    _cancelTimerStart();
+    final ready = request.isTimer ? Completer<bool>() : null;
+    _timerReady = ready;
+    _timerPlayBlocked = wasTimer && !request.isTimer;
+    final discardingBells = wasTimer ? sessionBells.disable() : null;
+    try {
+      await discardingBells;
+      await ensureInitialized();
+      if (generation != _startGeneration) return;
+      if (wasTimer || request.isTimer) {
+        await _player.pause();
+        if (generation != _startGeneration) return;
+        await _player.setSpeed(1.0);
+        if (generation != _startGeneration) return;
+      }
 
-    _hasReplayedOnce = false;
-    _completedPlaythroughs = 0;
-    _sessionCompleted.add(false);
-    sessionBells.reset();
+      _hasReplayedOnce = false;
+      _completedPlaythroughs = 0;
+      _sessionCompleted.add(false);
+      sessionBells.reset();
 
-    if (downloadPath == null) {
-      await _player.setAudioSource(
-        AudioSource.uri(Uri.parse(request.remoteUrl)),
+      await sessionBells.setBellCues(
+        cues: request.isTimer ? request.timerBellCues ?? const [] : null,
+        enabled: timerBells?.enabled ?? false,
+        volume: timerBells?.volume ?? 0,
       );
-    } else {
-      await _player.setAsset(downloadPath);
+      if (generation != _startGeneration) return;
+
+      if (downloadPath == null) {
+        await _player.setAudioSource(
+          AudioSource.uri(Uri.parse(request.remoteUrl)),
+        );
+      } else {
+        await _player.setAsset(downloadPath);
+      }
+      if (generation != _startGeneration) return;
+      await setCustomRepeatMode(_currentRepeatMode);
+      if (generation != _startGeneration) return;
+
+      _discarded = false;
+      _timerPlayBlocked = false;
+      _trackStateSubject.add(trackData);
+      ready?.complete(true);
+    } finally {
+      if (generation == _startGeneration) {
+        if (ready != null && !ready.isCompleted) {
+          _timerPlayBlocked = true;
+          ready.complete(false);
+        }
+        _timerReady = null;
+      }
     }
-
-    if (generation != _startGeneration) return;
-    await setCustomRepeatMode(_currentRepeatMode);
-    if (generation != _startGeneration) return;
-
-    _discarded = false;
-    _timerPlayBlocked = false;
-    _trackStateSubject.add(trackData);
   }
 }
 

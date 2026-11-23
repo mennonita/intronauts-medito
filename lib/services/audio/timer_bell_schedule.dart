@@ -1,26 +1,26 @@
+import '../../models/timer/timer_bell_settings.dart';
+
 /// Consume las campanas cruzadas, incluso cuando están apagadas o llegan tarde.
 class TimerBellSchedule {
-  TimerBellSchedule(List<int> offsetsMs)
-    : _offsetsMs = List.unmodifiable(offsetsMs);
+  TimerBellSchedule(List<TimerBellCue> cues) : _cues = List.unmodifiable(cues);
 
-  final List<int> _offsetsMs;
+  final List<TimerBellCue> _cues;
   int _next = 0;
 
   void reset() => _next = 0;
 
   void seek(int positionMs) {
     reset();
-    if (positionMs == 0) return;
-    while (_next < _offsetsMs.length && _offsetsMs[_next] <= positionMs) {
+    while (_next < _cues.length && _cues[_next].offsetMs <= positionMs) {
       _next++;
     }
   }
 
-  int? update(int positionMs, {required bool enabled}) {
-    int? ring;
-    while (_next < _offsetsMs.length && _offsetsMs[_next] <= positionMs) {
-      final cue = _offsetsMs[_next++];
-      if (enabled && positionMs - cue < 2000) ring = cue;
+  TimerBellCue? update(int positionMs, {required bool enabled}) {
+    TimerBellCue? ring;
+    while (_next < _cues.length && _cues[_next].offsetMs <= positionMs) {
+      final cue = _cues[_next++];
+      if (enabled && positionMs - cue.offsetMs < 2000) ring = cue;
     }
     return ring;
   }

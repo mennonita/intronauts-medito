@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:medito/models/timer/timer_bell_settings.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/providers/player/audio_state_provider.dart';
@@ -10,9 +11,13 @@ import 'package:medito/providers/player/player_provider.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
 import 'package:medito/providers/timer/timer_session_closer.dart';
 import 'package:medito/services/account/playback_account.dart';
+import 'package:medito/services/audio/session_bell_preview.dart';
 import 'package:medito/src/audio_pigeon.g.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _Preview extends Mock implements SessionBellPreview {}
 
 class _BackgroundSounds extends BackgroundSoundsNotifier {
   void moveSwitch(bool enabled) {
@@ -29,9 +34,11 @@ void main() {
     filePath: '/tmp/timer.wav',
     title: 'Temporizador',
     seed: 42,
+    bells: const TimerBellSettings(endSound: 'kalimba'),
   );
 
   late PlayerProvider player;
+  late _Preview preview;
   late _BackgroundSounds sound;
   late Completer<void> serviceStarted;
   late int playCalls;
@@ -73,8 +80,11 @@ void main() {
       tracker.resetForTesting();
       AudioSessionTracker.logSink = defaultLog;
     });
+    preview = _Preview();
+    when(preview.stop).thenAnswer((_) async {});
     final container = ProviderContainer(
       overrides: [
+        sessionBellPreviewProvider.overrideWithValue(preview),
         playerProvider.overrideWith(
           () => PlayerProvider(useAndroidAudio: true),
         ),
@@ -117,6 +127,32 @@ void main() {
       return true;
     });
   });
+
+  test(
+    'el puente envía el tipo, archivo y tiempo del cierre elegido',
+    () async {
+      audioHost('setBellCues', (message) {
+        expect(message, [
+          false,
+          [
+            BellCue(
+              offsetMs: 0,
+              kind: 'start',
+              assetKey: 'assets/audio/session_bell_v2.wav',
+            ),
+            BellCue(
+              offsetMs: 175425,
+              kind: 'end',
+              assetKey: 'assets/audio/bells/p8-kalimba.mp3',
+            ),
+          ],
+        ]);
+        return null;
+      });
+      await player.play(request);
+      expect(playCalls, 1);
+    },
+  );
 
   test('detener durante la espera del servicio cancela playAudio', () async {
     final starting = player.play(request);
@@ -184,6 +220,31 @@ void main() {
       },
     );
   }
+
+  test(
+    'un cierre anticipado toca el sonido guardado en la solicitud',
+    () async {
+      const selected = 'assets/audio/bells/p8-kalimba.mp3';
+      final sounded = Completer<void>();
+      when(() => preview.play(any(), assetKey: selected)).thenAnswer((_) async {
+        sounded.complete();
+      });
+      audioHost(
+        'stopTimerPlayback',
+        (_) => TimerStopReport(
+          positionMs: 90000,
+          stopped: true,
+          endCueRang: false,
+          completionPersisted: true,
+        ),
+      );
+      await player.play(request);
+      verify(preview.stop).called(1);
+      expect((await player.closeTimer())?.recorded, isTrue);
+      await sounded.future.timeout(const Duration(seconds: 2));
+      verify(() => preview.play(any(), assetKey: selected)).called(1);
+    },
+  );
 
   test(
     'aplica el último interruptor si cambia durante el puente de Android',
