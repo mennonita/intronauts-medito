@@ -608,7 +608,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
                   children: [
                     const Expanded(
                       child: Text(
-                        'MEDITO',
+                        'INTRONAUTS',
                         style: TextStyle(
                           color: Colors.black54,
                           fontSize: 12,

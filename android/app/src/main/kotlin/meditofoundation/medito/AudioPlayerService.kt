@@ -873,7 +873,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
     private fun createInitialNotification(): Notification {
         val initialNotification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Medito")
+            .setContentTitle("Intronauts")
             .setContentText("Preparing media playback...")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setSilent(true)
@@ -1076,8 +1076,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
         val mediaItem = primaryPlayer.currentMediaItem ?: return
         val notificationTimerSeed = timerSeed
-        val title = mediaItem.mediaMetadata?.title?.toString() ?: "Medito"
-        val artist = mediaItem.mediaMetadata?.artist?.toString() ?: "Medito"
+        val title = mediaItem.mediaMetadata?.title?.toString() ?: "Intronauts"
+        val artist = mediaItem.mediaMetadata?.artist?.toString() ?: "Intronauts"
 
         serviceScope.launch {
             try {

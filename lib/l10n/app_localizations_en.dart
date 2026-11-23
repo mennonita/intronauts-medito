@@ -12,7 +12,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trackAudioUnavailable => 'This meditation is not available yet.';
 
   @override
-  String get appName => 'Medito';
+  String get appName => 'Intronauts';
+
+  @override
+  String get licenses => 'Licenses';
+
+  @override
+  String get basedOnMeditoCredit => 'Based on Medito, free software (AGPL v3)';
 
   @override
   String get privacyPolicyTitle => 'Privacy Policy';
@@ -85,7 +91,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get shareStatsText =>
-      'Discover calmness for FREE with #Medito I\'ve found my inner peace; now it\'s your turn! Join me on this mindful journey and start exploring today 💜 Download https://medito.app #Calm #Meditation #Headspace';
+      'I\'m practicing meditation with Intronauts. Come practice with me 💜';
 
   @override
   String get backgroundSounds => 'Background Sound';
@@ -227,7 +233,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectivityError =>
-      'Make sure you are connected to the internet to use Medito';
+      'Make sure you are connected to the internet to use Intronauts';
 
   @override
   String get howDoYouFeel => 'How do you feel after this session?';
@@ -295,7 +301,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get permissionExplanation =>
-      'Permissions set. To change them, go to Settings > Privacy and Security > Health > Medito';
+      'Permissions set. To change them, go to Settings > Privacy and Security > Health > Intronauts';
 
   @override
   String get permissionExplanationAndroid =>
@@ -389,7 +395,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get gotIt => 'Got it';
 
   @override
-  String get signUpLogInTitle => 'Sign in to Medito';
+  String get signUpLogInTitle => 'Sign in to Intronauts';
 
   @override
   String get createAccountTitle => 'Create account';
@@ -464,7 +470,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loginWarningExplanation =>
-      'If you already have a Medito account:\n• Your previous meditation data will be downloaded\n• Your current unsaved progress will be lost\n\nIf you\'re new to Medito:\n• A new account will be created\n• Your current progress will be saved to this account';
+      'If you already have an Intronauts account:\n• Your previous meditation data will be downloaded\n• Your current unsaved progress will be lost\n\nIf you\'re new to Intronauts:\n• A new account will be created\n• Your current progress will be saved to this account';
 
   @override
   String get createNewAccount => 'Create New Account';
@@ -522,7 +528,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deleteAccountReasonSubtitle =>
-      'Optional, but it helps us improve Medito.';
+      'Optional, but it helps us improve Intronauts.';
 
   @override
   String get deleteAccountReasonNotUsing => 'I\'m not using it anymore';
@@ -563,7 +569,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get accountDeletedBody =>
-      'Your profile, stats and favorites have been removed. You can keep using Medito without an account.';
+      'Your profile, stats and favorites have been removed. You can keep using Intronauts without an account.';
 
   @override
   String get accountMarkedForDeletionError =>
@@ -712,12 +718,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String shareTrackText(Object link, Object trackName) {
-    return 'Take a moment to breathe. Try this meditation session: \"$trackName\" on Medito. $link';
+    return 'Take a moment to breathe. Try this meditation session: \"$trackName\" on Intronauts. $link';
   }
 
   @override
   String sharePackText(Object link, Object packName) {
-    return 'Check out $packName on Medito! $link #Meditation #Mindfulness';
+    return 'Check out $packName on Intronauts! $link #Meditation #Mindfulness';
   }
 
   @override
@@ -970,7 +976,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notificationsBlockedBody =>
-      'Medito can\'t send reminders because notifications are switched off for the app in your phone\'s settings. You can switch them back on there.';
+      'Intronauts can\'t send reminders because notifications are switched off for the app in your phone\'s settings. You can switch them back on there.';
 
   @override
   String get openSettings => 'Open Settings';
@@ -1009,7 +1015,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingBatteryBody =>
-      'Your phone can pause Medito mid-session. One quick change prevents this.';
+      'Your phone can pause Intronauts mid-session. One quick change prevents this.';
 
   @override
   String get onboardingBatteryOptimize => 'Update Setting';
@@ -1050,11 +1056,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get startMeditating => 'Start Meditating';
 
   @override
-  String get trackingPermissionTitle => 'Help Us Improve Medito';
+  String get trackingPermissionTitle => 'Help Us Improve Intronauts';
 
   @override
   String get trackingPermissionBody =>
-      'Your privacy matters. We use anonymous data to understand how people use Medito, so we can make it better for everyone. We never collect personal information or sell your data.';
+      'Your privacy matters. We use anonymous data to understand how people use Intronauts, so we can make it better for everyone. We never collect personal information or sell your data.';
 
   @override
   String get trackingPermissionPrivacyNote =>
@@ -1175,7 +1181,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get meditationInterruptionContent =>
-      'This is likely due to your phone\'s battery optimization settings. Visit DontKillMyApp.com for specific instructions on how to allow Medito to run properly in the background on your device.';
+      'This is likely due to your phone\'s battery optimization settings. Visit DontKillMyApp.com for specific instructions on how to allow Intronauts to run properly in the background on your device.';
 
   @override
   String get supportTitle => 'I want to support you';
@@ -1266,7 +1272,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get batteryOptimizationAlreadyDisabled =>
-      'Battery optimization is already disabled for Medito';
+      'Battery optimization is already disabled for Intronauts';
 
   @override
   String get donationRetentionTitle => 'Please Reconsider';
@@ -1315,15 +1321,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorHostLookupMessage =>
-      'Couldn\'t reach Medito\'s servers. Check for a VPN, ad blocker or Private DNS setting.';
+      'Couldn\'t reach the Intronauts servers. Check for a VPN, ad blocker or Private DNS setting.';
 
   @override
   String get errorConnectTimeoutMessage =>
-      'Connection to Medito\'s servers timed out. Please try again.';
+      'Connection to the Intronauts servers timed out. Please try again.';
 
   @override
   String get errorServerUnreachableMessage =>
-      'Couldn\'t connect to Medito\'s servers. Please try again later.';
+      'Couldn\'t connect to the Intronauts servers. Please try again later.';
 
   @override
   String get errorUnauthorizedMessage =>
@@ -1383,14 +1389,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dndFootnote =>
-      'Needs Do Not Disturb access on Android. Medito only changes it during a session.';
+      'Needs Do Not Disturb access on Android. Intronauts only changes it during a session.';
 
   @override
   String get dndAccessTitle => 'Allow Do Not Disturb access';
 
   @override
   String get dndAccessBody =>
-      'To silence your phone during meditation, Android needs to give Medito Do Not Disturb access. On the next screen, find Medito in the list and turn it on, then come back to the app.';
+      'To silence your phone during meditation, Android needs to give Intronauts Do Not Disturb access. On the next screen, find Intronauts in the list and turn it on, then come back to the app.';
 
   @override
   String get mindClear => 'Mind Clear';
@@ -1687,7 +1693,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectivityErrorMessage =>
-      'Make sure you are connected to the internet to use Medito';
+      'Make sure you are connected to the internet to use Intronauts';
 
   @override
   String get timeoutErrorMessage =>
@@ -2285,7 +2291,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingIntentQuestion =>
-      'What are you hoping to get from Medito?';
+      'What are you hoping to get from Intronauts?';
 
   @override
   String get onboardingIntentSubtext =>
@@ -2307,7 +2313,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get onboardingStep2of2 => '2 of 2';
 
   @override
-  String get onboardingAttributionQuestion => 'How did you hear about Medito?';
+  String get onboardingAttributionQuestion =>
+      'How did you hear about Intronauts?';
 
   @override
   String get onboardingAttributionSubtext =>
@@ -2357,7 +2364,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'We\'ll ease you back in with short sessions that build on each other. Go at whatever pace suits you.';
 
   @override
-  String get onboardingResultPracticeHeading => 'Welcome to Medito.';
+  String get onboardingResultPracticeHeading => 'Welcome to Intronauts.';
 
   @override
   String get onboardingResultPracticeBody =>

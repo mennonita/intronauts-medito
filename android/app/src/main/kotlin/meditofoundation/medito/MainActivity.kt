@@ -198,7 +198,7 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
         val channelName = "News and Updates"
         val importance = NotificationManager.IMPORTANCE_HIGH
         val channel = NotificationChannel(NEWS_CHANNEL_ID, channelName, importance).apply {
-            description = "Stay up-to-date with the latest news and updates from Medito"
+            description = "Recibe noticias y novedades de Intronauts"
         }
 
         val notificationManager: NotificationManager =
@@ -219,10 +219,10 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
     }
 
     private fun createFirebaseNotificationChannel() {
-        val channelName = "Medito Notifications"
+        val channelName = "Notificaciones de Intronauts"
         val importance = NotificationManager.IMPORTANCE_HIGH
         val channel = NotificationChannel("high_importance_channel", channelName, importance).apply {
-            description = "Stay up-to-date with the latest from Medito"
+            description = "Recibe las novedades de Intronauts"
             enableLights(true)
             enableVibration(true)
             setShowBadge(false)

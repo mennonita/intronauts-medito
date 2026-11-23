@@ -51,11 +51,11 @@ final class NetworkConnectionError extends AppError {
     return NetworkConnectionError(
       message: switch (kind) {
         NetworkFailureKind.hostLookup =>
-          "Couldn't reach Medito's servers. Check for a VPN, ad blocker or Private DNS setting.",
+          'No se pudo conectar con los servidores de Intronauts. Revisa si tienes una VPN, un bloqueador de anuncios o un DNS privado activado.',
         NetworkFailureKind.connectTimeout =>
-          "Connection to Medito's servers timed out. Please try again.",
+          'Se agotó el tiempo de conexión con los servidores de Intronauts. Inténtalo de nuevo.',
         NetworkFailureKind.connectionRefused =>
-          "Couldn't connect to Medito's servers. Please try again later.",
+          'No se pudo conectar con los servidores de Intronauts. Inténtalo más tarde.',
         NetworkFailureKind.offline => 'No internet connection',
       },
       originalException: e,

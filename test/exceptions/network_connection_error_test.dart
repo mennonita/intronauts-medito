@@ -13,7 +13,10 @@ void main() {
         ),
       );
       expect(e.kind, NetworkFailureKind.hostLookup);
-      expect(e.message, contains("Couldn't reach Medito's servers"));
+      expect(
+        e.message,
+        contains('No se pudo conectar con los servidores de Intronauts'),
+      );
       expect(e.detail, contains('errno 7'));
     });
 
@@ -24,7 +27,7 @@ void main() {
         ),
       );
       expect(e.kind, NetworkFailureKind.connectTimeout);
-      expect(e.message, contains('timed out'));
+      expect(e.message, contains('Se agotó el tiempo de conexión'));
     });
 
     test(

@@ -109,8 +109,20 @@ abstract class AppLocalizations {
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:
-  /// **'Medito'**
+  /// **'Intronauts'**
   String get appName;
+
+  /// No description provided for @licenses.
+  ///
+  /// In en, this message translates to:
+  /// **'Licenses'**
+  String get licenses;
+
+  /// No description provided for @basedOnMeditoCredit.
+  ///
+  /// In en, this message translates to:
+  /// **'Based on Medito, free software (AGPL v3)'**
+  String get basedOnMeditoCredit;
 
   /// No description provided for @privacyPolicyTitle.
   ///
@@ -247,7 +259,7 @@ abstract class AppLocalizations {
   /// No description provided for @shareStatsText.
   ///
   /// In en, this message translates to:
-  /// **'Discover calmness for FREE with #Medito I\'ve found my inner peace; now it\'s your turn! Join me on this mindful journey and start exploring today 💜 Download https://medito.app #Calm #Meditation #Headspace'**
+  /// **'I\'m practicing meditation with Intronauts. Come practice with me 💜'**
   String get shareStatsText;
 
   /// No description provided for @backgroundSounds.
@@ -517,7 +529,7 @@ abstract class AppLocalizations {
   /// No description provided for @connectivityError.
   ///
   /// In en, this message translates to:
-  /// **'Make sure you are connected to the internet to use Medito'**
+  /// **'Make sure you are connected to the internet to use Intronauts'**
   String get connectivityError;
 
   /// No description provided for @howDoYouFeel.
@@ -643,7 +655,7 @@ abstract class AppLocalizations {
   /// No description provided for @permissionExplanation.
   ///
   /// In en, this message translates to:
-  /// **'Permissions set. To change them, go to Settings > Privacy and Security > Health > Medito'**
+  /// **'Permissions set. To change them, go to Settings > Privacy and Security > Health > Intronauts'**
   String get permissionExplanation;
 
   /// No description provided for @permissionExplanationAndroid.
@@ -823,7 +835,7 @@ abstract class AppLocalizations {
   /// No description provided for @signUpLogInTitle.
   ///
   /// In en, this message translates to:
-  /// **'Sign in to Medito'**
+  /// **'Sign in to Intronauts'**
   String get signUpLogInTitle;
 
   /// No description provided for @createAccountTitle.
@@ -955,7 +967,7 @@ abstract class AppLocalizations {
   /// No description provided for @loginWarningExplanation.
   ///
   /// In en, this message translates to:
-  /// **'If you already have a Medito account:\n• Your previous meditation data will be downloaded\n• Your current unsaved progress will be lost\n\nIf you\'re new to Medito:\n• A new account will be created\n• Your current progress will be saved to this account'**
+  /// **'If you already have an Intronauts account:\n• Your previous meditation data will be downloaded\n• Your current unsaved progress will be lost\n\nIf you\'re new to Intronauts:\n• A new account will be created\n• Your current progress will be saved to this account'**
   String get loginWarningExplanation;
 
   /// No description provided for @createNewAccount.
@@ -1063,7 +1075,7 @@ abstract class AppLocalizations {
   /// No description provided for @deleteAccountReasonSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Optional, but it helps us improve Medito.'**
+  /// **'Optional, but it helps us improve Intronauts.'**
   String get deleteAccountReasonSubtitle;
 
   /// No description provided for @deleteAccountReasonNotUsing.
@@ -1135,7 +1147,7 @@ abstract class AppLocalizations {
   /// No description provided for @accountDeletedBody.
   ///
   /// In en, this message translates to:
-  /// **'Your profile, stats and favorites have been removed. You can keep using Medito without an account.'**
+  /// **'Your profile, stats and favorites have been removed. You can keep using Intronauts without an account.'**
   String get accountDeletedBody;
 
   /// No description provided for @accountMarkedForDeletionError.
@@ -1417,13 +1429,13 @@ abstract class AppLocalizations {
   /// No description provided for @shareTrackText.
   ///
   /// In en, this message translates to:
-  /// **'Take a moment to breathe. Try this meditation session: \"{trackName}\" on Medito. {link}'**
+  /// **'Take a moment to breathe. Try this meditation session: \"{trackName}\" on Intronauts. {link}'**
   String shareTrackText(Object link, Object trackName);
 
   /// No description provided for @sharePackText.
   ///
   /// In en, this message translates to:
-  /// **'Check out {packName} on Medito! {link} #Meditation #Mindfulness'**
+  /// **'Check out {packName} on Intronauts! {link} #Meditation #Mindfulness'**
   String sharePackText(Object link, Object packName);
 
   /// No description provided for @followingDeepLink.
@@ -1825,7 +1837,7 @@ abstract class AppLocalizations {
   /// Body of the dialog shown when notification permission is permanently denied
   ///
   /// In en, this message translates to:
-  /// **'Medito can\'t send reminders because notifications are switched off for the app in your phone\'s settings. You can switch them back on there.'**
+  /// **'Intronauts can\'t send reminders because notifications are switched off for the app in your phone\'s settings. You can switch them back on there.'**
   String get notificationsBlockedBody;
 
   /// Button that opens the phone's settings app on the Medito page
@@ -1897,7 +1909,7 @@ abstract class AppLocalizations {
   /// No description provided for @onboardingBatteryBody.
   ///
   /// In en, this message translates to:
-  /// **'Your phone can pause Medito mid-session. One quick change prevents this.'**
+  /// **'Your phone can pause Intronauts mid-session. One quick change prevents this.'**
   String get onboardingBatteryBody;
 
   /// No description provided for @onboardingBatteryOptimize.
@@ -1975,13 +1987,13 @@ abstract class AppLocalizations {
   /// No description provided for @trackingPermissionTitle.
   ///
   /// In en, this message translates to:
-  /// **'Help Us Improve Medito'**
+  /// **'Help Us Improve Intronauts'**
   String get trackingPermissionTitle;
 
   /// No description provided for @trackingPermissionBody.
   ///
   /// In en, this message translates to:
-  /// **'Your privacy matters. We use anonymous data to understand how people use Medito, so we can make it better for everyone. We never collect personal information or sell your data.'**
+  /// **'Your privacy matters. We use anonymous data to understand how people use Intronauts, so we can make it better for everyone. We never collect personal information or sell your data.'**
   String get trackingPermissionBody;
 
   /// No description provided for @trackingPermissionPrivacyNote.
@@ -2197,7 +2209,7 @@ abstract class AppLocalizations {
   /// No description provided for @meditationInterruptionContent.
   ///
   /// In en, this message translates to:
-  /// **'This is likely due to your phone\'s battery optimization settings. Visit DontKillMyApp.com for specific instructions on how to allow Medito to run properly in the background on your device.'**
+  /// **'This is likely due to your phone\'s battery optimization settings. Visit DontKillMyApp.com for specific instructions on how to allow Intronauts to run properly in the background on your device.'**
   String get meditationInterruptionContent;
 
   /// No description provided for @supportTitle.
@@ -2359,7 +2371,7 @@ abstract class AppLocalizations {
   /// No description provided for @batteryOptimizationAlreadyDisabled.
   ///
   /// In en, this message translates to:
-  /// **'Battery optimization is already disabled for Medito'**
+  /// **'Battery optimization is already disabled for Intronauts'**
   String get batteryOptimizationAlreadyDisabled;
 
   /// No description provided for @donationRetentionTitle.
@@ -2443,19 +2455,19 @@ abstract class AppLocalizations {
   /// No description provided for @errorHostLookupMessage.
   ///
   /// In en, this message translates to:
-  /// **'Couldn\'t reach Medito\'s servers. Check for a VPN, ad blocker or Private DNS setting.'**
+  /// **'Couldn\'t reach the Intronauts servers. Check for a VPN, ad blocker or Private DNS setting.'**
   String get errorHostLookupMessage;
 
   /// No description provided for @errorConnectTimeoutMessage.
   ///
   /// In en, this message translates to:
-  /// **'Connection to Medito\'s servers timed out. Please try again.'**
+  /// **'Connection to the Intronauts servers timed out. Please try again.'**
   String get errorConnectTimeoutMessage;
 
   /// No description provided for @errorServerUnreachableMessage.
   ///
   /// In en, this message translates to:
-  /// **'Couldn\'t connect to Medito\'s servers. Please try again later.'**
+  /// **'Couldn\'t connect to the Intronauts servers. Please try again later.'**
   String get errorServerUnreachableMessage;
 
   /// No description provided for @errorUnauthorizedMessage.
@@ -2563,7 +2575,7 @@ abstract class AppLocalizations {
   /// Small note under the silence-phone options explaining the Android permission
   ///
   /// In en, this message translates to:
-  /// **'Needs Do Not Disturb access on Android. Medito only changes it during a session.'**
+  /// **'Needs Do Not Disturb access on Android. Intronauts only changes it during a session.'**
   String get dndFootnote;
 
   /// Title of the dialog shown when the user turns on silence-phone without the Android permission
@@ -2575,7 +2587,7 @@ abstract class AppLocalizations {
   /// Body of the dialog explaining the Android Do Not Disturb access permission before opening system settings
   ///
   /// In en, this message translates to:
-  /// **'To silence your phone during meditation, Android needs to give Medito Do Not Disturb access. On the next screen, find Medito in the list and turn it on, then come back to the app.'**
+  /// **'To silence your phone during meditation, Android needs to give Intronauts Do Not Disturb access. On the next screen, find Intronauts in the list and turn it on, then come back to the app.'**
   String get dndAccessBody;
 
   /// Message shown in zen mode after completing meditation
@@ -3121,7 +3133,7 @@ abstract class AppLocalizations {
   /// Error message when there's no internet connection
   ///
   /// In en, this message translates to:
-  /// **'Make sure you are connected to the internet to use Medito'**
+  /// **'Make sure you are connected to the internet to use Intronauts'**
   String get connectivityErrorMessage;
 
   /// Error message for timeout errors
@@ -4213,7 +4225,7 @@ abstract class AppLocalizations {
   /// Question on onboarding screen 2 — asking about the user's intention
   ///
   /// In en, this message translates to:
-  /// **'What are you hoping to get from Medito?'**
+  /// **'What are you hoping to get from Intronauts?'**
   String get onboardingIntentQuestion;
 
   /// Subtext below the question on onboarding screen 2
@@ -4255,7 +4267,7 @@ abstract class AppLocalizations {
   /// Question on onboarding attribution screen — asking how the user discovered Medito
   ///
   /// In en, this message translates to:
-  /// **'How did you hear about Medito?'**
+  /// **'How did you hear about Intronauts?'**
   String get onboardingAttributionQuestion;
 
   /// Subtext below the attribution question on onboarding
@@ -4345,7 +4357,7 @@ abstract class AppLocalizations {
   /// Heading on the onboarding result screen for users with a regular practice (State C)
   ///
   /// In en, this message translates to:
-  /// **'Welcome to Medito.'**
+  /// **'Welcome to Intronauts.'**
   String get onboardingResultPracticeHeading;
 
   /// Body text on the onboarding result screen for State C

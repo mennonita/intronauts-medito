@@ -129,7 +129,7 @@ class UpNextWidget : GlanceAppWidget() {
             PlayButton(size = 40.dp, palette = palette)
             Spacer(modifier = GlanceModifier.height(6.dp))
             WidgetText(
-                text = title.ifEmpty { "Medito" },
+                text = title.ifEmpty { "Intronauts" },
                 fontSize = 12f,
                 weight = WidgetWeight.SemiBold,
                 color = palette.foreground,

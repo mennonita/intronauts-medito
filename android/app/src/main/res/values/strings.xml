@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Medito</string>
+    <string name="app_name">Intronauts</string>
     <string name="returns_widget_label">Returns</string>
     <string name="widget_description">Practice returns and calendar</string>
     <string name="consistency_widget_description">Meditation consistency score and calendar</string>

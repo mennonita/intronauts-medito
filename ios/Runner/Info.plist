@@ -196,7 +196,7 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Medito does not record audio. This entry is only required by the audio playback framework the app uses.</string>
+	<string>Intronauts no graba audio. El sistema de reproducción de audio de la app requiere este permiso.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
@@ -254,7 +254,7 @@
 		<string>medito-widget-update</string>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>Medito</string>
+	<string>Intronauts</string>
 	<key>UIRequiresFullScreen</key>
 	<string>YES</string>
 	<key>FlutterDeepLinkingEnabled</key>
@@ -281,7 +281,7 @@
 	<key>FacebookClientToken</key>
 	<string>c1673e8cbf48dae1ffed9e0fb4f5d72b</string>
 	<key>FacebookDisplayName</key>
-	<string>Medito</string>
+	<string>Intronauts</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
@@ -428,6 +428,6 @@
 	<key>NSSiriUsageDescription</key>
 	<string>Add voice shortcuts to quickly play your favourite meditations</string>
 	<key>NSUserTrackingUsageDescription</key>
-	<string>This helps us understand how our meditation content is helping people, so we can improve it and keep Medito free for everyone.</string>
+	<string>Este permiso nos ayuda a entender cómo se usan las meditaciones. Así podemos mejorarlas.</string>
 </dict>
 </plist>

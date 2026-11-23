@@ -156,7 +156,7 @@ class _QuoteShareScreenState extends ConsumerState<QuoteShareScreen> {
       final bytes = byteData!.buffer.asUint8List();
 
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/medito_quote.png');
+      final file = File('${dir.path}/intronauts_quote.png');
       await file.writeAsBytes(bytes);
 
       // iPad requires a popover anchor — without it the share sheet
@@ -384,7 +384,7 @@ class _ShareCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        'medito.app',
+                        'Intronauts',
                         style: TextStyle(
                           fontSize: 14,
                           color: palette.secondary,

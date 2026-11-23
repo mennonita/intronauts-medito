@@ -25,8 +25,7 @@ class ReviewService {
         return;
       }
 
-      // 4. Request the review
-      await _requestReview();
+      await _inAppReview.requestReview();
 
       // 5. Save the timestamp of this request
       await _saveReviewRequestTimestamp();
@@ -60,19 +59,6 @@ class ReviewService {
       return difference >= _minimumDaysBetweenRequests;
     } catch (e) {
       return false;
-    }
-  }
-
-  Future<void> _requestReview() async {
-    try {
-      await _inAppReview.requestReview();
-    } catch (e) {
-      // Fallback to store listing if requesting review fails
-      try {
-        await _inAppReview.openStoreListing(appStoreId: '1500780518');
-      } catch (storeError) {
-        AppLogger.e('REVIEW', 'Error opening store listing: $storeError');
-      }
     }
   }
 

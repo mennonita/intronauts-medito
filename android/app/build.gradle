@@ -91,7 +91,7 @@ android {
         
         resValue "string", "facebook_app_id", ""
         resValue "string", "facebook_client_token", ""
-        resValue "string", "app_name_override", "Medito"
+        resValue "string", "app_name_override", "Intronauts"
     }
 
     buildFeatures {
@@ -140,6 +140,7 @@ android {
             dimension "default"
             applicationIdSuffix ".dev"
             versionNameSuffix "-dev"
+            resValue "string", "app_name_override", "Intronauts Dev"
         }
         prod {
             dimension "default"

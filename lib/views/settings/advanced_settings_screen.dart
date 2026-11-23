@@ -60,8 +60,10 @@ class AdvancedSettingsScreen extends ConsumerWidget {
       ),
       RowItemWidget(
         icon: Icon(Icons.bedtime_outlined, color: onSurface),
-        title: 'When my day starts',
-        subTitle: dayOffset == 0 ? 'Midnight (default)' : '$dayOffset:00 AM',
+        title: l10n.dayBoundaryTitle,
+        subTitle: dayOffset == 0
+            ? l10n.dayBoundaryMidnight
+            : l10n.dayBoundaryHour(dayOffset),
         onTap: () => _showDayBoundaryOffsetDialog(context, ref),
       ),
       RowItemWidget(
@@ -82,10 +84,15 @@ class AdvancedSettingsScreen extends ConsumerWidget {
         ),
       RowItemWidget(
         icon: Icon(Icons.description_outlined, color: onSurface),
-        title: 'Licenses',
-        hasUnderline: false,
+        title: l10n.licenses,
         onTap: () =>
-            showLicensePage(context: context, applicationName: 'Medito'),
+            showLicensePage(context: context, applicationName: l10n.appName),
+      ),
+      RowItemWidget(
+        icon: const SizedBox(width: 24),
+        title: l10n.basedOnMeditoCredit,
+        hasUnderline: false,
+        isTrailingIcon: false,
       ),
     ];
 
