@@ -28,7 +28,7 @@ void main() {
       ],
       'practices': [
         {
-          'id': ' quietud ',
+          'id': 'quietud',
           'name': ' Quietud ',
           'description': ' Siéntate con calma. ',
           'mode': 'countdown',
@@ -146,8 +146,8 @@ void main() {
         {'id': 'sin-modo', 'name': 'Sin modo'},
         {'id': 'larga', 'name': 'Larga', 'mode': 'countdown', 'minutes': 300},
         {
-          'id': 'valida',
-          'name': 'Válida',
+          'id': 'invalida',
+          'name': 'Inválida',
           'description': 'a' * 301,
           'mode': 'stopwatch',
           'prepSeconds': '30',
@@ -155,6 +155,7 @@ void main() {
           'bells': {'start': 5},
           'soundId': 'a' * 101,
         },
+        {'id': 'valida', 'name': 'Válida', 'mode': 'stopwatch'},
       ],
     });
     expect(content.closingText, isNull);
@@ -162,6 +163,7 @@ void main() {
     expect(content.words, {HouseWord.timer: 'a' * 24});
     expect(content.practiceDays.single.text, 'Día válido');
     final practice = content.practices.single;
+    expect(practice.id, 'valida');
     expect(practice.description, isNull);
     expect(practice.soundId, isNull);
     final settings = practice.toSettings()!;
@@ -181,12 +183,9 @@ void main() {
     final settings = _practice({
       'mode': 'countdown',
       'minutes': 0,
-      'prepSeconds': 7201,
+      'prepSeconds': 7200,
       'stages': [
         _stage(150),
-        false,
-        _stage(0),
-        {'kind': 'otro', 'minutes': 10},
         {'kind': 'walk', 'minutes': 149, 'sound': 'desconocido'},
       ],
     }).toSettings()!;
@@ -195,6 +194,164 @@ void main() {
     expect(settings.prepSeconds, 7200);
     expect(settings.stages.last.kind, TimerStageKind.walk);
     expect(settings.stages.last.sound, defaultBellSoundId);
+  });
+
+  test('omite toda práctica inválida y conserva la siguiente', () {
+    const countdown = {
+      'id': 'calma',
+      'name': 'Calma',
+      'mode': 'countdown',
+      'minutes': 15,
+    };
+    final stages = [_stage(149), _stage(150)];
+    for (final overrides in <Map<String, Object?>>[
+      {'id': ' calma '},
+      {'id': 'calma\n'},
+      {'name': ' \t\u00a0\uFEFF'},
+      {'name': 'x' * 31},
+      {'name': 'Antes\u0000después'},
+      {'name': 'Antes\uD800después'},
+      {'description': 7},
+      {'description': null},
+      {'description': 'x' * 301},
+      {'mode': 'otro'},
+      {'mode': 'stopwatch', 'minutes': '0'},
+      {'minutes': '15'},
+      {'minutes': 15.5},
+      {'minutes': null},
+      {'extraTime': 'sí'},
+      {'extraTime': null},
+      {'prepSeconds': '30'},
+      {'prepSeconds': -1},
+      {'prepSeconds': 7201},
+      {'prepSeconds': null},
+      {'soundId': false},
+      {'soundId': 'x' * 101},
+      {'bells': []},
+      {
+        'bells': {'start': 1},
+      },
+      {
+        'bells': {'intervalMinutes': 4},
+      },
+      {
+        'bells': {'randomCount': 11},
+      },
+      {
+        'bells': {'endRepeats': 4},
+      },
+      {
+        'bells': {'startSound': 'Antes\u0000después'},
+      },
+      {
+        'bells': {'output': 'otro'},
+      },
+      {
+        'bells': {'spokenCues': 'sí'},
+      },
+      {
+        'bells': {'unknown': true},
+      },
+      {'bells': null},
+      {'stages': false},
+      {'stages': null},
+      {
+        'minutes': 0,
+        'stages': [...stages, false],
+      },
+      {
+        'minutes': 0,
+        'stages': [...stages, _stage(0)],
+      },
+      {
+        'minutes': 0,
+        'stages': [
+          ...stages,
+          {'kind': 'otro', 'minutes': 1},
+        ],
+      },
+      {
+        'minutes': 0,
+        'stages': [
+          _stage(1),
+          {'kind': 'walk', 'minutes': '1'},
+        ],
+      },
+      {
+        'minutes': 0,
+        'stages': [
+          _stage(1),
+          {..._stage(1), 'sound': false},
+        ],
+      },
+      {
+        'minutes': 0,
+        'stages': [
+          _stage(1),
+          {..._stage(1), 'repeats': 4},
+        ],
+      },
+      {
+        'minutes': 0,
+        'stages': [
+          _stage(1),
+          {..._stage(1), 'repeats': null},
+        ],
+      },
+      {
+        'minutes': 0,
+        'stages': [
+          _stage(1),
+          {..._stage(1), 'unknown': true},
+        ],
+      },
+      {'unknown': true},
+    ]) {
+      final practices = TimerHouseContent.fromJson({
+        'practices': [
+          {...countdown, ...overrides},
+          countdown,
+        ],
+      }).practices;
+      expect(practices.map((practice) => practice.toJson()), [
+        countdown,
+      ], reason: '$overrides');
+    }
+  });
+
+  test('recorta los textos y toma las primeras seis prácticas válidas', () {
+    final name = '\u0085🧘${'x' * 27}';
+    final first = {
+      'id': 'calma',
+      'name': ' \t$name\uFEFF',
+      'description': ' \t ',
+      'soundId': ' lluvia ',
+      'mode': 'countdown',
+      'minutes': 15.0,
+      'bells': {'startSound': 'desconocido'},
+    };
+    final practices = TimerHouseContent.fromJson({
+      'practices': [
+        first,
+        {...first, 'name': 'Duplicada'},
+        for (var index = 1; index <= 6; index++)
+          {...first, 'id': 'calma-$index'},
+      ],
+    }).practices;
+    expect(practices.map((practice) => practice.id), [
+      'calma',
+      'calma-1',
+      'calma-2',
+      'calma-3',
+      'calma-4',
+      'calma-5',
+    ]);
+    final practice = practices.first;
+    expect(practice.name, name);
+    expect(practice.description, isNull);
+    expect(practice.soundId, 'lluvia');
+    expect(practice.toSettings()?.minutes, 15);
+    expect(practice.toSettings()?.bells.startSound, defaultBellSoundId);
   });
 
   test('rechaza combinaciones que el servidor tampoco acepta', () {

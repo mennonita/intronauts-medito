@@ -49,6 +49,7 @@ void main() {
       'description': _longDescription,
       'mode': 'countdown',
       'minutes': 20,
+      'bells': {'startSound': 'cuenco_tibetano'},
     },
     {'id': 'libre', 'name': 'Sentada libre', 'mode': 'stopwatch'},
   ]);
@@ -65,9 +66,9 @@ void main() {
     await _pump(tester, practices: practices);
     expect(find.text(l10n.timerHousePracticesTitle), findsOneWidget);
     expect(find.text('Zazen'), findsOneWidget);
-    expect(find.text('20 min'), findsOneWidget);
+    expect(find.text('20 min · Cuenco tibetano'), findsOneWidget);
     expect(find.text('Sentada libre'), findsOneWidget);
-    expect(find.text(l10n.timerModeStopwatch), findsOneWidget);
+    expect(find.text('Cronómetro · Campana clásica'), findsOneWidget);
     final description = tester.widget<Text>(find.text(_longDescription));
     expect(description.maxLines, 3);
     expect(description.overflow, TextOverflow.ellipsis);
@@ -79,9 +80,11 @@ void main() {
     final handle = tester.ensureSemantics();
     await _pump(tester, practices: practices);
     expect(
-      tester.getSemantics(find.bySemanticsLabel('Zazen, 20 min')),
+      tester.getSemantics(
+        find.bySemanticsLabel('Zazen, 20 min · Cuenco tibetano'),
+      ),
       matchesSemantics(
-        label: 'Zazen, 20 min',
+        label: 'Zazen, 20 min · Cuenco tibetano',
         hint: _longDescription,
         isButton: true,
         hasEnabledState: true,

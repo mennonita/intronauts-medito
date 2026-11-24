@@ -60,26 +60,17 @@ class TimerHouseContent {
     final practices = <TimerHousePractice>[];
     final rawPractices = json['practices'];
     if (rawPractices is List) {
+      final ids = <String>{};
       for (final raw in rawPractices) {
-        if (raw is! Map) continue;
-        final id = _readText(raw['id'], maxLength: 40);
-        final name = _readText(
-          raw['name'],
-          maxLength: kMaxTimerPresetNameLength,
-        );
-        if (id == null || name == null || !_practiceIdPattern.hasMatch(id)) {
+        final practice = TimerHousePractice._fromJson(raw);
+        if (practice == null ||
+            ids.contains(practice.id) ||
+            practice.toSettings() == null) {
           continue;
         }
-        final practice = TimerHousePractice(
-          id: id,
-          name: name,
-          description: _readText(raw['description'], maxLength: 300),
-          raw: Map.unmodifiable({
-            for (final entry in raw.entries)
-              if (entry.key is String) entry.key as String: entry.value,
-          }),
-        );
-        if (practice.toSettings() != null) practices.add(practice);
+        practices.add(practice);
+        ids.add(practice.id);
+        if (practices.length == 6) break;
       }
     }
 
@@ -126,7 +117,38 @@ class TimerHousePractice {
   final String? description;
   final Map<String, Object?> raw;
 
-  String? get soundId => _readText(raw['soundId'], maxLength: 100);
+  static TimerHousePractice? _fromJson(Object? json) {
+    if (json is! Map || !json.keys.every(_practiceFields.contains)) {
+      return null;
+    }
+    final id = json['id'];
+    final name = _readPracticeText(json['name'], kMaxTimerPresetNameLength);
+    if (id is! String ||
+        !_practiceIdPattern.hasMatch(id) ||
+        name == null ||
+        name.isEmpty) {
+      return null;
+    }
+
+    final description = _readPracticeText(json['description'], 300);
+    if (json.containsKey('description') && description == null ||
+        json.containsKey('soundId') &&
+            _readPracticeText(json['soundId'], 100) == null) {
+      return null;
+    }
+
+    return TimerHousePractice(
+      id: id,
+      name: name,
+      description: description == '' ? null : description,
+      raw: Map.unmodifiable(Map<String, Object?>.from(json)),
+    );
+  }
+
+  String? get soundId {
+    final id = _readPracticeText(raw['soundId'], 100);
+    return id == '' ? null : id;
+  }
 
   TimerSettings? toSettings() {
     final mode = switch (raw['mode']) {
@@ -137,31 +159,48 @@ class TimerHousePractice {
     if (mode == null) return null;
 
     final rawMinutes = raw['minutes'];
-    final minutes = rawMinutes is int ? rawMinutes : 0;
-    final extraTime = raw['extraTime'] == true;
+    final rawExtraTime = raw['extraTime'];
+    final rawPrep = raw['prepSeconds'];
+    if (raw.containsKey('minutes') &&
+            !_isIntegerInRange(rawMinutes, 0, kMaxTimerMinutes) ||
+        raw.containsKey('extraTime') && rawExtraTime is! bool ||
+        raw.containsKey('prepSeconds') &&
+            !_isIntegerInRange(rawPrep, 0, kMaxTimerPrepSeconds)) {
+      return null;
+    }
+    final minutes = (rawMinutes as num?)?.toInt() ?? 0;
+    final extraTime = rawExtraTime == true;
+    final bells = raw.containsKey('bells')
+        ? _readBells(raw['bells'])
+        : const TimerBellSettings();
+    if (bells == null) return null;
+
     final rawStages = raw['stages'];
     final stages = <TimerStage>[];
-    if (rawStages is List) {
-      if (mode == TimerMode.stopwatch || extraTime || minutes != 0) return null;
+    if (raw.containsKey('stages')) {
+      if (rawStages is! List ||
+          rawStages.length < kMinTimerStages ||
+          rawStages.length > kMaxTimerStages ||
+          mode == TimerMode.stopwatch ||
+          extraTime ||
+          minutes != 0) {
+        return null;
+      }
       for (final item in rawStages) {
         final stage = _readStage(item);
-        if (stage == null) continue;
+        if (stage == null) return null;
         stages.add(stage);
-        if (stages.length > kMaxTimerStages) return null;
       }
-      if (stages.length < kMinTimerStages) return null;
     } else if (mode == TimerMode.stopwatch) {
       if (extraTime || minutes != 0) return null;
-    } else if (minutes < 1 || minutes > kMaxTimerMinutes) {
-      return null;
     }
 
     final settings = TimerSettings(
       mode: mode,
       minutes: minutes,
       extraTime: extraTime,
-      prepSeconds: timerPrepSecondsFromJson(raw['prepSeconds']),
-      bells: _readBells(raw['bells']),
+      prepSeconds: (rawPrep as num?)?.toInt() ?? 0,
+      bells: bells,
       stages: List.unmodifiable(stages),
     );
     return settings.canStart ? settings : null;
@@ -171,8 +210,9 @@ class TimerHousePractice {
     ...raw,
     'id': id,
     'name': name,
-    'description': description,
-    'soundId': soundId,
+    if (description != null || raw.containsKey('description'))
+      'description': description ?? '',
+    if (raw.containsKey('soundId')) 'soundId': soundId ?? '',
   };
 }
 
@@ -190,7 +230,26 @@ TimerHouseDay? practiceDayFor(TimerHouseContent content, DateTime localNow) {
   return null;
 }
 
-final _practiceIdPattern = RegExp(r'^[a-z0-9-]+$');
+const _practiceFields = {
+  'id',
+  'name',
+  'description',
+  'mode',
+  'minutes',
+  'extraTime',
+  'prepSeconds',
+  'bells',
+  'stages',
+  'soundId',
+};
+const _stageFields = {'kind', 'minutes', 'sound', 'repeats'};
+final _practiceIdPattern = RegExp(r'^[a-z0-9-]{1,40}$');
+final _invalidPracticeText = RegExp(r'[\x00\uD800-\uDFFF]', unicode: true);
+// Los mismos espacios que recorta String.trim() en el servidor (JavaScript).
+final _practiceWhitespace = RegExp(
+  r'^[\x09-\x0D\x20\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+'
+  r'|[\x09-\x0D\x20\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+$',
+);
 final _datePattern = RegExp(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
 
 bool _isCalendarDate(String date) =>
@@ -210,25 +269,49 @@ String? _readText(Object? value, {int? maxLength}) {
 }
 
 TimerStage? _readStage(Object? json) {
-  if (json is! Map) return null;
+  if (json is! Map || !json.keys.every(_stageFields.contains)) return null;
   final kind = json['kind'];
-  final minutes = json['minutes'];
   if (!TimerStageKind.values.any((value) => value.name == kind) ||
-      minutes is! int ||
-      minutes < 1 ||
-      minutes > kMaxTimerMinutes) {
+      !_isIntegerInRange(json['minutes'], 1, kMaxTimerMinutes) ||
+      json.containsKey('sound') &&
+          _readPracticeText(json['sound'], 40, trim: false) == null ||
+      json.containsKey('repeats') &&
+          !_isIntegerInRange(json['repeats'], 1, 3)) {
     return null;
   }
   return TimerStage.fromJson(json);
 }
 
-TimerBellSettings _readBells(Object? json) {
-  if (json is Map) {
-    try {
-      return TimerBellSettings.fromJson(Map<String, Object?>.from(json));
-    } catch (_) {
-      return const TimerBellSettings();
-    }
+String? _readPracticeText(Object? value, int maxLength, {bool trim = true}) {
+  if (value is! String || _invalidPracticeText.hasMatch(value)) return null;
+  final text = trim ? value.replaceAll(_practiceWhitespace, '') : value;
+  return text.length <= maxLength ? text : null;
+}
+
+bool _isIntegerInRange(Object? value, int min, int max) =>
+    value is num && value >= min && value <= max && value == value.toInt();
+
+TimerBellSettings? _readBells(Object? json) {
+  if (json is! Map) return null;
+  final settings = const TimerBellSettings().toJson();
+  for (final MapEntry(:key, :value) in json.entries) {
+    final valid = switch (key) {
+      'start' || 'end' || 'spokenCues' => value is bool,
+      'intervalMinutes' => timerIntervalMinutes.any(
+        (minutes) => minutes == value,
+      ),
+      'randomCount' => _isIntegerInRange(value, 0, timerMaxRandomBells),
+      'startSound' ||
+      'endSound' ||
+      'intervalSound' ||
+      'randomSound' => _readPracticeText(value, 40, trim: false) != null,
+      'startRepeats' || 'endRepeats' || 'intervalRepeats' || 'randomRepeats' =>
+        timerBellRepeatOptions.any((repeats) => repeats == value),
+      'output' => TimerBellOutput.values.any((output) => output.name == value),
+      _ => false,
+    };
+    if (!valid) return null;
+    settings[key as String] = value is num ? value.toInt() : value as Object;
   }
-  return const TimerBellSettings();
+  return TimerBellSettings.fromJson(settings);
 }

@@ -20,22 +20,27 @@ class TimerContentRepository {
 
   TimerHouseContent cachedHouseContent() => _readCache(_prefs);
 
-  Future<TimerHouseContent> fetchHouseContent() async {
+  Future<TimerHouseContent> fetchHouseContent() async =>
+      (await fetchHouseContentWithStatus()).content;
+
+  /// Igual que [fetchHouseContent]; `fresh` dice si llegó del servidor.
+  Future<({TimerHouseContent content, bool fresh})>
+  fetchHouseContentWithStatus() async {
     final prefs = _prefs ?? await _loadPreferences();
     TimerHouseContent? cachedBeforeWrite;
     try {
       final response = await _client.getRequest(HTTPConstants.timerConfig);
       final content = TimerHouseContent.fromJson(response);
-      if (prefs == null) return content;
+      if (prefs == null) return (content: content, fresh: true);
       final raw = jsonEncode(response);
       cachedBeforeWrite = _readCache(prefs);
       final saved = await prefs.setString(
         SharedPreferenceConstants.timerHouseContent,
         raw,
       );
-      return saved ? content : cachedBeforeWrite;
+      return (content: saved ? content : cachedBeforeWrite, fresh: true);
     } catch (_) {
-      return cachedBeforeWrite ?? _readCache(prefs);
+      return (content: cachedBeforeWrite ?? _readCache(prefs), fresh: false);
     }
   }
 

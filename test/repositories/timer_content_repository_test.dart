@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/constants/http/http_constants.dart';
@@ -41,6 +42,8 @@ class _Client extends Fake implements HttpApiService {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   const cacheKey = SharedPreferenceConstants.timerHouseContent;
   late _Client client;
   late SharedPreferences prefs;
@@ -76,6 +79,15 @@ void main() {
     expect(await repository.fetchClosingText(), 'Gracias');
   });
 
+  test('dice si el contenido llegó del servidor', () async {
+    client.response = {'beadsPerRound': 54};
+    expect((await repository.fetchHouseContentWithStatus()).fresh, isTrue);
+    client.error = Exception('sin red');
+    final offline = await repository.fetchHouseContentWithStatus();
+    expect(offline.fresh, isFalse);
+    expect(offline.content.beadsPerRound, 54);
+  });
+
   test('sin red ni copia válida, usa contenido vacío', () async {
     client.error = Exception('sin red');
     for (final raw in [null, '{', '[]', 54]) {
@@ -109,6 +121,105 @@ void main() {
     expect(container.read(timerHouseContentProvider).beadsPerRound, 54);
     expect(closing.read().requireValue, 'Actual');
     expect(client.getRequests, 1);
+  });
+
+  for (final sharesContent in [false, true]) {
+    testWidgets(
+      'actualiza al volver al temporizador (comparte: $sharesContent)',
+      (tester) async {
+        final navigator = GlobalKey<NavigatorState>();
+        client.response = {'closingText': 'Copia'};
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              timerContentRepositoryProvider.overrideWithValue(repository),
+            ],
+            child: MaterialApp(
+              navigatorKey: navigator,
+              home: Consumer(
+                builder: (context, ref, _) {
+                  final content = ref.watch(timerHouseContentProvider);
+                  return Text(content.closingText ?? 'Sin contenido');
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Copia'), findsOneWidget);
+
+        unawaited(
+          navigator.currentState!.push(
+            MaterialPageRoute<void>(
+              builder: (_) => Consumer(
+                builder: (context, ref, _) {
+                  if (sharesContent) ref.watch(timerHouseContentProvider);
+                  return const Text('Otra pantalla');
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final requests = client.getRequests;
+        client.pending = Completer<Map<String, dynamic>>();
+        navigator.currentState!.pop();
+        await tester.pumpAndSettle();
+        expect(client.getRequests, requests + 1);
+        expect(find.text('Copia'), findsOneWidget);
+
+        client.pending!.complete({'closingText': 'Nuevo contenido'});
+        await tester.pumpAndSettle();
+        expect(find.text('Nuevo contenido'), findsOneWidget);
+      },
+    );
+  }
+
+  testWidgets('actualiza al volver a la app y al recuperar la red', (
+    tester,
+  ) async {
+    final previousLifecycle = tester.binding.lifecycleState;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    addTearDown(() {
+      if (previousLifecycle != null) {
+        tester.binding.handleAppLifecycleStateChanged(previousLifecycle);
+      }
+    });
+    await prefs.setString(cacheKey, '{"closingText":"Copia"}');
+    client.error = Exception('sin red');
+    final container = ProviderContainer(
+      overrides: [timerContentRepositoryProvider.overrideWithValue(repository)],
+    );
+    addTearDown(container.dispose);
+    final closing = container.listen(timerHouseContentProvider, (_, _) {});
+    await tester.pump();
+    expect(closing.read().closingText, 'Copia');
+    expect(client.getRequests, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(minutes: 1));
+    expect(client.getRequests, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(client.getRequests, 2);
+    expect(closing.read().closingText, 'Copia');
+
+    client.error = null;
+    client.pending = Completer<Map<String, dynamic>>();
+    await tester.pump(const Duration(seconds: 30));
+    expect(client.getRequests, 3);
+    expect(closing.read().closingText, 'Copia');
+    client.pending!.complete({'closingText': 'Con red'});
+    await tester.pump();
+    expect(closing.read().closingText, 'Con red');
+
+    closing.close();
+    await tester.pump(const Duration(minutes: 1));
+    expect(client.getRequests, 3);
   });
 
   test('carga y recorta el texto de cierre', () async {
