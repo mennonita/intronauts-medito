@@ -193,6 +193,10 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     try {
       await ref.read(playerProvider.notifier).play(request);
       if (!mounted || _isClosing || _timerStopped) return;
+      // El inicio se canceló en la espera (esta pantalla se cerró y el
+      // temporizador anterior volvió a ser la sesión): no se toca el sonido
+      // de fondo ni el estado de esa sesión (REV-01).
+      if (!_ownsPlayerRequest) return;
       _completionGate.trackLoaded(
         isCompleted: ref.read(audioStateProvider).isCompleted,
         runId: request.isTimer ? request.timerRunId : null,

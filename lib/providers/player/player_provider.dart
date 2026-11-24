@@ -68,6 +68,8 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
   TimerSessionCloser? _timerCloser;
   String? _reservedRunId;
   bool _sessionOpen = false;
+  // Inicio que espera a que se guarde el temporizador que va a reemplazar.
+  _PendingStart? _pendingStart;
   _StartWatch? _startWatch;
   bool? _backupPlaying;
 
@@ -399,26 +401,55 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       AppLogger.w('PLAYER', 'Inicio del temporizador sin reserva vigente');
       return;
     }
-    // Un temporizador que sigue sonando se guarda con su posición final
-    // ANTES de reemplazarlo. Si no se pudo guardar, sigue sonando, nada de
-    // esta sesión cambia y la nueva no empieza (TMR-02).
-    final savedTimers = <String>{};
-    for (
-      var replaced = activeTimerRequest;
-      replaced != null &&
-          replaced.timerRunId != request.timerRunId &&
-          !savedTimers.contains(replaced.timerRunId);
-      replaced = activeTimerRequest
-    ) {
-      final owner = _start;
-      if (!await _saveReplacedTimer(replaced, owner)) {
-        // La pantalla del temporizador vuelve a ser la de la sesión viva.
-        if (identical(_start, owner) && stateOrNull == request) {
-          state = replaced;
+    // El inicio queda registrado, con su cuenta, ANTES de cualquier espera:
+    // si su pantalla se cierra mientras se guarda el temporizador anterior,
+    // `stop()` cancela solo este inicio y no toca la sesión viva (REV-01).
+    _pendingStart?.superseded = true;
+    final pending = _pendingStart = _PendingStart(request);
+    try {
+      // Un temporizador que sigue sonando se guarda con su posición final
+      // ANTES de reemplazarlo. Si no se pudo guardar, sigue sonando, nada de
+      // esta sesión cambia y la nueva no empieza (TMR-02).
+      final savedTimers = <String>{};
+      for (
+        var replaced = activeTimerRequest;
+        replaced != null &&
+            replaced.timerRunId != request.timerRunId &&
+            !savedTimers.contains(replaced.timerRunId);
+        replaced = activeTimerRequest
+      ) {
+        if (!pending.isValid) return;
+        final owner = _start;
+        final save = await _saveReplacedTimer(replaced, owner);
+        if (pending.closed) {
+          // La pantalla se cerró durante la espera: este inicio no empieza.
+          // Si el guardado ya cerró la corrida anterior (Android la detiene
+          // al guardarla), se cierra como «Terminar», con su tiempo guardado
+          // y sin descartar nada; si no, sigue sonando intacta.
+          if (save.closedRun &&
+              identical(_start, owner) &&
+              PlaybackAccount.isCurrent(pending.accountGeneration)) {
+            await _closeTimer(
+              report: save.report,
+              expectedRunId: replaced.timerRunId,
+            );
+          }
+          return;
         }
-        throw const TimerReplaceFailedException();
+        // Otra solicitud tomó el inicio o la cuenta cambió en la espera.
+        if (!pending.isValid) return;
+        if (!save.saved) {
+          // La pantalla del temporizador vuelve a ser la de la sesión viva.
+          if (identical(_start, owner) && stateOrNull == request) {
+            state = replaced;
+          }
+          throw const TimerReplaceFailedException();
+        }
+        savedTimers.add(replaced.timerRunId);
       }
-      savedTimers.add(replaced.timerRunId);
+      if (!pending.isValid) return;
+    } finally {
+      if (identical(_pendingStart, pending)) _pendingStart = null;
     }
     if (request.isTimer) {
       // La espera pudo soltar la reserva.
@@ -505,7 +536,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
   /// Guarda el temporizador [timer] que otra sesión va a reemplazar, con su
   /// posición final. Verdadero si quedó guardado o no había nada que guardar;
   /// falso si el guardado falló: el temporizador sigue sonando (TMR-02).
-  Future<bool> _saveReplacedTimer(
+  Future<_ReplacedSave> _saveReplacedTimer(
     PlaybackRequest timer,
     _PlaybackStart? start,
   ) async {
@@ -520,14 +551,14 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
         error,
         stack,
       );
-      return false;
+      return _ReplacedSave.failed;
     }
   }
 
   /// iOS: el cierre queda guardado con el tiempo meditado hasta ahora y su
   /// `runId` deja de ser el vivo, para que la recuperación nunca lo omita
   /// (REV-05). Uno que nunca empezó no tiene nada que guardar.
-  Future<bool> _saveReplacedIosTimer(
+  Future<_ReplacedSave> _saveReplacedIosTimer(
     PlaybackRequest timer,
     _PlaybackStart? start,
   ) async {
@@ -535,7 +566,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     final runId = timer.timerRunId;
     if (start?.requested != true || iosAudioHandler.timerRunId != runId) {
       runs.releaseLiveRun(runId);
-      return true;
+      return _ReplacedSave.nothing;
     }
     final elapsed = TimerTimeline.fromRequest(
       timer,
@@ -548,33 +579,33 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     );
     if (!saved) {
       AppLogger.w('TIMER', 'No se guardó el temporizador; sigue sonando');
-      return false;
+      return _ReplacedSave.failed;
     }
     runs.releaseLiveRun(runId);
     unawaited(runs.deliver());
-    return true;
+    return const _ReplacedSave.closed();
   }
 
   /// Android: como en iOS (REV-05), el temporizador reemplazado se GUARDA con
   /// su posición final; nunca se descarta (TIMER-REVIEW-01). Si el servicio
   /// no pudo guardarlo, no detuvo nada: la sesión sigue sonando y la otra no
   /// empieza, porque la recuperación solo tendría la última foto (TMR-02).
-  Future<bool> _saveReplacedAndroidTimer(
+  Future<_ReplacedSave> _saveReplacedAndroidTimer(
     PlaybackRequest timer,
     _PlaybackStart? start,
   ) async {
     final seed = timer.timerSeed;
-    if (start?.requested != true || seed == null) return true;
+    if (start?.requested != true || seed == null) return _ReplacedSave.nothing;
     final report = await _api.stopTimerPlayback(seed, true);
     // Sin `runId`, el servicio ya no tiene esa sesión viva (terminó sola o
     // es de otra cuenta): no hay nada que guardar.
     if (report.stopped ||
         report.completionPersisted == true ||
         report.runId == null) {
-      return true;
+      return _ReplacedSave.closed(report);
     }
     AppLogger.w('TIMER', 'No se guardó el temporizador; sigue sonando');
-    return false;
+    return _ReplacedSave.failed;
   }
 
   /// Sets the current request WITHOUT starting playback, so the player screen
@@ -1175,6 +1206,18 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       _usesAndroidAudio ? _api.stopAudio() : iosAudioHandler.stopPlayback();
 
   void stop() {
+    // La pantalla de un inicio que aún espera el guardado del temporizador
+    // anterior se cerró: se cancela SOLO ese inicio. El temporizador vivo
+    // sigue sonando y su pantalla vuelve a ser la dueña (REV-01).
+    final pending = _pendingStart;
+    if (pending != null && identical(stateOrNull, pending.request)) {
+      pending.closed = true;
+      _pendingStart = null;
+      if (pending.request.isTimer) releaseStart(pending.request.timerRunId);
+      final live = activeTimerRequest;
+      if (live != null) state = live;
+      return;
+    }
     final start = _start;
     if (start != null && start.isCurrent && !start.request.isTimer) {
       _finishSit(start, naturalEnd: false);
@@ -1285,6 +1328,41 @@ class _PlaybackStart {
   void check() {
     if (!isCurrent) throw const _PlaybackStartCancelled();
   }
+}
+
+/// Inicio registrado antes de esperar el guardado del temporizador que
+/// reemplaza: guarda su solicitud y la cuenta de ese momento (REV-01).
+class _PendingStart {
+  _PendingStart(this.request);
+
+  final PlaybackRequest request;
+  final int accountGeneration = PlaybackAccount.generation;
+  // Su pantalla se cerró durante la espera.
+  bool closed = false;
+  // Otra solicitud empezó después y tomó el inicio.
+  bool superseded = false;
+
+  bool get isValid =>
+      !closed && !superseded && PlaybackAccount.isCurrent(accountGeneration);
+}
+
+/// Resultado de guardar el temporizador que otra sesión va a reemplazar.
+class _ReplacedSave {
+  const _ReplacedSave._({required this.saved})
+    : closedRun = false,
+      report = null;
+
+  /// El guardado cerró la corrida que sonaba; en Android, con el reporte del
+  /// servicio, que ya la detuvo.
+  const _ReplacedSave.closed([this.report]) : saved = true, closedRun = true;
+
+  static const nothing = _ReplacedSave._(saved: true);
+  static const failed = _ReplacedSave._(saved: false);
+
+  /// Quedó guardado o no había nada que guardar.
+  final bool saved;
+  final bool closedRun;
+  final pigeon.TimerStopReport? report;
 }
 
 class _PlaybackStartCancelled implements Exception {
