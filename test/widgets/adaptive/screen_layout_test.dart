@@ -969,6 +969,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
+      // La sección del temporizador hace la lista más larga: baja hasta verla.
+      await tester.dragUntilVisible(
+        find.text('Delete Account'),
+        find.byType(CustomScrollView),
+        const Offset(0, -300),
+      );
       expect(find.text('Delete Account'), findsOneWidget);
       if (!emailLoginEnabled) {
         expect(find.text('Sign in / Sign up'), findsNothing);
