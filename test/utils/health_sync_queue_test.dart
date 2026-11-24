@@ -512,6 +512,75 @@ void main() {
     });
   });
 
+  group('revalidar tras cada espera antes de llamar a Salud '
+      '(TIMER-REVIEW-02)', () {
+    HealthSyncDependencies racing(Future<void> Function() during) {
+      var fired = false;
+      return HealthSyncDependencies(
+        ready: () async {},
+        currentAccountId: (_) => env.account,
+        isIOS: true,
+        healthAvailable: () async => true,
+        pendingRuns: () async => const [],
+        clearPending: (_) async => true,
+        write: (entry) async {
+          env.writes.add(entry);
+          return true;
+        },
+        markSynced: (_) async {},
+        persist: (prefs, raw) async {
+          const key = SharedPreferenceConstants.pendingHealthSessions;
+          raw == null
+              ? await prefs.remove(key)
+              : await prefs.setString(key, raw);
+          // Mientras se guarda la marca del intento, otra parte de la app
+          // actúa. Su cambio al permiso guardado espera el mismo bloqueo.
+          if (!fired && raw != null && raw.contains('"attempting":true')) {
+            fired = true;
+            unawaited(during());
+          }
+          return true;
+        },
+      );
+    }
+
+    test(
+      'iOS: apagar Salud mientras se guarda el intento no escribe',
+      () async {
+        use(_Env(isIOS: true));
+        await _giveConsent();
+        await HealthSyncQueue.add(_entry('a'));
+        HealthSyncQueue.dependencies = racing(
+          () => HealthSyncQueue.setConsent(false),
+        );
+
+        await HealthSyncQueue.flush();
+        await pumpEventQueue();
+
+        expect(env.writes, isEmpty);
+        expect(await _queue(), isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(HealthSyncQueue.hasConsent(prefs), isFalse);
+      },
+    );
+
+    test(
+      'iOS: cambiar de cuenta mientras se guarda el intento no escribe',
+      () async {
+        use(_Env(isIOS: true));
+        await _giveConsent();
+        await HealthSyncQueue.add(_entry('a'));
+        HealthSyncQueue.dependencies = racing(HealthSyncQueue.invalidate);
+
+        await HealthSyncQueue.flush();
+        await pumpEventQueue();
+
+        expect(env.writes, isEmpty);
+        expect(await _queue(), isEmpty);
+      },
+    );
+  });
+
   group('guardado de la cola (TIMER-02)', () {
     test('si la cola no se guarda, add devuelve false y nada cambia', () async {
       await HealthSyncQueue.add(_entry('a'));

@@ -53,6 +53,9 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   bool _endScreenOpened = false;
   bool _isClosing = false;
   bool _timerStopped = false;
+  // Esta pantalla se fue porque otra corrida tomó el reproductor: lo
+  // compartido (audio, seguimiento de la sesión) ya es de la otra.
+  bool _leftForOtherRun = false;
   StreamSubscription<TimerRunCloseResult>? _timerCloseSubscription;
 
   /// La sesión de esta pantalla, tomada una sola vez al abrirla (R31). Un
@@ -221,8 +224,11 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   void dispose() {
     // Analytics: leaving the player (e.g. system back gesture) abandons a
     // paused session. No-op if it's still playing (continues in background) or
-    // already completed/stopped.
-    unawaited(AudioSessionTracker.instance.onPlayerClosed());
+    // already completed/stopped. La sesión que siga ya no es de esta pantalla
+    // si otra corrida la reemplazó: no se toca.
+    if (!_leftForOtherRun) {
+      unawaited(AudioSessionTracker.instance.onPlayerClosed());
+    }
     _playbackStartFallback?.cancel();
     unawaited(_timerCloseSubscription?.cancel());
     try {
@@ -454,8 +460,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     if (_timerBusy) return;
     if (!_ownsCurrentRun) {
       // Otra corrida ocupa el reproductor: esta pantalla solo se va.
-      _timerStopped = true;
-      _handleClose();
+      _leaveForOtherRun();
       return;
     }
     final elapsedMs = _ownTimeline.elapsedMs(_ownPositionMs());
@@ -475,8 +480,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     // El diálogo esperó a la persona: la corrida activa pudo cambiar. Esta
     // pantalla nunca cierra ni descarta otra (TIMER-05).
     if (!_ownsCurrentRun) {
-      _timerStopped = true;
-      _handleClose();
+      _leaveForOtherRun();
       return;
     }
     switch (choice) {
@@ -679,6 +683,27 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       }
     });
     if (_timerStopped) WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Otra corrida tomó el reproductor: esta pantalla quita SOLO su propia
+  /// ruta. No detiene audio, no borra el estado compartido del reproductor
+  /// (la posición que muestra la sesión nueva) y no cierra las pantallas que
+  /// estén encima, que pueden ser de la sesión nueva (TIMER-REVIEW-05).
+  void _leaveForOtherRun() {
+    if (_isClosing || _endScreenOpened) return;
+    _timerStopped = true;
+    _leftForOtherRun = true;
+    _playbackStartFallback?.cancel();
+    _releaseScreenOn();
+    setState(() => _isClosing = true);
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return;
+    final navigator = Navigator.of(context);
+    if (route.isCurrent) {
+      navigator.pop();
+    } else {
+      navigator.removeRoute(route);
+    }
   }
 
   void _dismissPlayerOverlays() {

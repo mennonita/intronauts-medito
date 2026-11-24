@@ -257,6 +257,47 @@ void main() {
     },
   );
 
+  group('el regreso se publica solo con la sesión guardada '
+      '(TIMER-REVIEW-04)', () {
+    Iterable<String> practiceKeys() => prefs.real.getKeys().where(
+      (key) => key.startsWith('practice_history:'),
+    );
+
+    test('temporizador: si el guardado falla no queda el regreso', () async {
+      await stats.localAllStats;
+      prefs.failStats = true;
+
+      expect(await stats.recordTimerRun(_run('a')), TimerRecordResult.failed);
+      await pumpEventQueue();
+
+      expect(practiceKeys(), isEmpty);
+
+      prefs.failStats = false;
+      expect(await stats.recordTimerRun(_run('a')), TimerRecordResult.accepted);
+      await pumpEventQueue();
+      expect(practiceKeys(), isNotEmpty);
+      expect(await stats.returns, 1);
+    });
+
+    test('guiada: si el guardado falla no queda el regreso', () async {
+      await stats.localAllStats;
+      prefs.failStats = true;
+      final session = LocalAudioCompleted(
+        id: 'guiada',
+        timestamp: DateTime(2026, 11, 24, 10).millisecondsSinceEpoch,
+      );
+
+      await expectLater(
+        stats.addAudioCompleted(session, 600000, skipPost: true),
+        throwsA(isA<StateError>()),
+      );
+      await pumpEventQueue();
+
+      expect(practiceKeys(), isEmpty);
+      expect(stats.currentStats!.audioCompleted ?? const [], isEmpty);
+    });
+  });
+
   test('tres escrituras a la vez quedan las tres', () async {
     prefs.gate = Completer<void>();
     final writes = [

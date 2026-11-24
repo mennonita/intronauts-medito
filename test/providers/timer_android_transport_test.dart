@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/models/player/playback_request.dart';
 import 'package:medito/models/timer/last_timer_store.dart';
 import 'package:medito/models/timer/timer_bell_settings.dart';
@@ -705,6 +706,152 @@ void main() {
           );
       await Future<void>.delayed(const Duration(milliseconds: 1700));
       expect(player.timerStartFailed.value, request.timerRunId);
+    });
+  });
+
+  group('una guiada reemplaza un temporizador en Android (TIMER-REVIEW-01)', () {
+    const guided = PlaybackRequest(
+      trackId: 'guiada',
+      fileId: 'archivo-guiado',
+      title: 'Guiada',
+      description: '',
+      coverUrl: '',
+      remoteUrl: 'file:///tmp/guiada.mp3',
+      duration: 600000,
+      hasBackgroundSound: false,
+    );
+
+    Future<void> playGuided() async {
+      try {
+        await player.play(guided);
+      } catch (_) {
+        // Este arnés no simula todo el inicio guiado; basta el reemplazo.
+      }
+    }
+
+    test(
+      'guarda el temporizador con su posición final, nunca lo descarta',
+      () async {
+        final stops = <Object?>[];
+        var playsAtStop = -1;
+        audioHost('stopTimerPlayback', (message) {
+          stops.add(message);
+          playsAtStop = playCalls;
+          return TimerStopReport(
+            positionMs: 420000,
+            stopped: true,
+            endCueRang: false,
+            completionPersisted: true,
+            runId: request.timerRunId,
+          );
+        });
+        await player.play(request);
+        playing(request, position: 420000);
+        expect(playCalls, 1);
+
+        await playGuided();
+
+        // save == true: el servicio guarda el cierre ANTES de cargar la guiada.
+        expect(stops, [
+          [42, true],
+        ]);
+        expect(playsAtStop, 1);
+        // Reemplazar no abre el resumen del temporizador.
+        expect(closes, isEmpty);
+      },
+    );
+
+    test(
+      'si el guardado falla, no se descarta: la sesión se conserva',
+      () async {
+        final stops = <Object?>[];
+        audioHost('stopTimerPlayback', (message) {
+          stops.add(message);
+          // El servicio no pudo guardar: no detuvo nada y conserva el registro.
+          return TimerStopReport(
+            positionMs: 420000,
+            stopped: false,
+            endCueRang: false,
+            completionPersisted: false,
+            runId: request.timerRunId,
+          );
+        });
+        await player.play(request);
+        playing(request, position: 420000);
+
+        await playGuided();
+
+        // Nunca se pidió «salir sin guardar» (save == false borraría la sesión).
+        expect(stops, [
+          [42, true],
+        ]);
+        expect(closes, isEmpty);
+      },
+    );
+  });
+
+  group('cuenta vinculada antes de abrir el servicio (TIMER-REVIEW-03)', () {
+    late List<MethodCall> accountCalls;
+    late List<String> order;
+
+    setUp(() {
+      PlaybackAccount.resetForTesting();
+      PlaybackAccount.bindsNatively = true;
+      addTearDown(PlaybackAccount.resetForTesting);
+      accountCalls = [];
+      order = [];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const channel = MethodChannel('intronauts/playback_account');
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        accountCalls.add(call);
+        order.add('bind');
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      host(
+        'MeditoAndroidAudioServiceManager',
+        'startService',
+        MeditoAndroidAudioServiceManager.pigeonChannelCodec,
+        (_) {
+          order.add('startService');
+          if (!serviceStarted.isCompleted) serviceStarted.complete();
+          return null;
+        },
+      );
+    });
+
+    test(
+      'sin cuenta (ruta sin conexión) vincula una identidad local persistente',
+      () async {
+        await player.play(request);
+
+        expect(playCalls, 1);
+        expect(order.first, 'bind');
+        expect(order, containsAllInOrder(['bind', 'startService']));
+        final prefs = await SharedPreferences.getInstance();
+        final saved = prefs.getString(SharedPreferenceConstants.userId);
+        expect(saved, isNotNull);
+        expect(accountCalls.single.method, 'bind');
+        expect((accountCalls.single.arguments as Map)['clientId'], saved);
+        expect(PlaybackAccount.isBound, isTrue);
+      },
+    );
+
+    test('con una identidad guardada vincula esa misma', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        SharedPreferenceConstants.userId,
+        'cliente-guardado',
+      );
+
+      await player.play(request);
+
+      expect(order, containsAllInOrder(['bind', 'startService']));
+      expect(
+        (accountCalls.single.arguments as Map)['clientId'],
+        'cliente-guardado',
+      );
     });
   });
 

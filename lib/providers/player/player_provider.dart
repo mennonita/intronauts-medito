@@ -348,7 +348,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
           if (_usesAndroidAudio &&
               previous?.requested == true &&
               previousTimer?.timerSeed != null)
-            _api.stopTimerPlayback(previousTimer!.timerSeed!, false),
+            _closeReplacedAndroidTimer(previousTimer!),
         ]);
       } catch (error, stack) {
         AppLogger.e(
@@ -428,6 +428,21 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     }
   }
 
+  /// Android: como en iOS (REV-05), el temporizador reemplazado se GUARDA con
+  /// su posición final antes de cargar la otra sesión; nunca se descarta
+  /// (TIMER-REVIEW-01). Si el guardado falla, el servicio no detiene nada y
+  /// conserva la sesión activa en su registro: al cargar la guiada la pasa a
+  /// recuperada con su última foto, para entregarla después.
+  Future<void> _closeReplacedAndroidTimer(PlaybackRequest timer) async {
+    final report = await _api.stopTimerPlayback(timer.timerSeed!, true);
+    if (!report.stopped) {
+      AppLogger.w(
+        'TIMER',
+        'No se guardó el temporizador reemplazado; su registro se conserva',
+      );
+    }
+  }
+
   /// Sets the current request WITHOUT starting playback, so the player screen
   /// can be pushed immediately and render its title/cover/duration from this
   /// request while the audio loads. [PlayerView] then calls [play] itself.
@@ -485,6 +500,18 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       // caller. Previously this was a swallow ('catch (e) { log; }') which
       // resolved play() successfully despite playback never starting, leading
       // to a silent-fail player screen. See P0-4 in the audit.
+      //
+      // El servicio solo abre un temporizador con cuenta vinculada (REV-03).
+      // Toda ruta pasa por aquí, también Descargas sin conexión: si nadie
+      // vinculó todavía, se vincula la identidad local persistente
+      // (TIMER-REVIEW-03). Una guiada no lo exige: si falla, suena igual.
+      try {
+        await PlaybackAccount.ensureBound();
+      } catch (error, stack) {
+        if (request.isTimer) rethrow;
+        AppLogger.e('PLAYER', 'No se pudo vincular la cuenta', error, stack);
+      }
+      start.check();
       await _androidServiceApi.startService();
       start.check();
       AppLogger.d(
