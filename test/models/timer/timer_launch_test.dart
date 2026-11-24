@@ -63,6 +63,7 @@ void main() {
       minutes: 18,
       presetName: 'Mañana & té',
       last: true,
+      minPrepSeconds: 10,
     );
     final uri = launch.toUri();
     expect(uri.scheme, 'org.meditofoundation');
@@ -72,7 +73,27 @@ void main() {
     expect(restored.minutes, launch.minutes);
     expect(restored.presetName, launch.presetName);
     expect(restored.last, launch.last);
+    expect(uri.queryParameters['prep'], '10');
+    expect(restored.minPrepSeconds, launch.minPrepSeconds);
     expect(const TimerLaunch().toUri().toString(), root);
+  });
+
+  test('recorta la preparación y descarta valores que no son enteros', () {
+    expect(const TimerLaunch(minPrepSeconds: 121).minPrepSeconds, 120);
+    expect(const TimerLaunch(minPrepSeconds: -1).minPrepSeconds, 0);
+    expect(const TimerLaunch(minPrepSeconds: 0).toUri().query, 'prep=0');
+    expect(
+      TimerLaunch.fromUri(Uri.parse('$root?prep=200'))?.minPrepSeconds,
+      120,
+    );
+    expect(TimerLaunch.fromUri(Uri.parse('$root?prep=-1'))?.minPrepSeconds, 0);
+    expect(TimerLaunch.fromUri(Uri.parse(root))?.minPrepSeconds, isNull);
+    for (final invalid in ['', 'texto', '1.5', '0x10']) {
+      expect(
+        TimerLaunch.fromUri(Uri.parse('$root?prep=$invalid'))?.minPrepSeconds,
+        isNull,
+      );
+    }
   });
 
   test('lee la ruta completa desde la pantalla de inicio', () {

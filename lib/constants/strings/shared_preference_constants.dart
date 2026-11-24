@@ -180,6 +180,10 @@ class SharedPreferenceConstants {
   static const String timerMixWithOthers = 'timer_mix_with_others';
   // Mantiene encendida la pantalla durante la sesión.
   static const String timerKeepScreenOn = 'timer_keep_screen_on';
+  static const String timerOpenOnTimer = 'timer_open_on_timer';
+  static const String timerSkipEndScreen = 'timer_skip_end_screen';
+  static const String timerHouseContent = 'timer_house_content';
+  static const String mantraCounter = 'mantra_counter_v1';
   // Segundos de preparación antes de empezar.
   static const String timerPrepSeconds = 'timer_prep_seconds';
   // Etapas configuradas para la sesión.

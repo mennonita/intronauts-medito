@@ -9,22 +9,36 @@ class TimerPreferences {
   const TimerPreferences({
     this.mixWithOthers = false,
     this.keepScreenOn = false,
+    this.openOnTimer = false,
+    this.skipEndScreen = false,
   });
 
   final bool mixWithOthers;
   final bool keepScreenOn;
+  final bool openOnTimer;
+  final bool skipEndScreen;
 
-  TimerPreferences copyWith({bool? mixWithOthers, bool? keepScreenOn}) =>
-      TimerPreferences(
-        mixWithOthers: mixWithOthers ?? this.mixWithOthers,
-        keepScreenOn: keepScreenOn ?? this.keepScreenOn,
-      );
+  TimerPreferences copyWith({
+    bool? mixWithOthers,
+    bool? keepScreenOn,
+    bool? openOnTimer,
+    bool? skipEndScreen,
+  }) => TimerPreferences(
+    mixWithOthers: mixWithOthers ?? this.mixWithOthers,
+    keepScreenOn: keepScreenOn ?? this.keepScreenOn,
+    openOnTimer: openOnTimer ?? this.openOnTimer,
+    skipEndScreen: skipEndScreen ?? this.skipEndScreen,
+  );
 
   static TimerPreferences read(SharedPreferences prefs) => TimerPreferences(
     mixWithOthers:
         prefs.getBool(SharedPreferenceConstants.timerMixWithOthers) ?? false,
     keepScreenOn:
         prefs.getBool(SharedPreferenceConstants.timerKeepScreenOn) ?? false,
+    openOnTimer:
+        prefs.getBool(SharedPreferenceConstants.timerOpenOnTimer) ?? false,
+    skipEndScreen:
+        prefs.getBool(SharedPreferenceConstants.timerSkipEndScreen) ?? false,
   );
 }
 
@@ -50,5 +64,19 @@ class TimerPreferencesNotifier extends Notifier<TimerPreferences> {
     await ref
         .read(sharedPreferencesProvider)
         .setBool(SharedPreferenceConstants.timerKeepScreenOn, enabled);
+  }
+
+  Future<void> setOpenOnTimer(bool enabled) async {
+    state = state.copyWith(openOnTimer: enabled);
+    await ref
+        .read(sharedPreferencesProvider)
+        .setBool(SharedPreferenceConstants.timerOpenOnTimer, enabled);
+  }
+
+  Future<void> setSkipEndScreen(bool enabled) async {
+    state = state.copyWith(skipEndScreen: enabled);
+    await ref
+        .read(sharedPreferencesProvider)
+        .setBool(SharedPreferenceConstants.timerSkipEndScreen, enabled);
   }
 }

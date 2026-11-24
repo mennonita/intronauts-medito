@@ -47,12 +47,15 @@ final _request = timerPlaybackRequest(
 
 class _Repository extends Fake implements TimerContentRepository {
   final requests = <({String sessionId, String note})>[];
-  final answers = <Completer<bool>>[];
+  final answers = <Completer<TimerNoteSaveResult>>[];
 
   @override
-  Future<bool> saveNote({required String sessionId, required String note}) {
+  Future<TimerNoteSaveResult> submitNote({
+    required String sessionId,
+    required String note,
+  }) {
     requests.add((sessionId: sessionId, note: note));
-    final answer = Completer<bool>();
+    final answer = Completer<TimerNoteSaveResult>();
     answers.add(answer);
     return answer.future;
   }
@@ -230,7 +233,9 @@ void main() {
     );
   });
 
-  testWidgets('guarda una nota, cierra la hoja y confirma', (tester) async {
+  testWidgets('deja la nota confirmada en solo lectura al volver a abrir', (
+    tester,
+  ) async {
     final repository = _Repository();
     await _pumpSummary(tester, repository: repository);
     await tester.tap(find.text(_l10n.timerSaveNote));
@@ -256,10 +261,22 @@ void main() {
     ]);
     expect(tester.widget<FilledButton>(save).onPressed, isNull);
     expect(tester.widget<TextButton>(cancel).onPressed, isNull);
-    repository.answers.single.complete(true);
+    repository.answers.single.complete(TimerNoteSaveResult.saved);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(field).readOnly, isTrue);
+    expect(save, findsNothing);
+    expect(find.text(_l10n.timerNoteSaved), findsOneWidget);
+    await tester.tap(find.text(_l10n.timerDone));
     await tester.pumpAndSettle();
     expect(find.byType(TimerNoteSheet), findsNothing);
     expect(find.text(_l10n.timerNoteSaved), findsOneWidget);
+
+    await tester.tap(find.text(_l10n.timerSaveNote));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(field).readOnly, isTrue);
+    expect(find.text('Respiré con calma.'), findsOneWidget);
+    expect(save, findsNothing);
+    expect(repository.requests, hasLength(1));
   });
 
   testWidgets('un error conserva la nota y el reintento usa el mismo id', (
@@ -274,7 +291,7 @@ void main() {
     await tester.enterText(field, 'Mi primera nota.');
     await tester.pump();
     await tester.tap(save);
-    repository.answers.single.complete(false);
+    repository.answers.single.complete(TimerNoteSaveResult.failed);
     await tester.pumpAndSettle();
 
     expect(find.text(_l10n.timerNoteError), findsOneWidget);
@@ -286,10 +303,40 @@ void main() {
       (sessionId: _runId, note: 'Mi primera nota.'),
       (sessionId: _runId, note: 'Mi nota editada.'),
     ]);
-    repository.answers.last.complete(true);
+    repository.answers.last.complete(TimerNoteSaveResult.saved);
     await tester.pumpAndSettle();
-    expect(find.byType(TimerNoteSheet), findsNothing);
+    expect(tester.widget<TextField>(field).readOnly, isTrue);
   });
+
+  for (final result in [
+    TimerNoteSaveResult.conflict,
+    TimerNoteSaveResult.unconfirmed,
+  ]) {
+    testWidgets('conserva el borrador sin confirmar el guardado ($result)', (
+      tester,
+    ) async {
+      final repository = _Repository();
+      await _pumpSummary(tester, repository: repository);
+      await tester.tap(find.text(_l10n.timerSaveNote));
+      await tester.pumpAndSettle();
+      final field = find.byType(TextField);
+      await tester.enterText(field, 'Mi borrador.');
+      await tester.pump();
+      await tester.tap(
+        find.widgetWithText(FilledButton, _l10n.timerPresetSave),
+      );
+      repository.answers.single.complete(result);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mi borrador.'), findsOneWidget);
+      expect(find.text(_l10n.timerNoteError), findsOneWidget);
+      expect(find.text(_l10n.timerNoteSaved), findsNothing);
+      expect(
+        tester.widget<TextField>(field).readOnly,
+        result == TimerNoteSaveResult.conflict,
+      );
+    });
+  }
 
   group('Salud', () {
     late SharedPreferences prefs;

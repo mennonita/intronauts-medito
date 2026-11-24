@@ -1,12 +1,25 @@
 /// Ajustes para iniciar el temporizador desde un enlace, widget o atajo.
 class TimerLaunch {
-  const TimerLaunch({this.minutes, this.presetName, this.last = false});
+  const TimerLaunch({
+    this.minutes,
+    this.presetName,
+    this.last = false,
+    int? minPrepSeconds,
+  }) : minPrepSeconds = minPrepSeconds == null
+           ? null
+           : minPrepSeconds < 0
+           ? 0
+           : minPrepSeconds > 120
+           ? 120
+           : minPrepSeconds;
 
   final int? minutes;
   final String? presetName;
   final bool last;
+  final int? minPrepSeconds;
 
-  bool get isEmpty => minutes == null && presetName == null && !last;
+  bool get isEmpty =>
+      minutes == null && presetName == null && !last && minPrepSeconds == null;
 
   static TimerLaunch? fromUri(Uri uri) {
     final isTimerStart = switch ((uri.scheme, uri.host, uri.path)) {
@@ -28,6 +41,7 @@ class TimerLaunch {
           ? null
           : String.fromCharCodes(preset.runes.take(30)),
       last: query['last'] == '1',
+      minPrepSeconds: int.tryParse(query['prep'] ?? '', radix: 10),
     );
   }
 
@@ -46,6 +60,7 @@ class TimerLaunch {
             if (minutes != null) 'minutes': '$minutes',
             if (presetName != null) 'preset': presetName,
             if (last) 'last': '1',
+            if (minPrepSeconds != null) 'prep': '$minPrepSeconds',
           },
   );
 }

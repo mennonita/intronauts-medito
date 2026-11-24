@@ -35,6 +35,7 @@ class DeepLinkService {
   // deferred deep links from Apple Search Ads are stored first.
   static final Completer<void> _initialLinkCompleter = Completer<void>();
   static Future<void> get initialLinkProcessed => _initialLinkCompleter.future;
+  static bool hadInitialLink = false;
 
   DeepLinkService({required this.ref, required this.context});
 
@@ -57,6 +58,7 @@ class DeepLinkService {
     try {
       final initialUri = await _appLinks.getInitialLink();
       if (initialUri != null) {
+        hadInitialLink = true;
         await handleDeepLink(initialUri);
       }
     } catch (e) {
