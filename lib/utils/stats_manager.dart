@@ -78,6 +78,8 @@ typedef _MemoryState = ({
   String? verifiedUserId,
   List<StatsChange> changes,
   List<Map<String, dynamic>> recordedRuns,
+  String? historyId,
+  bool historyIdOnDisk,
 });
 
 class StatsManager {
@@ -98,6 +100,10 @@ class StatsManager {
   static const _attemptKey = 'stats_post_attempt';
   static const _ownerKey = 'user_id';
   static const _recordedRunsKey = 'recorded_runs';
+  // Identidad estable de un historial: sus copias archivadas se reconocen
+  // y un archivado repetido no suma dos veces sus minutos (REV-09).
+  static const _historyIdKey = 'history_id';
+  static const _archivedHistoriesKey = 'archived_histories';
   static const _maxRecordedRuns = 200;
   static final _uuidPattern = RegExp(
     r'^[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$',
@@ -121,6 +127,9 @@ class StatsManager {
   _StatsAttempt? _attempt;
   LocalAllStats? _legacyPending;
   List<Map<String, dynamic>> _recordedRuns = [];
+  String? _historyId;
+  // El registro activo en disco ya guarda [_historyId].
+  bool _historyIdOnDisk = false;
   final _postsInFlight = <int, Future<void>>{};
 
   // Un solo escritor a la vez para el registro de estadísticas y el de
@@ -162,6 +171,8 @@ class StatsManager {
     verifiedUserId: _verifiedUserId,
     changes: List.of(_changes),
     recordedRuns: [for (final run in _recordedRuns) Map.of(run)],
+    historyId: _historyId,
+    historyIdOnDisk: _historyIdOnDisk,
   );
 
   void _restoreState(_MemoryState state) {
@@ -175,6 +186,8 @@ class StatsManager {
     _verifiedUserId = state.verifiedUserId;
     _changes = state.changes;
     _recordedRuns = state.recordedRuns;
+    _historyId = state.historyId;
+    _historyIdOnDisk = state.historyIdOnDisk;
   }
 
   /// Corre [body] dentro del candado. Si la escritura falla o lanza un error,
@@ -602,6 +615,7 @@ class StatsManager {
       _verifiedUserId = savedUserId;
     }
     _loadRecordState(record);
+    _historyIdOnDisk = _historyId != null;
     if (_verifiedUserId != null &&
         _legacyPending == null &&
         record?.containsKey(_changesKey) == false &&
@@ -645,6 +659,18 @@ class StatsManager {
         StatsChange(change as Map<String, dynamic>),
     ];
     _recordedRuns = _readRecordedRuns(record);
+    final historyId = record?[_historyIdKey];
+    _historyId = historyId is String && historyId.isNotEmpty ? historyId : null;
+    // Lo que se cargó aún no es lo que está en disco como historial activo.
+    _historyIdOnDisk = false;
+  }
+
+  static String _newHistoryId() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
   }
 
   static List<Map<String, dynamic>> _readRecordedRuns(
@@ -655,7 +681,9 @@ class StatsManager {
         Map<String, dynamic>.of(run.cast()),
   ];
 
-  Map<String, dynamic> _recordState() => {
+  Map<String, dynamic> _recordState({
+    List<Map<String, dynamic>>? recordedRuns,
+  }) => {
     _ownerKey: _verifiedUserId,
     _localSeqKey: _localSeq,
     _pendingSyncKey: _dirty,
@@ -672,16 +700,25 @@ class StatsManager {
     },
     if (_legacyPending case final legacy?) _legacyPendingKey: legacy.toJson(),
     _changesKey: [for (final change in _changes) change.json],
-    _recordedRunsKey: _recordedRuns,
+    _recordedRunsKey: recordedRuns ?? _recordedRuns,
+    _historyIdKey: _historyId ??= _newHistoryId(),
   };
 
-  Future<void> _saveLocalAllStatsToSharedPrefs() async {
-    // Una sola escritura guarda el historial y el estado de sincronización.
+  /// Una sola escritura guarda el historial y el estado de sincronización.
+  /// Con [recordedRuns] se escribe esa lista; la memoria la recibe quien
+  /// llama, solo después de confirmar el guardado (TIMER-03).
+  Future<void> _saveLocalAllStatsToSharedPrefs({
+    List<Map<String, dynamic>>? recordedRuns,
+  }) async {
     final saved = await _prefs.setString(
       SharedPreferenceConstants.localAllStatsKey,
-      jsonEncode({..._allStats!.toJson(), ..._recordState()}),
+      jsonEncode({
+        ..._allStats!.toJson(),
+        ..._recordState(recordedRuns: recordedRuns),
+      }),
     );
     if (!saved) throw StateError('Could not save local stats');
+    _historyIdOnDisk = true;
   }
 
   LocalAllStats _loadLocalAllStats() {
@@ -757,7 +794,60 @@ class StatsManager {
     ];
   }
 
-  /// Junta dos historiales sin dueño sin repetir sesiones ni `runId`.
+  /// Aporte de cada historial a una copia sin dueño: minutos y número de
+  /// cambios locales, por su identificador (REV-09).
+  static Map<String, Map<String, dynamic>> _historyContributions(
+    Map<String, dynamic> entry,
+  ) {
+    final listed = entry[_archivedHistoriesKey];
+    if (listed is Map) {
+      return {
+        for (final item in listed.entries)
+          if (item.key is String && item.value is Map)
+            item.key as String: Map<String, dynamic>.of(
+              (item.value as Map).cast(),
+            ),
+      };
+    }
+    final id = entry[_historyIdKey];
+    if (id is! String || id.isEmpty) return {};
+    final stats = LocalAllStats.fromJson(
+      entry['stats'] as Map<String, dynamic>? ?? const {},
+    );
+    return {
+      id: {
+        'time': stats.totalTimeListened,
+        'seq': entry[_localSeqKey] as int? ?? 0,
+      },
+    };
+  }
+
+  /// Quita de [older] los cambios que [newer] repite (el mismo historial
+  /// archivado otra vez solo agrega cambios al final).
+  static List<Object?> _changesWithoutRepeats(List older, List newer) {
+    final repeated = <String, int>{};
+    for (final change in newer) {
+      final key = jsonEncode(change);
+      repeated[key] = (repeated[key] ?? 0) + 1;
+    }
+    return [
+      for (final change in older)
+        if (() {
+          final key = jsonEncode(change);
+          final left = repeated[key] ?? 0;
+          if (left == 0) return true;
+          repeated[key] = left - 1;
+          return false;
+        }())
+          change,
+    ];
+  }
+
+  /// Junta dos historiales sin dueño sin repetir sesiones ni `runId`. Si
+  /// [newer] es otra copia de un historial que [older] ya incluye (la
+  /// verificación se cortó entre sus dos escrituras), reemplaza su aporte en
+  /// vez de sumarlo otra vez: repetir el archivado da el mismo resultado
+  /// (REV-09).
   Map<String, dynamic> _mergeOwnerless(
     Map<String, dynamic> older,
     Map<String, dynamic> newer,
@@ -767,6 +857,16 @@ class StatsManager {
     );
     final a = statsOf(older);
     final b = statsOf(newer);
+    final olderHistories = _historyContributions(older);
+    final newerHistories = _historyContributions(newer);
+    var repeatedTime = 0;
+    var repeatedSeq = 0;
+    for (final id in newerHistories.keys) {
+      final previous = olderHistories[id];
+      if (previous == null) continue;
+      repeatedTime += previous['time'] as int? ?? 0;
+      repeatedSeq += previous['seq'] as int? ?? 0;
+    }
     final seen = <String>{};
     var duplicated = 0;
     final completed = <LocalAudioCompleted>[];
@@ -779,7 +879,10 @@ class StatsManager {
     }
     var merged = a.copyWith(
       audioCompleted: completed,
-      totalTimeListened: a.totalTimeListened + b.totalTimeListened,
+      totalTimeListened: max(
+        0,
+        a.totalTimeListened + b.totalTimeListened - repeatedTime,
+      ),
       totalTracksCompleted: max(
         0,
         a.totalTracksCompleted + b.totalTracksCompleted - duplicated,
@@ -792,17 +895,24 @@ class StatsManager {
       consistencyScore: calculateConsistencyScore(merged),
     );
     final runIds = <String>{};
+    final olderChanges = older[_changesKey] as List? ?? const [];
+    final newerChanges = newer[_changesKey] as List? ?? const [];
     return {
       ...newer,
       _ownerKey: null,
       'stats': jsonDecode(jsonEncode(merged.toJson())),
-      _localSeqKey:
-          (older[_localSeqKey] as int? ?? 0) +
-          (newer[_localSeqKey] as int? ?? 0),
+      _localSeqKey: max(
+        0,
+        (older[_localSeqKey] as int? ?? 0) +
+            (newer[_localSeqKey] as int? ?? 0) -
+            repeatedSeq,
+      ),
       _pendingSyncKey: true,
       _changesKey: [
-        ...(older[_changesKey] as List? ?? const []),
-        ...(newer[_changesKey] as List? ?? const []),
+        ...(repeatedTime > 0 || repeatedSeq > 0
+            ? _changesWithoutRepeats(olderChanges, newerChanges)
+            : olderChanges),
+        ...newerChanges,
       ],
       _recordedRunsKey: [
         for (final run in [
@@ -811,14 +921,22 @@ class StatsManager {
         ])
           if (runIds.add(run['runId'] as String)) run,
       ],
+      _archivedHistoriesKey: {...olderHistories, ...newerHistories},
     };
   }
 
-  Map<String, dynamic>? _archiveActiveStats() {
+  /// Copia del historial activo para archivarla. Antes se asegura de que el
+  /// registro activo en disco guarde su identificador: si el proceso muere
+  /// después de archivar, el siguiente intento reconoce la misma copia
+  /// (REV-09).
+  Future<Map<String, dynamic>?> _archiveActiveStats() async {
     if (!_dirty && (_verifiedUserId == null || _synced == null)) return null;
+    _allStats ??= _loadLocalAllStats();
+    if (!_historyIdOnDisk) await _saveLocalAllStatsToSharedPrefs();
+    // Copia en JSON puro: la unión con otra copia sin dueño la vuelve a leer.
     return {
       ..._recordState(),
-      'stats': (_allStats ?? _loadLocalAllStats()).toJson(),
+      'stats': jsonDecode(jsonEncode(_allStats!.toJson())),
     };
   }
 
@@ -836,12 +954,18 @@ class StatsManager {
 
   /// Guarda un cambio local en una sola escritura. Se llama dentro del candado;
   /// el envío al servidor lo hace quien llama, ya fuera del candado.
-  Future<void> _commitLocalChange({StatsChange? change, double? score}) async {
+  Future<void> _commitLocalChange({
+    StatsChange? change,
+    double? score,
+    List<Map<String, dynamic>>? recordedRuns,
+  }) async {
     final generation = _clearGeneration;
     _localSeq++;
     _dirty = true;
     if (change != null) _changes.add(change);
-    await _saveLocalAllStatsToSharedPrefs();
+    await _saveLocalAllStatsToSharedPrefs(recordedRuns: recordedRuns);
+    // Las marcas de Salud se publican solo con el guardado confirmado.
+    if (recordedRuns != null) _recordedRuns = recordedRuns;
     if (generation != _clearGeneration) return;
     if (score != null) await saveConsistencyScoreHistory(score);
   }
@@ -953,7 +1077,9 @@ class StatsManager {
           }
           final change = _completionChange(completion, duration);
           _allStats = _applyCompletion(_allStats!, change, completedAt: endMs);
-          _recordedRuns = _appendRun(_recordedRuns, {
+          // La marca de Salud viaja en la MISMA escritura, pero la memoria
+          // solo la publica cuando el guardado se confirmó (TIMER-03).
+          final runs = _appendRun(_recordedRuns, {
             'runId': runId,
             if (ownerId.isNotEmpty)
               'healthPending': {
@@ -965,6 +1091,7 @@ class StatsManager {
           await _commitLocalChange(
             change: change,
             score: _updateDerivedStats(),
+            recordedRuns: runs,
           );
           return TimerRecordResult.accepted;
         }
@@ -1062,20 +1189,24 @@ class StatsManager {
   }
 
   /// Sesiones de la cuenta activa que siguen pendientes de exportar a Salud.
-  List<HealthPendingRun> healthPendingRuns() => [
-    for (final run in _recordedRuns)
-      if (run['healthPending'] case {
-        'startMs': final int startMs,
-        'endMs': final int endMs,
-        'accountId': final String accountId,
-      })
-        HealthPendingRun(
-          runId: run['runId'] as String,
-          startMs: startMs,
-          endMs: endMs,
-          accountId: accountId,
-        ),
-  ];
+  /// Se leen bajo el mismo candado del historial: nunca se ve la marca de un
+  /// guardado que sigue en curso o que falló (TIMER-03).
+  Future<List<HealthPendingRun>> healthPendingRuns() => _locked(
+    () async => [
+      for (final run in _recordedRuns)
+        if (run['healthPending'] case {
+          'startMs': final int startMs,
+          'endMs': final int endMs,
+          'accountId': final String accountId,
+        })
+          HealthPendingRun(
+            runId: run['runId'] as String,
+            startMs: startMs,
+            endMs: endMs,
+            accountId: accountId,
+          ),
+    ],
+  );
 
   /// Quita la marca de Salud de [runId]; `false` si no se pudo guardar.
   Future<bool> clearHealthPending(String runId) async {
@@ -1087,13 +1218,14 @@ class StatsManager {
           (run) => run['runId'] == runId && run.containsKey('healthPending'),
         );
         if (index < 0) return true;
-        _recordedRuns = [
+        final runs = [
           for (var i = 0; i < _recordedRuns.length; i++)
             i == index
                 ? (Map.of(_recordedRuns[i])..remove('healthPending'))
                 : _recordedRuns[i],
         ];
-        await _saveLocalAllStatsToSharedPrefs();
+        await _saveLocalAllStatsToSharedPrefs(recordedRuns: runs);
+        _recordedRuns = runs;
         return true;
       });
     } catch (error) {
@@ -1379,7 +1511,7 @@ class StatsManager {
         return null;
       }
 
-      final active = _archiveActiveStats();
+      final active = await _archiveActiveStats();
       final owners = _pendingOwners();
       // Solo /me puede confirmar el UUID de una copia guardada.
       final matching = owners
@@ -1426,7 +1558,7 @@ class StatsManager {
     await initialize();
     await _transaction(() async {
       _clearGeneration++;
-      final active = preservePending ? _archiveActiveStats() : null;
+      final active = preservePending ? await _archiveActiveStats() : null;
       _verifiedUserId = null;
       _allStats = LocalAllStats.empty();
       _loadRecordState(null);

@@ -404,7 +404,8 @@ data class PlaybackState (
   val track: Track,
   val backgroundSound: BackgroundSound? = null,
   val endCueRang: Boolean? = null,
-  val runId: String? = null
+  val runId: String? = null,
+  val waitingForFocus: Boolean? = null
 )
  {
   companion object {
@@ -421,7 +422,8 @@ data class PlaybackState (
       val backgroundSound = pigeonVar_list[9] as BackgroundSound?
       val endCueRang = pigeonVar_list[10] as Boolean?
       val runId = pigeonVar_list[11] as String?
-      return PlaybackState(isPlaying, isBuffering, isSeeking, isCompleted, position, duration, speed, volume, track, backgroundSound, endCueRang, runId)
+      val waitingForFocus = pigeonVar_list[12] as Boolean?
+      return PlaybackState(isPlaying, isBuffering, isSeeking, isCompleted, position, duration, speed, volume, track, backgroundSound, endCueRang, runId, waitingForFocus)
     }
   }
   fun toList(): List<Any?> {
@@ -438,6 +440,7 @@ data class PlaybackState (
       backgroundSound,
       endCueRang,
       runId,
+      waitingForFocus,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -448,7 +451,7 @@ data class PlaybackState (
       return true
     }
     val other = other as PlaybackState
-    return AudioPigeonPigeonUtils.deepEquals(this.isPlaying, other.isPlaying) && AudioPigeonPigeonUtils.deepEquals(this.isBuffering, other.isBuffering) && AudioPigeonPigeonUtils.deepEquals(this.isSeeking, other.isSeeking) && AudioPigeonPigeonUtils.deepEquals(this.isCompleted, other.isCompleted) && AudioPigeonPigeonUtils.deepEquals(this.position, other.position) && AudioPigeonPigeonUtils.deepEquals(this.duration, other.duration) && AudioPigeonPigeonUtils.deepEquals(this.speed, other.speed) && AudioPigeonPigeonUtils.deepEquals(this.volume, other.volume) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.backgroundSound, other.backgroundSound) && AudioPigeonPigeonUtils.deepEquals(this.endCueRang, other.endCueRang) && AudioPigeonPigeonUtils.deepEquals(this.runId, other.runId)
+    return AudioPigeonPigeonUtils.deepEquals(this.isPlaying, other.isPlaying) && AudioPigeonPigeonUtils.deepEquals(this.isBuffering, other.isBuffering) && AudioPigeonPigeonUtils.deepEquals(this.isSeeking, other.isSeeking) && AudioPigeonPigeonUtils.deepEquals(this.isCompleted, other.isCompleted) && AudioPigeonPigeonUtils.deepEquals(this.position, other.position) && AudioPigeonPigeonUtils.deepEquals(this.duration, other.duration) && AudioPigeonPigeonUtils.deepEquals(this.speed, other.speed) && AudioPigeonPigeonUtils.deepEquals(this.volume, other.volume) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.backgroundSound, other.backgroundSound) && AudioPigeonPigeonUtils.deepEquals(this.endCueRang, other.endCueRang) && AudioPigeonPigeonUtils.deepEquals(this.runId, other.runId) && AudioPigeonPigeonUtils.deepEquals(this.waitingForFocus, other.waitingForFocus)
   }
 
   override fun hashCode(): Int {
@@ -465,6 +468,7 @@ data class PlaybackState (
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.backgroundSound)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.endCueRang)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.runId)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.waitingForFocus)
     return result
   }
 }

@@ -88,6 +88,85 @@ void main() {
     expect(events, 1);
   });
 
+  group('cierres de la versión anterior con inicio de día (TIMER-06)', () {
+    // Sesión de 23:50 a 00:20; el día de la persona empieza a las 04:00.
+    final endedAt = DateTime(2026, 11, 22, 0, 20).millisecondsSinceEpoch;
+    const thirtyMinutes = 30 * 60000;
+    final legacy = CompletionData(
+      trackId: 'timer-1800',
+      duration: thirtyMinutes,
+      fileId: 'timer-countdown-1800000',
+      timestamp: endedAt,
+      timerEnded: TimerEndedData(
+        positionMs: thirtyMinutes,
+        mode: 'countdown',
+        elapsedSeconds: 1800,
+        recorded: true,
+      ),
+    );
+
+    Future<void> storedAt(int timestamp) async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(SharedPreferenceConstants.dayBoundaryOffsetHours, 4);
+      await prefs.setString(
+        SharedPreferenceConstants.localAllStatsKey,
+        jsonEncode(
+          LocalAllStats.empty()
+              .copyWith(
+                audioCompleted: [
+                  LocalAudioCompleted(id: 'timer-1800', timestamp: timestamp),
+                ],
+              )
+              .toJson(),
+        ),
+      );
+    }
+
+    test('guardada con la hora de inicio no se vuelve a guardar', () async {
+      await storedAt(endedAt - thirtyMinutes);
+      final recovery = NativeTimerCloseRecovery(
+        record: (_) async => fail('El historial ya contiene la sesión'),
+        logEnded: (_) async {},
+      );
+      expect(await recovery.handle(legacy), isTrue);
+      // La confirmación queda guardada: otro intento tampoco duplica.
+      expect(await recovery.handle(legacy), isTrue);
+    });
+
+    test('guardada con la hora de fin no se vuelve a guardar', () async {
+      await storedAt(endedAt);
+      final recovery = NativeTimerCloseRecovery(
+        record: (_) async => fail('El historial ya contiene la sesión'),
+        logEnded: (_) async {},
+      );
+      expect(await recovery.handle(legacy), isTrue);
+    });
+
+    test('otra sesión que terminó al empezar esta sí se guarda', () async {
+      // De 10:00 a 10:30, sin cruzar ningún inicio de día: la hora de
+      // inicio no se confunde con otra sesión que terminó a las 10:00.
+      final morning = DateTime(2026, 11, 22, 10, 30).millisecondsSinceEpoch;
+      await storedAt(morning - thirtyMinutes);
+      var writes = 0;
+      final recovery = NativeTimerCloseRecovery(
+        record: (_) async {
+          writes++;
+          return true;
+        },
+        logEnded: (_) async {},
+      );
+      final next = CompletionData(
+        trackId: legacy.trackId,
+        duration: legacy.duration,
+        fileId: legacy.fileId,
+        timestamp: morning,
+        timerEnded: legacy.timerEnded,
+      );
+      expect(await recovery.handle(next), isTrue);
+      expect(writes, 1);
+    });
+  });
+
   test('un cierre corto emite timer_ended sin registrar minutos', () async {
     final short = CompletionData(
       trackId: 'timer-32',

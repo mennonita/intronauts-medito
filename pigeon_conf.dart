@@ -203,6 +203,9 @@ class PlaybackState {
   bool? endCueRang;
   // Identificador de la sesión del temporizador; null en meditaciones guiadas.
   String? runId;
+  // true mientras el temporizador está listo pero su reloj espera el foco de
+  // audio (llamada en curso o foco en espera); null en meditaciones guiadas.
+  bool? waitingForFocus;
 
   PlaybackState({
     required this.isPlaying,
@@ -217,6 +220,7 @@ class PlaybackState {
     this.backgroundSound,
     this.endCueRang,
     this.runId,
+    this.waitingForFocus,
   });
 }
 

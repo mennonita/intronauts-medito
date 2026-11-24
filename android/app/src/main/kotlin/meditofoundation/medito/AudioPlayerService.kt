@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.IntentCompat
@@ -92,7 +93,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private var pausedByPolicy = false
     private var duckFactor = 1f
     private var lastClockPhase = -1
-    private var lastStoreWriteAtMs = 0L
+    // Intervalo entre fotos del registro con el reloj desde el arranque (REV-04).
+    private val storeThrottle = TimerStoreThrottle(STORE_WRITE_INTERVAL_MS, ElapsedClock { SystemClock.elapsedRealtime() })
     // Número de foto del registro, tomado en el evento (R108).
     private var snapshotSeq = 0L
     // El último pedido de foco quedó en espera (llamada en curso).
@@ -173,7 +175,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     isCompleted = false, // Completion is emitted by the native listener.
                     track = trackFromCurrentMediaItem(),
                     endCueRang = timerEndCueRang(),
-                    runId = timerParams?.runId
+                    runId = timerParams?.runId,
+                    waitingForFocus = timerWaitingForFocus()
                 )
                 // Apply background sound volume on main thread (touches ExoPlayer)
                 applyBackgroundSoundVolume(state.duration, state.position)
@@ -245,6 +248,14 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
         api.updatePlaybackState(state) { /* fire-and-forget */ }
     }
+
+    /**
+     * Sólo en temporizadores: el reloj está listo pero espera el foco de audio
+     * (llamada o foco en espera). Dart no cuenta el plazo de inicio mientras
+     * tanto (REV-06).
+     */
+    private fun timerWaitingForFocus(): Boolean? =
+        if (timerSeed != null) pausedByPolicy && !primaryPlayer.isPlaying else null
 
     // Sólo en temporizadores: si la campana final de verdad empezó a sonar (R98).
     private fun timerEndCueRang(): Boolean? =
@@ -1115,9 +1126,17 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             pausedByPolicy = false
             setDuck(1f)
             lastClockPhase = -1
-            lastStoreWriteAtMs = 0L
+            storeThrottle.reset()
             timerEndPassed = false
             currentRunId = timerParams?.runId
+            // El registro se confirma ANTES de que el reloj pueda arrancar (REV-03):
+            // sin registro recuperable, el inicio falla y Dart lo informa.
+            timerParams?.let { params ->
+                if (!openTimerRun(params, audioData, accountGeneration)) {
+                    abortTimerStart()
+                    return false
+                }
+            }
             // Temporizador: archivo local (LOCAL). Guiada: puede ser de red (NETWORK) (TECH-14).
             primaryPlayer.setWakeMode(if (timerSeed != null) C.WAKE_MODE_LOCAL else C.WAKE_MODE_NETWORK)
             ensureMediaSession()
@@ -1220,8 +1239,6 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             }
 
             Log.d(TAG, "🔊 Started primary audio playback preparation")
-
-            timerParams?.let { startTimerRun(it, audioData, accountGeneration) }
             return true
         } catch (e: Exception) {
             if (audioData.timerSeed != null) {
@@ -1856,6 +1873,9 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     Log.d(TAG, "🔊 El reloj espera: llamada o foco pendiente")
                     pausedByPolicy = true
                     updateNotification()
+                    // Dart ve la espera (no es una carga fallida) y, en modo mezcla,
+                    // la revisión de cada segundo detecta el fin de la llamada (REV-06).
+                    startPositionUpdates()
                     return@play
                 }
             }
@@ -2119,7 +2139,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         cancelTimerBackup()
         val position = primaryPlayer.currentPosition
         runStore.update(params.runId, position, timerEndPassed, System.currentTimeMillis(), playbackGeneration, ++snapshotSeq)
-        lastStoreWriteAtMs = System.currentTimeMillis()
+        storeThrottle.markWritten()
     }
 
     /**
@@ -2142,9 +2162,11 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             updateNotification()
         }
 
+        // El intervalo se mide con el reloj desde el arranque; la hora del teléfono
+        // sólo fecha la foto (REV-04).
+        if (!primaryPlayer.isPlaying || !storeThrottle.due()) return null
+        storeThrottle.markWritten()
         val now = System.currentTimeMillis()
-        if (!primaryPlayer.isPlaying || now - lastStoreWriteAtMs < STORE_WRITE_INTERVAL_MS) return null
-        lastStoreWriteAtMs = now
         val runId = params.runId
         val endPassed = timerEndPassed
         val generation = playbackGeneration
@@ -2227,9 +2249,11 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         )
     }
 
-    /** Escribe la sesión al aceptarla; una sesión vieja sin cerrar pasa a recuperada. */
-    private fun startTimerRun(params: TimerSessionParams, audioData: AudioData, generation: Long) {
-        TimerEndBackup.writeRunState(this, params.runId, ended = false)
+    /**
+     * Guarda la sesión al aceptarla, ANTES de arrancar el reloj; una sesión vieja
+     * sin cerrar pasa a recuperada. Devuelve false si no se pudo guardar (REV-03).
+     */
+    private fun openTimerRun(params: TimerSessionParams, audioData: AudioData, generation: Long): Boolean {
         val run = TimerActiveRun(
             runId = params.runId,
             ownerId = params.ownerId,
@@ -2245,12 +2269,34 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             updatedAtMs = params.startEpochMs,
             endPassed = false
         )
-        val hadFinished = runStore.pending().size
-        if (!runStore.start(run, generation)) {
-            Log.e(TAG, "No se pudo guardar el inicio de la sesión del temporizador")
-        } else if (runStore.pending().size > hadFinished) {
-            deliverPendingRuns()
+        return when (runStore.open(run, generation)) {
+            TimerRunOpen.FAILED -> {
+                Log.e(TAG, "No se pudo guardar el inicio de la sesión del temporizador")
+                false
+            }
+            TimerRunOpen.OPENED_WITH_RECOVERY -> {
+                TimerEndBackup.writeRunState(this, params.runId, ended = false)
+                deliverPendingRuns()
+                true
+            }
+            TimerRunOpen.OPENED -> {
+                TimerEndBackup.writeRunState(this, params.runId, ended = false)
+                true
+            }
         }
+    }
+
+    /** El inicio no se pudo guardar: nada de esta sesión queda armado (REV-03). */
+    private fun abortTimerStart() {
+        timerStart.cancel()
+        sessionBells.disable()
+        currentRunId = null
+        timerSeed = null
+        timerStopLabel = null
+        timerHasExtraTime = false
+        timerParams = null
+        focusPolicy = null
+        pausedByPolicy = false
     }
 
     /**
@@ -2270,7 +2316,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             // Tiempo extra que llegó al final del archivo: lo meditado, con su tope.
             val duration = if (params.extraTime) params.elapsedMs(primaryPlayer.currentPosition)
             else params.plannedMs
-            val trackId = mediaItem?.mediaId ?: TimerElapsed.trackId(params.plannedMs)
+            // El historial lleva el id de lo registrado; el del archivo es del reproductor (REV-07).
+            val trackId = TimerFinishedRun.naturalTrackId(params.extraTime, duration, mediaItem?.mediaId, params.plannedMs)
             val fallback = activeRunSnapshot(params, primaryPlayer.currentPosition)
             val generation = playbackGeneration
             val closeNatural = {

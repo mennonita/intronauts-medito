@@ -54,7 +54,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
   final bool _usesAndroidAudio;
   final Duration _startConfirmTimeout;
   _PlaybackStart? _start;
-  final _timerCloses = StreamController<TimerCloseResult>.broadcast();
+  final _timerCloses = StreamController<TimerRunCloseResult>.broadcast();
   PlaybackRequest? _activeTimer;
   TimerSessionCloser? _timerCloser;
   String? _reservedRunId;
@@ -72,7 +72,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
   PlaybackRequest? get activeTimerRequest =>
       _start?.isCurrent == true ? _activeTimer : null;
 
-  Stream<TimerCloseResult> get timerCloses => _timerCloses.stream;
+  Stream<TimerRunCloseResult> get timerCloses => _timerCloses.stream;
 
   /// Verdadero mientras una sesión (temporizador o guiada) está reservada,
   /// empezando, sonando o en pausa, y no se ha cerrado.
@@ -147,14 +147,19 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
   ) {
     final watch = _startWatch;
     final request = _activeTimer;
-    if (watch != null &&
-        !watch.failed &&
-        next.runId == watch.runId &&
-        next.isPlaying &&
-        next.position > 0) {
-      _startWatch = null;
-      watch.cancel();
-      unawaited(_commitLastTimer(watch.runId));
+    if (watch != null && !watch.failed && next.runId == watch.runId) {
+      if (next.isPlaying && next.position > 0) {
+        _startWatch = null;
+        watch.cancel();
+        unawaited(_commitLastTimer(watch.runId));
+      } else if (next.waitingForFocus == true && !next.isPlaying) {
+        // La sesión ya cargó y su reloj espera el foco (una llamada): no es
+        // una carga fallida y el plazo no corre mientras espera (REV-06).
+        watch.hold();
+      } else if (watch.held && next.isPlaying) {
+        // El reloj ya puede avanzar: el plazo de confirmación empieza ahora.
+        watch.arm(_startConfirmTimeout, () => unawaited(_failStart(watch)));
+      }
     }
     if (request != null &&
         !_usesAndroidAudio &&
@@ -332,6 +337,9 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     try {
       start.check();
       if (previousTimer != null && !_usesAndroidAudio) {
+        // Antes de reemplazar el audio, el temporizador anterior se cierra
+        // con su posición final y deja de ser la sesión viva (REV-05).
+        await _closeReplacedIosTimer(previousTimer, previous);
         iosAudioHandler.cancelPendingTimerStart();
       }
       try {
@@ -381,6 +389,43 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
         persist: !request.isTimer,
       ),
     );
+  }
+
+  /// iOS: una sesión nueva reemplaza a un temporizador que sigue sonando. Se
+  /// guarda su cierre con el tiempo meditado hasta ahora (o se descarta si
+  /// nunca empezó) y su `runId` deja de ser el vivo, para que la
+  /// recuperación nunca lo omita (REV-05).
+  Future<void> _closeReplacedIosTimer(
+    PlaybackRequest timer,
+    _PlaybackStart? start,
+  ) async {
+    final runs = IosTimerRunStore.instance;
+    final runId = timer.timerRunId;
+    final generation = start?.accountGeneration ?? PlaybackAccount.generation;
+    try {
+      if (start?.requested == true && iosAudioHandler.timerRunId == runId) {
+        final elapsed = TimerTimeline.fromRequest(
+          timer,
+        ).elapsedMs(iosAudioHandler.position.inMilliseconds);
+        await runs.finish(
+          runId: runId,
+          durationMs: elapsed,
+          fallback: TimerRunStart.fromRequest(timer),
+          generation: generation,
+          keepForRetry: true,
+        );
+        unawaited(runs.deliver());
+      }
+    } catch (error, stack) {
+      AppLogger.e(
+        'TIMER',
+        'No se pudo cerrar el temporizador reemplazado',
+        error,
+        stack,
+      );
+    } finally {
+      runs.releaseLiveRun(runId);
+    }
   }
 
   /// Sets the current request WITHOUT starting playback, so the player screen
@@ -474,7 +519,9 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       setSpeed(1.0);
       iosAudioHandler.onTimerStop = request.isTimer
           ? () async {
-              if (identical(_start, start)) await closeTimer();
+              if (identical(_start, start)) {
+                await _closeTimer(expectedRunId: request.timerRunId);
+              }
             }
           : null;
       final sound = ref.read(backgroundSoundsNotifierProvider.notifier);
@@ -632,10 +679,11 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
         .read(dndProvider.notifier)
         .shouldRequestDnd();
     if (!request.isTimer) {
-      return pigeon.AudioData(
-        url: url,
-        track: trackData,
+      return guidedAudioData(
+        url,
+        trackData,
         dndRequested: dndRequested,
+        dndRuleName: currentLocalizations().timerDndRuleName,
       );
     }
     final l10n = currentLocalizations();
@@ -670,6 +718,22 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     );
   }
 
+  /// Datos de una meditación guiada. Si pide «No molestar» también viaja el
+  /// nombre localizado de la regla: Android 15+ lo necesita para crearla en
+  /// una instalación nueva (REV-12).
+  @visibleForTesting
+  static pigeon.AudioData guidedAudioData(
+    String url,
+    pigeon.Track trackData, {
+    required bool dndRequested,
+    required String dndRuleName,
+  }) => pigeon.AudioData(
+    url: url,
+    track: trackData,
+    dndRequested: dndRequested,
+    timerDndRuleName: dndRequested ? dndRuleName : null,
+  );
+
   String _constructFileName(PlaybackRequest request) =>
       '${request.trackId}-${request.fileId}${getAudioFileExtension(request.remoteUrl)}';
 
@@ -686,21 +750,28 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     int sessionSeed,
     pigeon.TimerStopReport report,
   ) async {
-    if (_activeTimer?.timerSeed == sessionSeed) {
-      await _closeTimer(report: report);
-    }
+    final active = _activeTimer;
+    if (active == null || active.timerSeed != sessionSeed) return;
+    // El reporte de otra corrida nunca cierra la actual.
+    final reported = report.runId;
+    if (reported != null && reported != active.timerRunId) return;
+    await _closeTimer(report: report, expectedRunId: active.timerRunId);
   }
 
-  /// Cierra el temporizador. [save] es la elección del usuario: `true` para
-  /// «Terminar» y «Guardar y salir», `false` para «Salir sin guardar».
-  /// Con `save: false` que no pudo borrar la sesión devuelve
+  /// Cierra el temporizador [runId]. [save] es la elección del usuario:
+  /// `true` para «Terminar» y «Guardar y salir», `false` para «Salir sin
+  /// guardar». Si la sesión activa ya es otra, no toca nada y devuelve null
+  /// (TIMER-05). Con `save: false` que no pudo borrar la sesión devuelve
   /// `stopped == false` y el audio sigue sonando (R52).
-  Future<TimerCloseResult?> closeTimer({bool save = true}) =>
-      _closeTimer(save: save);
+  Future<TimerRunCloseResult?> closeTimer({
+    required String runId,
+    bool save = true,
+  }) => _closeTimer(save: save, expectedRunId: runId);
 
-  Future<TimerCloseResult?> _closeTimer({
+  Future<TimerRunCloseResult?> _closeTimer({
     pigeon.TimerStopReport? report,
     bool save = true,
+    required String expectedRunId,
   }) async {
     final request = _activeTimer;
     final closer = _timerCloser;
@@ -708,6 +779,8 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     if (request == null ||
         closer == null ||
         start == null ||
+        expectedRunId.isEmpty ||
+        request.timerRunId != expectedRunId ||
         !PlaybackAccount.isCurrent(start.accountGeneration)) {
       return null;
     }
@@ -721,11 +794,18 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     }
     final wasCancelled = start.cancelled;
     start.cancelled = true;
+    // Después de cada espera: la misma corrida, la misma cuenta y el mismo
+    // `runId` esperado (TIMER-05).
     bool isCurrent() =>
         identical(_start, start) &&
-        PlaybackAccount.isCurrent(start.accountGeneration);
+        PlaybackAccount.isCurrent(start.accountGeneration) &&
+        (_activeTimer?.timerRunId ?? expectedRunId) == expectedRunId;
     final result = await closer.close(
-      stopPlayback: () => _stopTimerPlayback(request, start, report, save),
+      // El mismo resultado, con su `runId`, llega al flujo y a quien cerró.
+      stopPlayback: () async => TimerRunCloseResult.of(
+        expectedRunId,
+        await _stopTimerPlayback(request, start, report, save),
+      ),
       isCurrent: isCurrent,
       onStopped: (result) {
         final sound = ref.read(backgroundSoundsNotifierProvider);
@@ -768,7 +848,10 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       // La sesión sigue sonando: se puede reintentar el cierre.
       start.cancelled = wasCancelled;
     }
-    return isCurrent() ? result : null;
+    if (!isCurrent()) return null;
+    return result is TimerRunCloseResult
+        ? result
+        : TimerRunCloseResult.of(expectedRunId, result);
   }
 
   /// Muestra del cierre manual según la salida de las campanas (§4.9):
@@ -906,7 +989,13 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       );
     }
     // «Salir sin guardar» no abre la pantalla final: quien cerró decide.
-    if (result.saved) _timerCloses.add(result);
+    if (result.saved) {
+      _timerCloses.add(
+        result is TimerRunCloseResult
+            ? result
+            : TimerRunCloseResult.of(request.timerRunId, result),
+      );
+    }
   }
 
   Future<void> _stopPlayback() =>
@@ -1018,16 +1107,50 @@ class _StartWatch {
   final PlaybackRequest request;
   final _PlaybackStart start;
   bool failed = false;
+  // El reloj espera el foco de audio: el plazo está detenido (REV-06).
+  bool held = false;
   Timer? _timeout;
 
   String get runId => request.timerRunId;
 
   void arm(Duration timeout, void Function() onTimeout) {
+    held = false;
     _timeout?.cancel();
     _timeout = Timer(timeout, onTimeout);
   }
 
+  /// Detiene el plazo mientras el reloj no puede avanzar.
+  void hold() {
+    held = true;
+    _timeout?.cancel();
+  }
+
   void cancel() => _timeout?.cancel();
+}
+
+/// Resultado del cierre de UNA corrida: lleva su `runId` para que quien lo
+/// recibe compruebe que es la suya (TIMER-05).
+class TimerRunCloseResult extends TimerCloseResult {
+  const TimerRunCloseResult(
+    this.runId,
+    super.elapsed, {
+    super.stopped,
+    super.endCueRang,
+    super.completionPersisted,
+    super.saved,
+  });
+
+  TimerRunCloseResult.of(String runId, TimerCloseResult result)
+    : this(
+        runId,
+        result.elapsed,
+        stopped: result.stopped,
+        endCueRang: result.endCueRang,
+        completionPersisted: result.completionPersisted,
+        saved: result.saved,
+      );
+
+  final String runId;
 }
 
 const audioPercentageListened = 0.8;

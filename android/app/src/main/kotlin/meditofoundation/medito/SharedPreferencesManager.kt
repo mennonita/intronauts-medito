@@ -55,6 +55,8 @@ object SharedPreferencesManager {
         ) {
             "No se pudieron borrar las sesiones del temporizador"
         }
+        // La alarma de respaldo y su estado son de la cuenta anterior (REV-08).
+        TimerEndBackup.invalidateForAccountChange(context)
     }
 
     @Synchronized

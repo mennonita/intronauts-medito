@@ -73,20 +73,29 @@ class IosTimerRunStore {
   IosTimerRunStore({
     Future<TimerRecordResult> Function(Map<String, dynamic> payload)? record,
     int Function()? clock,
+    int Function()? elapsed,
     Future<SharedPreferences> Function()? prefs,
   }) : _record = record ?? handleTimerRun,
        _clock = clock ?? _now,
+       _elapsed = elapsed ?? _monotonicNow,
        _prefs = prefs ?? SharedPreferences.getInstance;
 
   static IosTimerRunStore instance = IosTimerRunStore();
 
   static int _now() => DateTime.now().millisecondsSinceEpoch;
 
+  // Reloj que solo avanza: un cambio de hora del teléfono no lo mueve (REV-04).
+  static final _monotonic = Stopwatch()..start();
+  static int _monotonicNow() => _monotonic.elapsedMilliseconds;
+
   /// Cada cuánto se guarda la posición mientras suena.
   static const positionInterval = Duration(seconds: 3);
 
   final Future<TimerRecordResult> Function(Map<String, dynamic>) _record;
+  // Hora del teléfono: solo para fechar las sesiones.
   final int Function() _clock;
+  // Reloj monotónico: solo para medir el intervalo entre escrituras.
+  final int Function() _elapsed;
   final Future<SharedPreferences> Function() _prefs;
 
   Future<void> _queue = Future.value();
@@ -266,16 +275,19 @@ class IosTimerRunStore {
   }) {
     final event = generation ?? PlaybackAccount.generation;
     final now = _clock();
+    final tick = _elapsed();
     final last = _lastPositionWriteMs;
     // Cruzar el final se guarda una vez; después vuelve el intervalo normal.
     final crossing = endPassed == true && _active?['endPassed'] != true;
+    // El intervalo se mide con el reloj monotónico: atrasar la hora del
+    // teléfono no congela el registro (REV-04).
     if (!force &&
         !crossing &&
         last != null &&
-        now - last < positionInterval.inMilliseconds) {
+        tick - last < positionInterval.inMilliseconds) {
       return Future.value(true);
     }
-    _lastPositionWriteMs = now;
+    _lastPositionWriteMs = tick;
     return _transition(event, (state) {
       final active = state.active;
       if (active == null || active['runId'] != runId) return null;
@@ -309,6 +321,10 @@ class IosTimerRunStore {
   /// Cierre con guardado (final natural o «Guardar y salir»): pasa `active` a
   /// `finished` con el tiempo final (≥ 60 s; si no, solo lo borra). Se llama
   /// ANTES de detener el audio.
+  ///
+  /// La decisión se revisa y se registra dentro del mismo candado que la
+  /// escritura: si «Salir sin guardar» ganó la carrera, el final natural
+  /// nunca reconstruye la sesión descartada (REV-02).
   Future<bool> finish({
     required String runId,
     required int durationMs,
@@ -318,26 +334,43 @@ class IosTimerRunStore {
     bool keepForRetry = false,
   }) async {
     final event = generation ?? PlaybackAccount.generation;
-    // La primera decisión gana: una sesión descartada o ya cerrada no vuelve.
-    if (_closed.containsKey(runId)) return true;
     final timestamp = timestampMs ?? _clock();
-    _RunState? finishState(_RunState state) =>
-        _finishState(state, runId, durationMs, timestamp, fallback);
-    var saved = await _transition(event, finishState);
-    if (!saved && PlaybackAccount.isCurrent(event)) {
-      saved = await _transition(event, finishState);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final lastAttempt = attempt == 1;
+      final saved = await _locked(() async {
+        // La primera decisión gana: una sesión descartada o ya cerrada no vuelve.
+        if (_closed.containsKey(runId)) return true;
+        if (!PlaybackAccount.isCurrent(event)) return false;
+        final prefs = await _prefs();
+        final next = _finishState(
+          _state(prefs),
+          runId,
+          durationMs,
+          timestamp,
+          fallback,
+        );
+        final written =
+            next == null ||
+            await _write(prefs, next.active, next.finished, event);
+        if (written) {
+          _closed[runId] = true;
+        } else if (lastAttempt &&
+            keepForRetry &&
+            PlaybackAccount.isCurrent(event)) {
+          // El audio ya terminó: conserva el tiempo final para el siguiente
+          // guardado en vez de perderlo.
+          final item = _pendingItem(runId, durationMs, timestamp, fallback);
+          if (item != null) _unsaved[runId] = item;
+          _closed[runId] = true;
+        }
+        if (_liveRunId == runId && _closed.containsKey(runId)) {
+          _liveRunId = null;
+        }
+        return written;
+      });
+      if (saved || !PlaybackAccount.isCurrent(event)) return saved;
     }
-    if (saved) {
-      _closed[runId] = true;
-    } else if (keepForRetry && PlaybackAccount.isCurrent(event)) {
-      // El audio ya terminó: conserva el tiempo final para el siguiente
-      // guardado en vez de perderlo.
-      final item = _pendingItem(runId, durationMs, timestamp, fallback);
-      if (item != null) _unsaved[runId] = item;
-      _closed[runId] = true;
-    }
-    if (_liveRunId == runId && (saved || keepForRetry)) _liveRunId = null;
-    return saved;
+    return false;
   }
 
   Map<String, dynamic>? _pendingItem(
@@ -394,29 +427,35 @@ class IosTimerRunStore {
   }
 
   /// «Salir sin guardar» (R52): borra `active` antes de detener el audio.
-  /// Reintenta una vez; `false` significa que hay que seguir sonando.
+  /// Reintenta una vez; `false` significa que hay que seguir sonando. La
+  /// decisión se revisa y se registra dentro del candado (REV-02).
   Future<bool> discard(String runId, {int? generation}) async {
     final event = generation ?? PlaybackAccount.generation;
-    // Ya decidida: «Salir sin guardar» no deshace un cierre que ya se guardó.
-    if (_closed.containsKey(runId)) return true;
-    ({Map<String, dynamic>? active, List<Map<String, dynamic>> finished})?
-    clearActive(
-      ({Map<String, dynamic>? active, List<Map<String, dynamic>> finished})
-      state,
-    ) {
-      if (state.active?['runId'] != runId) return null;
-      return (active: null, finished: state.finished);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final cleared = await _locked(() async {
+        // Ya decidida: «Salir sin guardar» no deshace un cierre que ya se guardó.
+        if (_closed.containsKey(runId)) return true;
+        if (!PlaybackAccount.isCurrent(event)) return false;
+        final prefs = await _prefs();
+        final state = _state(prefs);
+        final written =
+            state.active?['runId'] != runId ||
+            await _write(prefs, null, state.finished, event);
+        if (written) {
+          _closed[runId] = false;
+          if (_liveRunId == runId) _liveRunId = null;
+        }
+        return written;
+      });
+      if (cleared || !PlaybackAccount.isCurrent(event)) return cleared;
     }
+    return false;
+  }
 
-    var cleared = await _transition(event, clearActive);
-    if (!cleared && PlaybackAccount.isCurrent(event)) {
-      cleared = await _transition(event, clearActive);
-    }
-    if (cleared) {
-      _closed[runId] = false;
-      if (_liveRunId == runId) _liveRunId = null;
-    }
-    return cleared;
+  /// Una sesión que deja de sonar en este proceso (otra la reemplazó) ya no
+  /// es la viva: la recuperación puede volver a verla (REV-05).
+  void releaseLiveRun(String runId) {
+    if (_liveRunId == runId) _liveRunId = null;
   }
 
   /// Vacía el registro al cambiar o borrar la cuenta. Corre bajo el mismo

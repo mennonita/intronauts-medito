@@ -78,11 +78,13 @@ void main() {
   late List<Map<String, dynamic>> delivered;
   late List<TimerRecordResult> results;
   late int now;
+  late int tick;
   late IosTimerRunStore store;
 
   IosTimerRunStore newStore() => IosTimerRunStore(
     prefs: () async => prefs,
     clock: () => now,
+    elapsed: () => tick,
     record: (payload) async {
       delivered.add(payload);
       return results.isEmpty ? TimerRecordResult.accepted : results.removeAt(0);
@@ -100,6 +102,7 @@ void main() {
     delivered = [];
     results = [];
     now = 1000000;
+    tick = 0;
     store = newStore();
   });
 
@@ -116,11 +119,13 @@ void main() {
     await store.start(_run('a'));
     await store.updatePosition('a', 1000);
     now += 1000;
+    tick += 1000;
     await store.updatePosition('a', 2000);
     expect(saved()!['active']['lastPositionMs'], 1000);
     await store.updatePosition('a', 2500, force: true);
     expect(saved()!['active']['lastPositionMs'], 2500);
     now += 3000;
+    tick += 3000;
     await store.updatePosition('a', 5500);
     expect(saved()!['active']['lastPositionMs'], 5500);
     await store.updatePosition('otra', 9000, force: true);
@@ -359,5 +364,85 @@ void main() {
     await store.updatePosition('a', 2500, endPassed: true);
     await store.updatePosition('a', 2600, endPassed: true);
     expect(prefs.writes, writes + 1);
+  });
+
+  test(
+    'atrasar la hora del teléfono no congela el registro (REV-04)',
+    () async {
+      await store.start(_run('a'));
+      await store.updatePosition('a', 1000);
+      // La hora del teléfono retrocede una hora; el reloj monotónico avanza.
+      now -= const Duration(hours: 1).inMilliseconds;
+      tick += 3000;
+      await store.updatePosition('a', 4000);
+      expect(saved()!['active']['lastPositionMs'], 4000);
+      // Adelantar la hora tampoco adelanta la siguiente escritura.
+      now += const Duration(hours: 2).inMilliseconds;
+      tick += 1000;
+      await store.updatePosition('a', 5000);
+      expect(saved()!['active']['lastPositionMs'], 4000);
+      // La hora del teléfono sigue fechando la foto.
+      expect(
+        saved()!['active']['updatedAtMs'],
+        1000000 - const Duration(hours: 1).inMilliseconds,
+      );
+    },
+  );
+
+  test(
+    'descartar mientras termina sola: el final no reconstruye la sesión (REV-02)',
+    () async {
+      await store.start(_run('a'));
+      await store.updatePosition('a', 300000, force: true);
+      // «Salir sin guardar» escribe con el reloj aún sonando.
+      prefs.gate = Completer<void>();
+      final discarding = store.discard('a');
+      await pumpEventQueue();
+      // El reloj termina solo mientras el descarte espera su escritura.
+      final finishing = store.finish(
+        runId: 'a',
+        durationMs: 600000,
+        fallback: _run('a'),
+        keepForRetry: true,
+      );
+      prefs.gate!.complete();
+      prefs.gate = null;
+      expect(await discarding, isTrue);
+      expect(await finishing, isTrue);
+      expect(saved()!['active'], isNull);
+      expect(saved()!['finished'], isEmpty);
+      await store.deliver();
+      expect(delivered, isEmpty);
+    },
+  );
+
+  test('el final que gana la carrera se conserva al descartar', () async {
+    await store.start(_run('a'));
+    prefs.gate = Completer<void>();
+    final finishing = store.finish(
+      runId: 'a',
+      durationMs: 600000,
+      fallback: _run('a'),
+    );
+    await pumpEventQueue();
+    final discarding = store.discard('a');
+    prefs.gate!.complete();
+    prefs.gate = null;
+    expect(await finishing, isTrue);
+    expect(await discarding, isTrue);
+    expect((saved()!['finished'] as List).single['durationMs'], 600000);
+  });
+
+  test('una sesión reemplazada deja de ser la viva (REV-05)', () async {
+    await store.start(_run('a'));
+    await store.updatePosition('a', 300000, force: true);
+    expect(store.liveRunId, 'a');
+    store.releaseLiveRun('otra');
+    expect(store.liveRunId, 'a');
+    store.releaseLiveRun('a');
+    expect(store.liveRunId, isNull);
+    final recovered = await store.recoverTimerRuns();
+    expect(recovered?.minutes, 5);
+    expect(delivered.single[TypeConstants.runIdKey], 'a');
   });
 }

@@ -125,6 +125,15 @@ internal data class TimerFinishedRun(
             )
         }
 
+        /**
+         * Id del historial de un fin natural (REV-07). Con tiempo extra cuenta lo
+         * meditado: el id sale de la duración registrada, no de la planeada. El
+         * id planeado del archivo ([plannedTrackId]) sigue siendo del reproductor.
+         */
+        fun naturalTrackId(extraTime: Boolean, durationMs: Long, plannedTrackId: String?, plannedMs: Long): String =
+            if (extraTime) TimerElapsed.trackId(durationMs)
+            else plannedTrackId?.takeIf { it.isNotEmpty() } ?: TimerElapsed.trackId(plannedMs)
+
         /** Cierre recuperado de una sesión que murió con el proceso. */
         fun recovered(run: TimerActiveRun): TimerFinishedRun? {
             val elapsed = run.elapsedMs()
@@ -142,6 +151,39 @@ internal enum class TimerCloseResult {
     SHORT,
     /** No se pudo escribir (o la cuenta ya no es la vigente): nada cambió. */
     FAILED
+}
+
+/** Resultado de abrir una sesión en el registro antes de arrancar el reloj (REV-03). */
+internal enum class TimerRunOpen {
+    /** Quedó guardada: el reloj puede arrancar. */
+    OPENED,
+    /** Quedó guardada y una sesión vieja pasó a recuperada: hay que entregarla. */
+    OPENED_WITH_RECOVERY,
+    /** No se pudo guardar: el inicio falla y nada arranca. */
+    FAILED
+}
+
+/**
+ * Intervalo entre fotos del registro, medido con el reloj desde el arranque
+ * del teléfono (REV-04): atrasar o adelantar la hora nunca congela ni apresura
+ * las escrituras. La hora del teléfono sólo fecha las sesiones.
+ */
+internal class TimerStoreThrottle(private val intervalMs: Long, private val clock: ElapsedClock) {
+    private var lastWriteAt: Long? = null
+
+    /** Nueva sesión: la primera foto va sin esperar. */
+    fun reset() {
+        lastWriteAt = null
+    }
+
+    fun due(): Boolean {
+        val last = lastWriteAt ?: return true
+        return clock.elapsedRealtime() - last >= intervalMs
+    }
+
+    fun markWritten() {
+        lastWriteAt = clock.elapsedRealtime()
+    }
 }
 
 /** Guardado crudo: un solo texto que se escribe con `commit()`. */
@@ -294,6 +336,16 @@ internal class TimerRunStore(
         if (state.active?.runId == run.runId) return@ifCurrent commit(state.copy(active = run))
         commit(state.recovering(run.runId).copy(active = run))
     } ?: false
+
+    /**
+     * Abre [run] ANTES de arrancar el reloj (REV-03): si la escritura falla, el
+     * inicio falla; nunca suena una sesión que no se podría recuperar.
+     */
+    fun open(run: TimerActiveRun, generation: Long): TimerRunOpen {
+        val before = pending().size
+        if (!start(run, generation)) return TimerRunOpen.FAILED
+        return if (pending().size > before) TimerRunOpen.OPENED_WITH_RECOVERY else TimerRunOpen.OPENED
+    }
 
     /** Foto de la sesión; [seq] se toma en el evento y una foto vieja se rechaza (R108). */
     fun update(runId: String, positionMs: Long, endPassed: Boolean, nowMs: Long, generation: Long, seq: Long): Boolean =
