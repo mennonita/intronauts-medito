@@ -38,12 +38,29 @@ void main() {
     expect(repo.getSelectedBgSoundFromSharedPreferences(), isNull);
   });
 
-  test('the switch is saved per scope', () async {
+  test(
+    'timer bells ignore a saved false and timer writes are ignored',
+    () async {
+      final repo = await repoWith({
+        SharedPreferenceConstants.timerSessionBellsEnabled: false,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      expect(repo.getSessionBellsEnabled(forTimer: true), isTrue);
+      repo.saveSessionBellsEnabled(true, forTimer: true);
+      expect(
+        prefs.getBool(SharedPreferenceConstants.timerSessionBellsEnabled),
+        isFalse,
+      );
+      expect(repo.getSessionBellsEnabled(), isFalse);
+    },
+  );
+
+  test('guided sessions still save both switch values', () async {
     final repo = await repoWith({});
-    repo.saveSessionBellsEnabled(false, forTimer: true);
     repo.saveSessionBellsEnabled(true);
-    await Future<void>.delayed(Duration.zero);
-    expect(repo.getSessionBellsEnabled(forTimer: true), isFalse);
     expect(repo.getSessionBellsEnabled(), isTrue);
+    repo.saveSessionBellsEnabled(false);
+    expect(repo.getSessionBellsEnabled(), isFalse);
+    expect(repo.getSessionBellsEnabled(forTimer: true), isTrue);
   });
 }

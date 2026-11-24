@@ -77,6 +77,9 @@ class BackgroundSoundView extends ConsumerWidget {
   }) {
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
+    final isTimer = ref.watch(
+      playerProvider.select((request) => request?.isTimer ?? false),
+    );
 
     // Volume stays pinned above the scrolling list. No pull-to-refresh: in a
     // sheet, pulling down at the top should collapse the sheet, and the error
@@ -93,8 +96,8 @@ class BackgroundSoundView extends ConsumerWidget {
               bottom: MediaQuery.paddingOf(context).bottom + 16,
             ),
             children: [
-              // Bells are a switch: they play alongside any sound below.
-              const _SessionBellsSwitch(),
+              // En el temporizador, cada campana se prende o apaga en sus ajustes; no hay interruptor general.
+              if (!isTimer) const _SessionBellsSwitch(),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
                 child: Text(
@@ -141,9 +144,6 @@ class _SessionBellsSwitch extends ConsumerWidget {
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
     final l10n = AppLocalizations.of(context)!;
-    final isTimer = ref.watch(
-      playerProvider.select((request) => request?.isTimer ?? false),
-    );
     final enabled = ref.watch(
       backgroundSoundsNotifierProvider.select((s) => s.bellsEnabled),
     );
@@ -151,10 +151,7 @@ class _SessionBellsSwitch extends ConsumerWidget {
     void toggle(bool value) {
       FirebaseAnalyticsService().logEvent(
         name: AnalyticsEventConstants.sessionBellsToggled,
-        parameters: {
-          'enabled': value ? 1 : 0,
-          'is_timer': (ref.read(playerProvider)?.isTimer ?? false) ? 1 : 0,
-        },
+        parameters: {'enabled': value ? 1 : 0, 'is_timer': 0},
       );
       ref
           .read(backgroundSoundsNotifierProvider.notifier)
@@ -186,9 +183,7 @@ class _SessionBellsSwitch extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      isTimer
-                          ? l10n.timerBellsDescription
-                          : l10n.sessionBellsDescription,
+                      l10n.sessionBellsDescription,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontSize: 14,
                         color: onSurface.withValues(alpha: 0.7),

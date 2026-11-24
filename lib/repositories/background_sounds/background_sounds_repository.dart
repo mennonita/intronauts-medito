@@ -9,6 +9,7 @@ import 'package:medito/providers/providers.dart';
 import 'package:medito/services/network/http_api_service.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:medito/models/background_sounds/background_sounds_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 part 'background_sounds_repository.g.dart';
 
@@ -17,8 +18,7 @@ abstract class BackgroundSoundsRepository {
 
   Future<List<BackgroundSoundsModel>?> fetchLocallySavedBackgroundSounds();
 
-  /// The sound list as last fetched online, or the sounds this device has
-  /// picked before if it has never been fetched. Never touches the network.
+  /// Catálogo guardado y sonidos locales que se pueden volver a abrir por id.
   List<BackgroundSoundsModel> fetchCachedBackgroundSounds();
 
   Future<void> updateItemsInSavedBgSoundList(BackgroundSoundsModel sound);
@@ -29,8 +29,7 @@ abstract class BackgroundSoundsRepository {
   /// The ambient sound (never session bells, which are a separate switch).
   BackgroundSoundsModel? getSelectedBgSoundFromSharedPreferences();
 
-  /// Bells default on for the Timer and off under tracks, except for users
-  /// who had picked bells as their background sound before they were a switch.
+  /// En el temporizador, cada campana se prende o apaga en sus ajustes; no hay interruptor general.
   bool getSessionBellsEnabled({bool forTimer = false});
 
   void saveSessionBellsEnabled(bool enabled, {bool forTimer = false});
@@ -110,17 +109,23 @@ class BackgroundSoundsRepositoryImpl extends BackgroundSoundsRepository {
     try {
       final prefs = ref.read(sharedPreferencesProvider);
       final catalog = prefs.getString(SharedPreferenceConstants.bgSoundCatalog);
+      final sounds = <BackgroundSoundsModel>[];
       if (catalog != null) {
-        return [
+        sounds.addAll([
           for (final item in jsonDecode(catalog) as List)
             BackgroundSoundsModel.fromJson(Map<String, Object?>.from(item)),
-        ];
+        ]);
       }
+      final catalogIds = sounds.map((sound) => sound.id).toSet();
+      final cacheIds = _cachedFileIds(
+        prefs.get(SharedPreferenceConstants.backgroundSoundCacheFiles),
+      );
       return [
-        for (final item
-            in prefs.getStringList(SharedPreferenceConstants.listBgSound) ??
-                const <String>[])
-          BackgroundSoundsModel.fromJson(jsonDecode(item)),
+        ...sounds,
+        for (final sound in _locallySavedSounds(prefs))
+          if (!catalogIds.contains(sound.id) &&
+              (sounds.isEmpty || cacheIds.contains(sound.id)))
+            sound,
       ];
     } catch (e) {
       AppLogger.w('BACKGROUND', 'Unreadable cached sound list: $e');
@@ -128,26 +133,35 @@ class BackgroundSoundsRepositoryImpl extends BackgroundSoundsRepository {
     }
   }
 
+  Set<String> _cachedFileIds(Object? encoded) {
+    if (encoded is! String) return {};
+    try {
+      final decoded = jsonDecode(encoded);
+      return decoded is Map<String, dynamic> ? decoded.keys.toSet() : {};
+    } on FormatException {
+      return {};
+    }
+  }
+
   @override
   Future<List<BackgroundSoundsModel>?>
   fetchLocallySavedBackgroundSounds() async {
-    try {
-      var pref = ref.read(sharedPreferencesProvider);
-      var soundList =
-          pref.getStringList(SharedPreferenceConstants.listBgSound) ?? [];
-      if (soundList.isNotEmpty) {
-        var sounds = <BackgroundSoundsModel>[];
-        for (var element in soundList) {
-          sounds.add(BackgroundSoundsModel.fromJson(json.decode(element)));
-        }
+    final sounds = _locallySavedSounds(ref.read(sharedPreferencesProvider));
+    return sounds.isEmpty ? null : sounds;
+  }
 
-        return sounds;
-      }
+  List<BackgroundSoundsModel> _locallySavedSounds(SharedPreferences prefs) {
+    try {
+      return [
+        for (final item
+            in prefs.getStringList(SharedPreferenceConstants.listBgSound) ??
+                const <String>[])
+          BackgroundSoundsModel.fromJson(jsonDecode(item)),
+      ];
     } catch (err) {
       AppLogger.d('BACKGROUND', err.toString());
+      return const [];
     }
-
-    return null;
   }
 
   @override
@@ -159,12 +173,7 @@ class BackgroundSoundsRepositoryImpl extends BackgroundSoundsRepository {
         return;
       } else {
         var pref = ref.read(sharedPreferencesProvider);
-        var soundList =
-            pref.getStringList(SharedPreferenceConstants.listBgSound) ?? [];
-        var sounds = <BackgroundSoundsModel>[];
-        for (var element in soundList) {
-          sounds.add(BackgroundSoundsModel.fromJson(json.decode(element)));
-        }
+        final sounds = _locallySavedSounds(pref).toList();
         var index = sounds.indexWhere((element) => element.id == sound.id);
         if (index == -1) {
           sounds.add(sound);
@@ -204,29 +213,21 @@ class BackgroundSoundsRepositoryImpl extends BackgroundSoundsRepository {
 
   @override
   bool getSessionBellsEnabled({bool forTimer = false}) {
-    final prefs = ref.read(sharedPreferencesProvider);
-    final saved = prefs.getBool(
-      forTimer
-          ? SharedPreferenceConstants.timerSessionBellsEnabled
-          : SharedPreferenceConstants.sessionBellsEnabled,
-    );
-    if (saved != null) return saved;
     if (forTimer) return true;
+    final prefs = ref.read(sharedPreferencesProvider);
+    final saved = prefs.getBool(SharedPreferenceConstants.sessionBellsEnabled);
+    if (saved != null) return saved;
     final legacy = prefs.getString(SharedPreferenceConstants.bgSound);
     return legacy != null && legacy.contains('"$kSessionBellsId"');
   }
 
   @override
   void saveSessionBellsEnabled(bool enabled, {bool forTimer = false}) {
+    if (forTimer) return;
     unawaited(
       ref
           .read(sharedPreferencesProvider)
-          .setBool(
-            forTimer
-                ? SharedPreferenceConstants.timerSessionBellsEnabled
-                : SharedPreferenceConstants.sessionBellsEnabled,
-            enabled,
-          ),
+          .setBool(SharedPreferenceConstants.sessionBellsEnabled, enabled),
     );
   }
 

@@ -27,6 +27,7 @@ abstract class BackgroundSoundsModel with _$BackgroundSoundsModel {
     required String title,
     required String path,
     required int duration,
+    @Default('') String version,
   }) = _BackgroundSoundsModel;
 
   factory BackgroundSoundsModel.fromJson(Map<String, Object?> json) =>
