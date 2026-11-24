@@ -1771,13 +1771,13 @@ abstract class AppLocalizations {
   /// Title of the fake notification shown in the onboarding notifications screen preview
   ///
   /// In en, this message translates to:
-  /// **'A quieter mind starts here'**
+  /// **'Your cushion is still here'**
   String get notificationPreviewTitleB;
 
   /// Body of the fake notification shown in the onboarding notifications screen preview
   ///
   /// In en, this message translates to:
-  /// **'Your daily breath is waiting. Just tap to begin.'**
+  /// **'One minute is enough, whenever you like.'**
   String get notificationPreviewBodyB;
 
   /// Progress label under the onboarding pages, next to the circular progress ring
@@ -3151,13 +3151,13 @@ abstract class AppLocalizations {
   /// Title for daily meditation reminder notifications
   ///
   /// In en, this message translates to:
-  /// **'Daily Meditation Reminder'**
+  /// **'A moment for your practice'**
   String get reminderNotificationTitle;
 
   /// Body text for daily meditation reminder notifications
   ///
   /// In en, this message translates to:
-  /// **'It\'s time for your daily meditation. Take a moment to relax and focus.'**
+  /// **'Breathe for a moment and notice how you are.'**
   String get reminderNotificationBody;
 
   /// Section title for help settings
@@ -3409,13 +3409,13 @@ abstract class AppLocalizations {
   /// Daily reminder day 1 title variant 1
   ///
   /// In en, this message translates to:
-  /// **'Your practice is here for you'**
+  /// **'Your cushion is still here'**
   String get reminderDay1TitleVar1;
 
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Coming back is the practice.'**
+  /// **'One minute is enough, whenever you like.'**
   String get reminderDay1BodyVar1;
 
   /// Daily reminder day 1 title variant 2
@@ -3427,7 +3427,7 @@ abstract class AppLocalizations {
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Give yourself a moment to breathe.'**
+  /// **'Breathe in slowly and let the air go.'**
   String get reminderDay1BodyVar2;
 
   /// Daily reminder day 1 title variant 3
@@ -3439,7 +3439,7 @@ abstract class AppLocalizations {
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Take a few minutes to notice how you feel.'**
+  /// **'Notice how you feel, without changing anything.'**
   String get reminderDay1BodyVar3;
 
   /// Daily reminder day 1 title variant 4
@@ -3451,7 +3451,7 @@ abstract class AppLocalizations {
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Try taking a moment to sit quietly.'**
+  /// **'If you like, sit quietly for a moment.'**
   String get reminderDay1BodyVar4;
 
   /// Daily reminder day 1 title variant 5
@@ -3463,31 +3463,31 @@ abstract class AppLocalizations {
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Start with a single breath.'**
+  /// **'Start with a single breath, no rush.'**
   String get reminderDay1BodyVar5;
 
   /// Daily reminder day 2 title variant 1
   ///
   /// In en, this message translates to:
-  /// **'Back to your practice'**
+  /// **'Your practice is here for you'**
   String get reminderDay2TitleVar1;
 
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Take a few minutes to reconnect.'**
+  /// **'Coming back is the practice.'**
   String get reminderDay2BodyVar1;
 
   /// Daily reminder day 2 title variant 2
   ///
   /// In en, this message translates to:
-  /// **'Time to pause'**
+  /// **'A moment to pause'**
   String get reminderDay2TitleVar2;
 
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'A short practice is here when you’re ready.'**
+  /// **'A short practice is here whenever you feel like it.'**
   String get reminderDay2BodyVar2;
 
   /// Daily reminder day 2 title variant 3
@@ -3499,19 +3499,19 @@ abstract class AppLocalizations {
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Notice what each breath feels like.'**
+  /// **'Notice the air coming in and going out.'**
   String get reminderDay2BodyVar3;
 
   /// Daily reminder day 2 title variant 4
   ///
   /// In en, this message translates to:
-  /// **'A quiet moment'**
+  /// **'Some time with yourself'**
   String get reminderDay2TitleVar4;
 
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Take a few minutes to be with yourself.'**
+  /// **'A few quiet minutes, at your own pace.'**
   String get reminderDay2BodyVar4;
 
   /// Daily reminder day 2 title variant 5
@@ -3523,223 +3523,223 @@ abstract class AppLocalizations {
   /// Texto de la invitación de práctica en el recordatorio.
   ///
   /// In en, this message translates to:
-  /// **'Take a moment to check in with yourself.'**
+  /// **'You don\'t need anything special to sit.'**
   String get reminderDay2BodyVar5;
 
   /// Daily reminder day 3 title variant 1
   ///
   /// In en, this message translates to:
-  /// **'Build the habit 📆'**
+  /// **'Anywhere will do'**
   String get reminderDay3TitleVar1;
 
   /// Daily reminder day 3 body variant 1
   ///
   /// In en, this message translates to:
-  /// **'Momentum matters. You have got this.'**
+  /// **'A chair, the cushion or the edge of the bed: your choice.'**
   String get reminderDay3BodyVar1;
 
   /// Daily reminder day 3 title variant 2
   ///
   /// In en, this message translates to:
-  /// **'Three day spark ✴️'**
+  /// **'A small pause'**
   String get reminderDay3TitleVar2;
 
   /// Daily reminder day 3 body variant 2
   ///
   /// In en, this message translates to:
-  /// **'Your practice is taking shape.'**
+  /// **'Take a short pause and breathe.'**
   String get reminderDay3BodyVar2;
 
   /// Daily reminder day 3 title variant 3
   ///
   /// In en, this message translates to:
-  /// **'A gentle nudge 🤍'**
+  /// **'No rush'**
   String get reminderDay3TitleVar3;
 
   /// Daily reminder day 3 body variant 3
   ///
   /// In en, this message translates to:
-  /// **'Two mindful minutes is enough.'**
+  /// **'Start with one minute and see how it goes.'**
   String get reminderDay3BodyVar3;
 
   /// Daily reminder day 3 title variant 4
   ///
   /// In en, this message translates to:
-  /// **'Growing stronger 🌿'**
+  /// **'Let your shoulders drop'**
   String get reminderDay3TitleVar4;
 
   /// Daily reminder day 3 body variant 4
   ///
   /// In en, this message translates to:
-  /// **'Each day you practice, you build something meaningful.'**
+  /// **'Feel the weight of your body and breathe calmly.'**
   String get reminderDay3BodyVar4;
 
   /// Daily reminder day 3 title variant 5
   ///
   /// In en, this message translates to:
-  /// **'Find your calm 🕊️'**
+  /// **'Here and now'**
   String get reminderDay3TitleVar5;
 
   /// Daily reminder day 3 body variant 5
   ///
   /// In en, this message translates to:
-  /// **'A brief pause can reset your entire day.'**
+  /// **'Notice what is here right now, without judging.'**
   String get reminderDay3BodyVar5;
 
   /// Daily reminder day 4 title
   ///
   /// In en, this message translates to:
-  /// **'Small steps 🪴'**
+  /// **'Small steps'**
   String get reminderDay4Title;
 
   /// Daily reminder day 4 body
   ///
   /// In en, this message translates to:
-  /// **'It has been 4 days since you meditated. Resume your practice with a short session.'**
+  /// **'A short practice is still practice.'**
   String get reminderDay4Body;
 
   /// Daily reminder day 5 title
   ///
   /// In en, this message translates to:
-  /// **'Time to reconnect 💪'**
+  /// **'A moment to come back'**
   String get reminderDay5Title;
 
   /// Daily reminder day 5 body
   ///
   /// In en, this message translates to:
-  /// **'It has been 5 days. A calm pause now can help you get back on track.'**
+  /// **'Sit down whenever you like and see what\'s there.'**
   String get reminderDay5Body;
 
   /// Daily reminder day 6 title
   ///
   /// In en, this message translates to:
-  /// **'Almost a week ⏰'**
+  /// **'The door is open'**
   String get reminderDay6Title;
 
   /// Daily reminder day 6 body
   ///
   /// In en, this message translates to:
-  /// **'It has been almost a week since you meditated. Close the loop with a mindful moment.'**
+  /// **'Come back whenever you like. Nothing to catch up on.'**
   String get reminderDay6Body;
 
   /// Daily reminder day 7 title
   ///
   /// In en, this message translates to:
-  /// **'One week check in 📅'**
+  /// **'Take a breather'**
   String get reminderDay7Title;
 
   /// Daily reminder day 7 body
   ///
   /// In en, this message translates to:
-  /// **'It has been a week since you meditated. Take a moment for yourself now.'**
+  /// **'A quiet moment on your own, just for you.'**
   String get reminderDay7Body;
 
   /// Daily reminder day 8 title
   ///
   /// In en, this message translates to:
-  /// **'Fresh start 🌤️'**
+  /// **'Start where you are'**
   String get reminderDay8Title;
 
   /// Daily reminder day 8 body
   ///
   /// In en, this message translates to:
-  /// **'It has been over a week. A fresh start with just a few mindful minutes.'**
+  /// **'One mindful breath is a good beginning.'**
   String get reminderDay8Body;
 
   /// Daily reminder day 9 title
   ///
   /// In en, this message translates to:
-  /// **'Find your centre 🎯'**
+  /// **'Find your center'**
   String get reminderDay9Title;
 
   /// Daily reminder day 9 body
   ///
   /// In en, this message translates to:
-  /// **'A short session can reset your day.'**
+  /// **'Rest your attention on your breath for a moment.'**
   String get reminderDay9Body;
 
   /// Daily reminder day 10 title
   ///
   /// In en, this message translates to:
-  /// **'Double digits 🔟'**
+  /// **'Listen to the silence'**
   String get reminderDay10Title;
 
   /// Daily reminder day 10 body
   ///
   /// In en, this message translates to:
-  /// **'It has been 10 days since you meditated. Pick up where you left off.'**
+  /// **'Close your eyes and notice the sounds around you.'**
   String get reminderDay10Body;
 
   /// Daily reminder day 11 title
   ///
   /// In en, this message translates to:
-  /// **'Gentle nudge 🤍'**
+  /// **'A kind pause'**
   String get reminderDay11Title;
 
   /// Daily reminder day 11 body
   ///
   /// In en, this message translates to:
-  /// **'Pause, breathe, and notice how you feel.'**
+  /// **'Stop, breathe and notice how you feel.'**
   String get reminderDay11Body;
 
   /// Daily reminder day 12 title
   ///
   /// In en, this message translates to:
-  /// **'Keep steady 🧭'**
+  /// **'A calm moment'**
   String get reminderDay12Title;
 
   /// Daily reminder day 12 body
   ///
   /// In en, this message translates to:
-  /// **'A calm moment is waiting for you.'**
+  /// **'Some quiet time is here, whenever you like.'**
   String get reminderDay12Body;
 
   /// Daily reminder day 13 title
   ///
   /// In en, this message translates to:
-  /// **'Approaching two weeks ⏳'**
+  /// **'Gently'**
   String get reminderDay13Title;
 
   /// Daily reminder day 13 body
   ///
   /// In en, this message translates to:
-  /// **'It has been almost two weeks since you meditated. Try a two minute restart.'**
+  /// **'Sit for a few minutes and let your body rest.'**
   String get reminderDay13Body;
 
   /// Daily reminder day 14 title
   ///
   /// In en, this message translates to:
-  /// **'Two week check in 🔔'**
+  /// **'Your space is still here'**
   String get reminderDay14Title;
 
   /// Daily reminder day 14 body
   ///
   /// In en, this message translates to:
-  /// **'It has been 14 days since you meditated. Resume your practice now, gently.'**
+  /// **'Your practice isn\'t going anywhere.'**
   String get reminderDay14Body;
 
   /// Daily reminder day 15 title
   ///
   /// In en, this message translates to:
-  /// **'Pausing reminders 🌿'**
+  /// **'Pausing reminders'**
   String get reminderDay15Title;
 
   /// Daily reminder day 15 body
   ///
   /// In en, this message translates to:
-  /// **'We\'re pausing reminders for now. We are here whenever you are ready.'**
+  /// **'We won\'t send more reminders for now. Your practice stays here.'**
   String get reminderDay15Body;
 
   /// Daily reminder day 30 title
   ///
   /// In en, this message translates to:
-  /// **'A gentle nudge 🤗'**
+  /// **'A quiet invitation'**
   String get reminderDay30Title;
 
   /// Daily reminder day 30 body
   ///
   /// In en, this message translates to:
-  /// **'It\'s been a month since you meditated. Just 2 minutes can help you feel better. We\'re here when you\'re ready.'**
+  /// **'If you feel like sitting for a moment, we\'re here.'**
   String get reminderDay30Body;
 
   /// Tooltip text for repeat mode when set to normal (no repeat)
@@ -6201,6 +6201,216 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Repeat last timer'**
   String get timerShortcutLast;
+
+  /// No description provided for @timerHousePracticesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'House practices'**
+  String get timerHousePracticesTitle;
+
+  /// No description provided for @mantraCounterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mantra counter'**
+  String get mantraCounterTitle;
+
+  /// No description provided for @mantraCounterHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap anywhere on the screen to count.'**
+  String get mantraCounterHint;
+
+  /// No description provided for @mantraCounterBeads.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {total}'**
+  String mantraCounterBeads(int count, int total);
+
+  /// No description provided for @mantraCounterRounds.
+  ///
+  /// In en, this message translates to:
+  /// **'{rounds, plural, =0{No rounds yet} =1{1 round} other{{rounds} rounds}}'**
+  String mantraCounterRounds(int rounds);
+
+  /// No description provided for @mantraCounterTapAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Count'**
+  String get mantraCounterTapAction;
+
+  /// No description provided for @mantraCounterMenu.
+  ///
+  /// In en, this message translates to:
+  /// **'Counter options'**
+  String get mantraCounterMenu;
+
+  /// No description provided for @mantraCounterReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Start over'**
+  String get mantraCounterReset;
+
+  /// No description provided for @mantraCounterResetConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Start the count over? Your total stays the same.'**
+  String get mantraCounterResetConfirm;
+
+  /// No description provided for @mantraTotalSwitch.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep my total'**
+  String get mantraTotalSwitch;
+
+  /// No description provided for @mantraTotalValue.
+  ///
+  /// In en, this message translates to:
+  /// **'Total: {total}'**
+  String mantraTotalValue(int total);
+
+  /// No description provided for @mantraTotalAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add counts'**
+  String get mantraTotalAdd;
+
+  /// No description provided for @mantraTotalAddHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Counts done outside the app'**
+  String get mantraTotalAddHint;
+
+  /// No description provided for @mantraTotalAddConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get mantraTotalAddConfirm;
+
+  /// No description provided for @mantraTotalClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete my total'**
+  String get mantraTotalClear;
+
+  /// No description provided for @mantraTotalClearConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete your total? This can\'t be undone.'**
+  String get mantraTotalClearConfirm;
+
+  /// No description provided for @mantraPrivacyNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Your counts are saved only on this phone.'**
+  String get mantraPrivacyNote;
+
+  /// No description provided for @reminderActionSit3.
+  ///
+  /// In en, this message translates to:
+  /// **'Sit for 3 min'**
+  String get reminderActionSit3;
+
+  /// No description provided for @reminderActionNotToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Not today'**
+  String get reminderActionNotToday;
+
+  /// No description provided for @timerSessionNounDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'session'**
+  String get timerSessionNounDefault;
+
+  /// No description provided for @timerSavedSessionNoun.
+  ///
+  /// In en, this message translates to:
+  /// **'We saved your {noun} of {minutes} min.'**
+  String timerSavedSessionNoun(String noun, int minutes);
+
+  /// No description provided for @settingsTimerOnlyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Just the timer'**
+  String get settingsTimerOnlyTitle;
+
+  /// No description provided for @settingsTimerOnlyOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the app on the timer'**
+  String get settingsTimerOnlyOpen;
+
+  /// No description provided for @settingsTimerOnlySkipEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip the end screen'**
+  String get settingsTimerOnlySkipEnd;
+
+  /// No description provided for @settingsExportPractice.
+  ///
+  /// In en, this message translates to:
+  /// **'Export my practice'**
+  String get settingsExportPractice;
+
+  /// No description provided for @settingsExportPracticeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'CSV file with the sessions saved on this phone.'**
+  String get settingsExportPracticeSubtitle;
+
+  /// No description provided for @exportCsvHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'date,time,kind,minutes,content,source'**
+  String get exportCsvHeader;
+
+  /// No description provided for @exportKindTimer.
+  ///
+  /// In en, this message translates to:
+  /// **'timer'**
+  String get exportKindTimer;
+
+  /// No description provided for @exportKindGuided.
+  ///
+  /// In en, this message translates to:
+  /// **'guided'**
+  String get exportKindGuided;
+
+  /// No description provided for @exportKindManual.
+  ///
+  /// In en, this message translates to:
+  /// **'manual'**
+  String get exportKindManual;
+
+  /// No description provided for @exportSourceAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'account'**
+  String get exportSourceAccount;
+
+  /// No description provided for @exportSourceDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'this phone'**
+  String get exportSourceDevice;
+
+  /// No description provided for @exportEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'There are no sessions to export yet.'**
+  String get exportEmpty;
+
+  /// No description provided for @exportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t create the file. Please try again.'**
+  String get exportFailed;
+
+  /// No description provided for @exportShareSubject.
+  ///
+  /// In en, this message translates to:
+  /// **'My practice'**
+  String get exportShareSubject;
 }
 
 class _AppLocalizationsDelegate

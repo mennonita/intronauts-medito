@@ -347,11 +347,11 @@
   "@notificationPreviewTimestamp": {
     "description": "Timestamp shown on a fake iOS notification preview, mirroring iOS's 'now' label for a notification that just arrived"
   },
-  "notificationPreviewTitleB": "A quieter mind starts here",
+  "notificationPreviewTitleB": "Your cushion is still here",
   "@notificationPreviewTitleB": {
     "description": "Title of the fake notification shown in the onboarding notifications screen preview"
   },
-  "notificationPreviewBodyB": "Your daily breath is waiting. Just tap to begin.",
+  "notificationPreviewBodyB": "One minute is enough, whenever you like.",
   "@notificationPreviewBodyB": {
     "description": "Body of the fake notification shown in the onboarding notifications screen preview"
   },
@@ -796,11 +796,11 @@
   "@anErrorOccurredMessage": {
     "description": "Generic error message for unknown errors"
   },
-  "reminderNotificationTitle": "Daily Meditation Reminder",
+  "reminderNotificationTitle": "A moment for your practice",
   "@reminderNotificationTitle": {
     "description": "Title for daily meditation reminder notifications"
   },
-  "reminderNotificationBody": "It's time for your daily meditation. Take a moment to relax and focus.",
+  "reminderNotificationBody": "Breathe for a moment and notice how you are.",
   "@reminderNotificationBody": {
     "description": "Body text for daily meditation reminder notifications"
   },
@@ -984,11 +984,11 @@
   "@reminderPromptDismissedMessage": {
     "description": "Message shown when user dismisses the reminder prompt on the end screen"
   },
-  "reminderDay1TitleVar1": "Your practice is here for you",
+  "reminderDay1TitleVar1": "Your cushion is still here",
   "@reminderDay1TitleVar1": {
     "description": "Daily reminder day 1 title variant 1"
   },
-  "reminderDay1BodyVar1": "Coming back is the practice.",
+  "reminderDay1BodyVar1": "One minute is enough, whenever you like.",
   "@reminderDay1BodyVar1": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
@@ -996,7 +996,7 @@
   "@reminderDay1TitleVar2": {
     "description": "Daily reminder day 1 title variant 2"
   },
-  "reminderDay1BodyVar2": "Give yourself a moment to breathe.",
+  "reminderDay1BodyVar2": "Breathe in slowly and let the air go.",
   "@reminderDay1BodyVar2": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
@@ -1004,7 +1004,7 @@
   "@reminderDay1TitleVar3": {
     "description": "Daily reminder day 1 title variant 3"
   },
-  "reminderDay1BodyVar3": "Take a few minutes to notice how you feel.",
+  "reminderDay1BodyVar3": "Notice how you feel, without changing anything.",
   "@reminderDay1BodyVar3": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
@@ -1012,7 +1012,7 @@
   "@reminderDay1TitleVar4": {
     "description": "Daily reminder day 1 title variant 4"
   },
-  "reminderDay1BodyVar4": "Try taking a moment to sit quietly.",
+  "reminderDay1BodyVar4": "If you like, sit quietly for a moment.",
   "@reminderDay1BodyVar4": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
@@ -1020,23 +1020,23 @@
   "@reminderDay1TitleVar5": {
     "description": "Daily reminder day 1 title variant 5"
   },
-  "reminderDay1BodyVar5": "Start with a single breath.",
+  "reminderDay1BodyVar5": "Start with a single breath, no rush.",
   "@reminderDay1BodyVar5": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar1": "Back to your practice",
+  "reminderDay2TitleVar1": "Your practice is here for you",
   "@reminderDay2TitleVar1": {
     "description": "Daily reminder day 2 title variant 1"
   },
-  "reminderDay2BodyVar1": "Take a few minutes to reconnect.",
+  "reminderDay2BodyVar1": "Coming back is the practice.",
   "@reminderDay2BodyVar1": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar2": "Time to pause",
+  "reminderDay2TitleVar2": "A moment to pause",
   "@reminderDay2TitleVar2": {
     "description": "Daily reminder day 2 title variant 2"
   },
-  "reminderDay2BodyVar2": "A short practice is here when you’re ready.",
+  "reminderDay2BodyVar2": "A short practice is here whenever you feel like it.",
   "@reminderDay2BodyVar2": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
@@ -1044,15 +1044,15 @@
   "@reminderDay2TitleVar3": {
     "description": "Daily reminder day 2 title variant 3"
   },
-  "reminderDay2BodyVar3": "Notice what each breath feels like.",
+  "reminderDay2BodyVar3": "Notice the air coming in and going out.",
   "@reminderDay2BodyVar3": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay2TitleVar4": "A quiet moment",
+  "reminderDay2TitleVar4": "Some time with yourself",
   "@reminderDay2TitleVar4": {
     "description": "Daily reminder day 2 title variant 4"
   },
-  "reminderDay2BodyVar4": "Take a few minutes to be with yourself.",
+  "reminderDay2BodyVar4": "A few quiet minutes, at your own pace.",
   "@reminderDay2BodyVar4": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
@@ -1060,151 +1060,151 @@
   "@reminderDay2TitleVar5": {
     "description": "Daily reminder day 2 title variant 5"
   },
-  "reminderDay2BodyVar5": "Take a moment to check in with yourself.",
+  "reminderDay2BodyVar5": "You don't need anything special to sit.",
   "@reminderDay2BodyVar5": {
     "description": "Texto de la invitación de práctica en el recordatorio."
   },
-  "reminderDay3TitleVar1": "Build the habit 📆",
+  "reminderDay3TitleVar1": "Anywhere will do",
   "@reminderDay3TitleVar1": {
     "description": "Daily reminder day 3 title variant 1"
   },
-  "reminderDay3BodyVar1": "Momentum matters. You have got this.",
+  "reminderDay3BodyVar1": "A chair, the cushion or the edge of the bed: your choice.",
   "@reminderDay3BodyVar1": {
     "description": "Daily reminder day 3 body variant 1"
   },
-  "reminderDay3TitleVar2": "Three day spark ✴️",
+  "reminderDay3TitleVar2": "A small pause",
   "@reminderDay3TitleVar2": {
     "description": "Daily reminder day 3 title variant 2"
   },
-  "reminderDay3BodyVar2": "Your practice is taking shape.",
+  "reminderDay3BodyVar2": "Take a short pause and breathe.",
   "@reminderDay3BodyVar2": {
     "description": "Daily reminder day 3 body variant 2"
   },
-  "reminderDay3TitleVar3": "A gentle nudge 🤍",
+  "reminderDay3TitleVar3": "No rush",
   "@reminderDay3TitleVar3": {
     "description": "Daily reminder day 3 title variant 3"
   },
-  "reminderDay3BodyVar3": "Two mindful minutes is enough.",
+  "reminderDay3BodyVar3": "Start with one minute and see how it goes.",
   "@reminderDay3BodyVar3": {
     "description": "Daily reminder day 3 body variant 3"
   },
-  "reminderDay3TitleVar4": "Growing stronger 🌿",
+  "reminderDay3TitleVar4": "Let your shoulders drop",
   "@reminderDay3TitleVar4": {
     "description": "Daily reminder day 3 title variant 4"
   },
-  "reminderDay3BodyVar4": "Each day you practice, you build something meaningful.",
+  "reminderDay3BodyVar4": "Feel the weight of your body and breathe calmly.",
   "@reminderDay3BodyVar4": {
     "description": "Daily reminder day 3 body variant 4"
   },
-  "reminderDay3TitleVar5": "Find your calm 🕊️",
+  "reminderDay3TitleVar5": "Here and now",
   "@reminderDay3TitleVar5": {
     "description": "Daily reminder day 3 title variant 5"
   },
-  "reminderDay3BodyVar5": "A brief pause can reset your entire day.",
+  "reminderDay3BodyVar5": "Notice what is here right now, without judging.",
   "@reminderDay3BodyVar5": {
     "description": "Daily reminder day 3 body variant 5"
   },
-  "reminderDay4Title": "Small steps 🪴",
+  "reminderDay4Title": "Small steps",
   "@reminderDay4Title": {
     "description": "Daily reminder day 4 title"
   },
-  "reminderDay4Body": "It has been 4 days since you meditated. Resume your practice with a short session.",
+  "reminderDay4Body": "A short practice is still practice.",
   "@reminderDay4Body": {
     "description": "Daily reminder day 4 body"
   },
-  "reminderDay5Title": "Time to reconnect 💪",
+  "reminderDay5Title": "A moment to come back",
   "@reminderDay5Title": {
     "description": "Daily reminder day 5 title"
   },
-  "reminderDay5Body": "It has been 5 days. A calm pause now can help you get back on track.",
+  "reminderDay5Body": "Sit down whenever you like and see what's there.",
   "@reminderDay5Body": {
     "description": "Daily reminder day 5 body"
   },
-  "reminderDay6Title": "Almost a week ⏰",
+  "reminderDay6Title": "The door is open",
   "@reminderDay6Title": {
     "description": "Daily reminder day 6 title"
   },
-  "reminderDay6Body": "It has been almost a week since you meditated. Close the loop with a mindful moment.",
+  "reminderDay6Body": "Come back whenever you like. Nothing to catch up on.",
   "@reminderDay6Body": {
     "description": "Daily reminder day 6 body"
   },
-  "reminderDay7Title": "One week check in 📅",
+  "reminderDay7Title": "Take a breather",
   "@reminderDay7Title": {
     "description": "Daily reminder day 7 title"
   },
-  "reminderDay7Body": "It has been a week since you meditated. Take a moment for yourself now.",
+  "reminderDay7Body": "A quiet moment on your own, just for you.",
   "@reminderDay7Body": {
     "description": "Daily reminder day 7 body"
   },
-  "reminderDay8Title": "Fresh start 🌤️",
+  "reminderDay8Title": "Start where you are",
   "@reminderDay8Title": {
     "description": "Daily reminder day 8 title"
   },
-  "reminderDay8Body": "It has been over a week. A fresh start with just a few mindful minutes.",
+  "reminderDay8Body": "One mindful breath is a good beginning.",
   "@reminderDay8Body": {
     "description": "Daily reminder day 8 body"
   },
-  "reminderDay9Title": "Find your centre 🎯",
+  "reminderDay9Title": "Find your center",
   "@reminderDay9Title": {
     "description": "Daily reminder day 9 title"
   },
-  "reminderDay9Body": "A short session can reset your day.",
+  "reminderDay9Body": "Rest your attention on your breath for a moment.",
   "@reminderDay9Body": {
     "description": "Daily reminder day 9 body"
   },
-  "reminderDay10Title": "Double digits 🔟",
+  "reminderDay10Title": "Listen to the silence",
   "@reminderDay10Title": {
     "description": "Daily reminder day 10 title"
   },
-  "reminderDay10Body": "It has been 10 days since you meditated. Pick up where you left off.",
+  "reminderDay10Body": "Close your eyes and notice the sounds around you.",
   "@reminderDay10Body": {
     "description": "Daily reminder day 10 body"
   },
-  "reminderDay11Title": "Gentle nudge 🤍",
+  "reminderDay11Title": "A kind pause",
   "@reminderDay11Title": {
     "description": "Daily reminder day 11 title"
   },
-  "reminderDay11Body": "Pause, breathe, and notice how you feel.",
+  "reminderDay11Body": "Stop, breathe and notice how you feel.",
   "@reminderDay11Body": {
     "description": "Daily reminder day 11 body"
   },
-  "reminderDay12Title": "Keep steady 🧭",
+  "reminderDay12Title": "A calm moment",
   "@reminderDay12Title": {
     "description": "Daily reminder day 12 title"
   },
-  "reminderDay12Body": "A calm moment is waiting for you.",
+  "reminderDay12Body": "Some quiet time is here, whenever you like.",
   "@reminderDay12Body": {
     "description": "Daily reminder day 12 body"
   },
-  "reminderDay13Title": "Approaching two weeks ⏳",
+  "reminderDay13Title": "Gently",
   "@reminderDay13Title": {
     "description": "Daily reminder day 13 title"
   },
-  "reminderDay13Body": "It has been almost two weeks since you meditated. Try a two minute restart.",
+  "reminderDay13Body": "Sit for a few minutes and let your body rest.",
   "@reminderDay13Body": {
     "description": "Daily reminder day 13 body"
   },
-  "reminderDay14Title": "Two week check in 🔔",
+  "reminderDay14Title": "Your space is still here",
   "@reminderDay14Title": {
     "description": "Daily reminder day 14 title"
   },
-  "reminderDay14Body": "It has been 14 days since you meditated. Resume your practice now, gently.",
+  "reminderDay14Body": "Your practice isn't going anywhere.",
   "@reminderDay14Body": {
     "description": "Daily reminder day 14 body"
   },
-  "reminderDay15Title": "Pausing reminders 🌿",
+  "reminderDay15Title": "Pausing reminders",
   "@reminderDay15Title": {
     "description": "Daily reminder day 15 title"
   },
-  "reminderDay15Body": "We're pausing reminders for now. We are here whenever you are ready.",
+  "reminderDay15Body": "We won't send more reminders for now. Your practice stays here.",
   "@reminderDay15Body": {
     "description": "Daily reminder day 15 body"
   },
-  "reminderDay30Title": "A gentle nudge 🤗",
+  "reminderDay30Title": "A quiet invitation",
   "@reminderDay30Title": {
     "description": "Daily reminder day 30 title"
   },
-  "reminderDay30Body": "It's been a month since you meditated. Just 2 minutes can help you feel better. We're here when you're ready.",
+  "reminderDay30Body": "If you feel like sitting for a moment, we're here.",
   "@reminderDay30Body": {
     "description": "Daily reminder day 30 body"
   },
@@ -2549,5 +2549,74 @@
       }
     }
   },
-  "timerShortcutLast": "Repeat last timer"
+  "timerShortcutLast": "Repeat last timer",
+  "timerHousePracticesTitle": "House practices",
+  "mantraCounterTitle": "Mantra counter",
+  "mantraCounterHint": "Tap anywhere on the screen to count.",
+  "mantraCounterBeads": "{count} of {total}",
+  "@mantraCounterBeads": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "mantraCounterRounds": "{rounds, plural, =0{No rounds yet} =1{1 round} other{{rounds} rounds}}",
+  "@mantraCounterRounds": {
+    "placeholders": {
+      "rounds": {
+        "type": "int"
+      }
+    }
+  },
+  "mantraCounterTapAction": "Count",
+  "mantraCounterMenu": "Counter options",
+  "mantraCounterReset": "Start over",
+  "mantraCounterResetConfirm": "Start the count over? Your total stays the same.",
+  "mantraTotalSwitch": "Keep my total",
+  "mantraTotalValue": "Total: {total}",
+  "@mantraTotalValue": {
+    "placeholders": {
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "mantraTotalAdd": "Add counts",
+  "mantraTotalAddHint": "Counts done outside the app",
+  "mantraTotalAddConfirm": "Add",
+  "mantraTotalClear": "Delete my total",
+  "mantraTotalClearConfirm": "Delete your total? This can't be undone.",
+  "mantraPrivacyNote": "Your counts are saved only on this phone.",
+  "reminderActionSit3": "Sit for 3 min",
+  "reminderActionNotToday": "Not today",
+  "timerSessionNounDefault": "session",
+  "timerSavedSessionNoun": "We saved your {noun} of {minutes} min.",
+  "@timerSavedSessionNoun": {
+    "placeholders": {
+      "noun": {
+        "type": "String"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsTimerOnlyTitle": "Just the timer",
+  "settingsTimerOnlyOpen": "Open the app on the timer",
+  "settingsTimerOnlySkipEnd": "Skip the end screen",
+  "settingsExportPractice": "Export my practice",
+  "settingsExportPracticeSubtitle": "CSV file with the sessions saved on this phone.",
+  "exportCsvHeader": "date,time,kind,minutes,content,source",
+  "exportKindTimer": "timer",
+  "exportKindGuided": "guided",
+  "exportKindManual": "manual",
+  "exportSourceAccount": "account",
+  "exportSourceDevice": "this phone",
+  "exportEmpty": "There are no sessions to export yet.",
+  "exportFailed": "Couldn't create the file. Please try again.",
+  "exportShareSubject": "My practice"
 }
