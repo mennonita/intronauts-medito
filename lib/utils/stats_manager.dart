@@ -132,7 +132,8 @@ class StatsManager {
   bool _historyIdOnDisk = false;
   final _postsInFlight = <int, Future<void>>{};
   // `runId` de cada sesión del temporizador que el historial confirma.
-  final _confirmedRuns = StreamController<String>.broadcast();
+  final _confirmedRuns = StreamController<String?>.broadcast();
+  bool _changingAccount = false;
 
   // Un solo escritor a la vez para el registro de estadísticas y el de
   // dueños pendientes (R63).
@@ -177,7 +178,7 @@ class StatsManager {
     historyIdOnDisk: _historyIdOnDisk,
   );
 
-  void _restoreState(_MemoryState state) {
+  void _restoreState(_MemoryState state, {String? savedHistoryId}) {
     _allStats = state.allStats;
     _localSeq = state.localSeq;
     _dirty = state.dirty;
@@ -188,8 +189,8 @@ class StatsManager {
     _verifiedUserId = state.verifiedUserId;
     _changes = state.changes;
     _recordedRuns = state.recordedRuns;
-    _historyId = state.historyId;
-    _historyIdOnDisk = state.historyIdOnDisk;
+    _historyId = savedHistoryId ?? state.historyId;
+    _historyIdOnDisk = savedHistoryId != null || state.historyIdOnDisk;
   }
 
   /// Corre [body] dentro del candado. Si la escritura falla o lanza un error,
@@ -269,21 +270,24 @@ class StatsManager {
     }
   }
 
-  Future<void> _saveLastSyncedAt() async {
+  Future<bool> _saveLastSyncedAt(DateTime? value) async {
     try {
-      var prefs = _prefs;
-      if (_lastSyncedAt != null) {
-        await prefs.setInt(
-          SharedPreferenceConstants.statsLastSyncedAt,
-          _lastSyncedAt!.millisecondsSinceEpoch,
-        );
-      } else {
-        await prefs.remove(SharedPreferenceConstants.statsLastSyncedAt);
-      }
+      const key = SharedPreferenceConstants.statsLastSyncedAt;
+      return value == null
+          ? await _prefs.remove(key)
+          : await _prefs.setInt(key, value.millisecondsSinceEpoch);
     } catch (e) {
-      // Handle case where SharedPreferences isn't initialized (e.g., in some tests)
-      // Silently fail - this is OK in test scenarios
+      AppLogger.w(
+        'STATS_MANAGER',
+        'No se pudo guardar la fecha de sincronización',
+      );
+      return false;
     }
+  }
+
+  Future<void> _markSynced() async {
+    final now = _getCurrentDate();
+    if (await _saveLastSyncedAt(now)) _lastSyncedAt = now;
   }
 
   Future<void> sync({bool force = false}) async {
@@ -324,7 +328,7 @@ class StatsManager {
 
   Future<void> _doSync() async {
     _allStats ??= _loadLocalAllStats();
-    if (_verifiedUserId == null) return;
+    if (_verifiedUserId == null || _changingAccount) return;
     if (_dirty) {
       await flushPendingPost();
       return;
@@ -336,28 +340,39 @@ class StatsManager {
     if (generation != _clearGeneration || startedSeq != _localSeq) return;
     if (remote == null) return;
 
-    final saved = await _transaction(() async {
+    final saved = await _locked(() async {
       // Otra escritura pudo llegar mientras se descargaba la copia remota.
       if (generation != _clearGeneration || startedSeq != _localSeq) {
-        return null;
+        return false;
       }
-      _synced = remote;
+      final before = _captureState();
       // Conserva el historial local creado antes de guardar la secuencia.
-      if (_localSeq == 0 && remote.clientSeq == 0) {
-        _merge(remote.stats);
-      } else {
-        _allStats = remote.stats;
-      }
-      if (remote.clientSeq > _localSeq) _localSeq = remote.clientSeq;
-      final score = _updateDerivedStats();
-      await _saveLocalAllStatsToSharedPrefs();
-      return score;
+      final stats = _withDerivedStats(
+        before.localSeq == 0 && remote.clientSeq == 0
+            ? _merge(before.allStats!, remote.stats)
+            : remote.stats,
+      );
+      final _MemoryState next = (
+        allStats: stats,
+        localSeq: max(before.localSeq, remote.clientSeq),
+        dirty: before.dirty,
+        needsResync: before.needsResync,
+        attempt: before.attempt,
+        synced: remote,
+        legacyPending: before.legacyPending,
+        verifiedUserId: before.verifiedUserId,
+        changes: before.changes,
+        recordedRuns: before.recordedRuns,
+        historyId: before.historyId,
+        historyIdOnDisk: before.historyIdOnDisk,
+      );
+      final historyId = await _writeActiveRecord(next);
+      _restoreState(next, savedHistoryId: historyId);
+      await saveConsistencyScoreHistory(stats.consistencyScore);
+      await _markSynced();
+      return true;
     });
-    if (saved == null || generation != _clearGeneration) return;
-    _lastSyncedAt = _getCurrentDate();
-    await saveConsistencyScoreHistory(saved);
-    await _saveLastSyncedAt();
-    if (generation == _clearGeneration) _updateHomeWidget();
+    if (saved && generation == _clearGeneration) _updateHomeWidget();
   }
 
   Future<LocalAllStats> get localAllStats async {
@@ -378,168 +393,63 @@ class StatsManager {
     offset: _dayBoundaryOffset,
   ).returns;
 
-  void _merge(LocalAllStats remoteStats) {
-    // Check if remote stats contain recent dummy data
-    var now = _getCurrentDate();
-    var today = DateTime(now.year, now.month, now.day);
-
-    // Check if any dummy tracks are from today
-    var hasRecentDummyTracks =
-        remoteStats.audioCompleted?.any((audio) {
+  LocalAllStats _merge(LocalAllStats local, LocalAllStats remote) {
+    final now = _getCurrentDate();
+    final updated = now.millisecondsSinceEpoch;
+    final today = DateTime(now.year, now.month, now.day);
+    final hasRecentDummyTracks =
+        remote.audioCompleted?.any((audio) {
           if (!audio.id.startsWith('dummy-track')) return false;
-
-          var trackDate = DateTime.fromMillisecondsSinceEpoch(audio.timestamp);
-          var trackDay = DateTime(
-            trackDate.year,
-            trackDate.month,
-            trackDate.day,
-          );
-
-          // Consider tracks from today as recent
-          return trackDay.isAtSameMomentAs(today);
+          final date = DateTime.fromMillisecondsSinceEpoch(audio.timestamp);
+          return DateTime(
+            date.year,
+            date.month,
+            date.day,
+          ).isAtSameMomentAs(today);
         }) ??
         false;
 
-    // If remote stats contain recent dummy data, prefer remote data completely
-    if (hasRecentDummyTracks) {
-      //dev.log
-      //'StatsManager: Remote stats contain recent dummy data, using remote stats only');
-      _allStats = remoteStats.copyWith(
-        updated: _getCurrentDate().millisecondsSinceEpoch,
-      );
-      return;
+    if (hasRecentDummyTracks ||
+        (local.totalTracksCompleted == 0 && remote.totalTracksCompleted > 0)) {
+      return remote.copyWith(updated: updated);
+    }
+    if (remote.totalTracksCompleted == 0 && local.totalTracksCompleted > 0) {
+      return local.copyWith(updated: updated);
     }
 
-    // Use the current _allStats as localAllStats if available
-    LocalAllStats? localAllStats = _allStats;
+    // Si la sesión está en ambas copias, conserva la del servidor.
+    final sessions = {
+      for (final audio in [...?local.audioCompleted, ...?remote.audioCompleted])
+        '${audio.id}_${audio.timestamp}': audio,
+    }.values.toList();
+    // Las entradas manuales antiguas y de pausa de racha no cuentan aquí.
+    final realCompletions = sessions
+        .where(
+          (audio) =>
+              audio.id != TypeConstants.streakFreeze &&
+              !audio.id.startsWith('dummy-track'),
+        )
+        .length;
+    final base = remote.updated > local.updated ? remote : local;
 
-    // If _allStats is null, try to load from SharedPreferences
-    if (localAllStats == null) {
-      var prefs = _prefs;
-      var localAllStatsJson = prefs.getString(
-        SharedPreferenceConstants.localAllStatsKey,
-      );
-
-      if (localAllStatsJson != null && localAllStatsJson != 'null') {
-        localAllStats = _loadLocalAllStats();
-        //dev.log
-        //'StatsManager: Loaded local stats from SharedPreferences: ${localAllStats.totalTracksCompleted}');
-      } else {
-        //dev.log'StatsManager: No local stats found in SharedPreferences');
-      }
-    } else {
-      //dev.log
-      //'StatsManager: Using existing _allStats as local stats: ${localAllStats.totalTracksCompleted}');
-    }
-
-    // If we have no remote stats but have local stats, use local
-    if (remoteStats.totalTracksCompleted == 0) {
-      if (localAllStats != null && localAllStats.totalTracksCompleted > 0) {
-        //dev.log'StatsManager: Using local stats');
-        _allStats = localAllStats.copyWith(
-          updated: _getCurrentDate().millisecondsSinceEpoch,
-        );
-        return;
-      }
-    }
-
-    // If we have no local stats but have remote stats, use remote
-    if (localAllStats == null || localAllStats.totalTracksCompleted == 0) {
-      if (remoteStats.totalTracksCompleted > 0) {
-        _allStats = remoteStats.copyWith(
-          updated: _getCurrentDate().millisecondsSinceEpoch,
-        );
-        return;
-      }
-    }
-
-    // If both exist, merge them properly
-    if (localAllStats != null) {
-      //dev.log'DEBUG - MERGING:');
-      //dev.log
-      // 'Local audio: ${localAllStats.audioCompleted?.map((a) => a.id).toList()}');
-      //dev.log
-      // 'Remote audio: ${remoteStats.audioCompleted?.map((a) => a.id).toList()}');
-
-      // Create a combined list of tracks checked
-      var combinedTracksChecked = {
-        ...localAllStats.tracksChecked ?? [],
-        ...remoteStats.tracksChecked ?? [],
-      }.toList();
-
-      // Deduplicate audio completed entries by ID and timestamp
-      final audioCompletedMap = <String, LocalAudioCompleted>{};
-
-      // Process local entries first
-      for (final audio in localAllStats.audioCompleted ?? []) {
-        final key = '${audio.id}_${audio.timestamp}';
-        audioCompletedMap[key] = audio;
-      }
-
-      // Process remote entries, overwriting local entries if they exist
-      for (final audio in remoteStats.audioCompleted ?? []) {
-        final key = '${audio.id}_${audio.timestamp}';
-        audioCompletedMap[key] = audio;
-      }
-
-      // Convert back to list
-      final deduplicatedAudioCompleted = audioCompletedMap.values.toList();
-
-      //dev.log
-      //'Deduplicated audio: ${deduplicatedAudioCompleted.map((a) => a.id).toList()}');
-
-      // Create a combined list of freeze usage dates, removing duplicates
-      var deduplicatedFreezeUsageDates = {
-        ...localAllStats.freezeUsageDates,
-        ...remoteStats.freezeUsageDates,
-      }.toList();
-
-      // Determine which base to use for other properties
-      var areRemoteStatsNewer = remoteStats.updated > localAllStats.updated;
-      var baseStats = areRemoteStatsNewer ? remoteStats : localAllStats;
-
-      // Lifetime counters are monotonic, so never let a freshly-created copy
-      // (e.g. a completion recorded before the local history was loaded)
-      // win just because it has the newer `updated` stamp. Take the larger
-      // value from either side, and never report fewer completions than we
-      // actually hold in the merged history.
-      // Legacy streak-freeze entries and the manual-edit form's dummy entries
-      // live in the history but are not completed tracks, so they do not
-      // count toward the floor.
-      final realCompletions = deduplicatedAudioCompleted
-          .where(
-            (a) =>
-                a.id != TypeConstants.streakFreeze &&
-                !a.id.startsWith('dummy-track'),
-          )
-          .length;
-      final mergedTotalTracks = [
-        localAllStats.totalTracksCompleted,
-        remoteStats.totalTracksCompleted,
+    return base.copyWith(
+      audioCompleted: sessions,
+      freezeUsageDates: {
+        ...local.freezeUsageDates,
+        ...remote.freezeUsageDates,
+      }.toList(),
+      tracksChecked: {
+        ...?local.tracksChecked,
+        ...?remote.tracksChecked,
+      }.toList(),
+      totalTracksCompleted: max(
         realCompletions,
-      ].reduce((a, b) => a > b ? a : b);
-      final mergedTimeListened =
-          localAllStats.totalTimeListened > remoteStats.totalTimeListened
-          ? localAllStats.totalTimeListened
-          : remoteStats.totalTimeListened;
-      final mergedLongestStreak =
-          localAllStats.streakLongest > remoteStats.streakLongest
-          ? localAllStats.streakLongest
-          : remoteStats.streakLongest;
-
-      // Update with combined data
-      _allStats = baseStats.copyWith(
-        audioCompleted: deduplicatedAudioCompleted,
-        freezeUsageDates: deduplicatedFreezeUsageDates,
-        tracksChecked: combinedTracksChecked,
-        totalTracksCompleted: mergedTotalTracks,
-        totalTimeListened: mergedTimeListened,
-        streakLongest: mergedLongestStreak,
-        updated: _getCurrentDate().millisecondsSinceEpoch,
-      );
-    } else {
-      _allStats = remoteStats;
-    }
+        max(local.totalTracksCompleted, remote.totalTracksCompleted),
+      ),
+      totalTimeListened: max(local.totalTimeListened, remote.totalTimeListened),
+      streakLongest: max(local.streakLongest, remote.streakLongest),
+      updated: updated,
+    );
   }
 
   // Conserva el cálculo histórico que usa el servidor.
@@ -627,44 +537,59 @@ class StatsManager {
     }
   }
 
-  void _loadRecordState(Map<String, dynamic>? record) {
-    _localSeq = record?[_localSeqKey] as int? ?? 0;
-    _dirty = record?[_pendingSyncKey] == true;
-    _needsResync = record?[_resyncKey] == true;
+  void _loadRecordState(Map<String, dynamic>? record) => _restoreState(
+    _readRecordState(record, stats: _allStats, owner: _verifiedUserId),
+  );
+
+  _MemoryState _readRecordState(
+    Map<String, dynamic>? record, {
+    required LocalAllStats? stats,
+    required String? owner,
+    bool archived = false,
+  }) {
+    final dirty =
+        record?[_pendingSyncKey] == true ||
+        (archived && record != null && !record.containsKey(_pendingSyncKey));
     final attempt = record?[_attemptKey] as Map<String, dynamic>?;
-    _attempt = attempt == null
-        ? null
-        : (
-            seq: attempt['seq'] as int,
-            changes: attempt['changes'] as int,
-            digest: attempt['digest'] as String,
-          );
     final legacy = record?[_legacyPendingKey] as Map<String, dynamic>?;
-    _legacyPending = legacy != null
-        ? LocalAllStats.fromJson(legacy)
-        : record != null &&
-              !record.containsKey(_changesKey) &&
-              (_dirty || record.containsKey('stats'))
-        ? LocalAllStats.fromJson(
-            record['stats'] as Map<String, dynamic>? ?? record,
-          )
-        : null;
     final synced = record?[_syncedStatsKey] as Map<String, dynamic>?;
-    _synced = synced == null
-        ? null
-        : (
-            stats: LocalAllStats.fromJson(synced),
-            clientSeq: record![_syncedSeqKey] as int,
-          );
-    _changes = [
-      for (final change in (record?[_changesKey] as List? ?? const []))
-        StatsChange(change as Map<String, dynamic>),
-    ];
-    _recordedRuns = _readRecordedRuns(record);
     final historyId = record?[_historyIdKey];
-    _historyId = historyId is String && historyId.isNotEmpty ? historyId : null;
-    // Lo que se cargó aún no es lo que está en disco como historial activo.
-    _historyIdOnDisk = false;
+    return (
+      allStats: stats,
+      verifiedUserId: owner,
+      localSeq: record?[_localSeqKey] as int? ?? 0,
+      dirty: dirty,
+      needsResync: record?[_resyncKey] == true,
+      attempt: attempt == null
+          ? null
+          : (
+              seq: attempt['seq'] as int,
+              changes: attempt['changes'] as int,
+              digest: attempt['digest'] as String,
+            ),
+      legacyPending: legacy != null
+          ? LocalAllStats.fromJson(legacy)
+          : record != null &&
+                !record.containsKey(_changesKey) &&
+                (dirty || record.containsKey('stats'))
+          ? LocalAllStats.fromJson(
+              record['stats'] as Map<String, dynamic>? ?? record,
+            )
+          : null,
+      synced: synced == null
+          ? null
+          : (
+              stats: LocalAllStats.fromJson(synced),
+              clientSeq: record![_syncedSeqKey] as int,
+            ),
+      changes: [
+        for (final change in (record?[_changesKey] as List? ?? const []))
+          StatsChange(change as Map<String, dynamic>),
+      ],
+      recordedRuns: _readRecordedRuns(record),
+      historyId: historyId is String && historyId.isNotEmpty ? historyId : null,
+      historyIdOnDisk: false,
+    );
   }
 
   static String _newHistoryId() {
@@ -683,30 +608,33 @@ class StatsManager {
         Map<String, dynamic>.of(run.cast()),
   ];
 
-  Map<String, dynamic> _recordState({
+  Map<String, dynamic> _recordState(
+    _MemoryState state,
+    String historyId, {
     List<Map<String, dynamic>>? recordedRuns,
     int? localSeq,
     bool? dirty,
     List<StatsChange>? changes,
   }) => {
-    _ownerKey: _verifiedUserId,
-    _localSeqKey: localSeq ?? _localSeq,
-    _pendingSyncKey: dirty ?? _dirty,
-    _resyncKey: _needsResync,
-    if (_attempt case final attempt?)
+    _ownerKey: state.verifiedUserId,
+    _localSeqKey: localSeq ?? state.localSeq,
+    _pendingSyncKey: dirty ?? state.dirty,
+    _resyncKey: state.needsResync,
+    if (state.attempt case final attempt?)
       _attemptKey: {
         'seq': attempt.seq,
         'changes': attempt.changes,
         'digest': attempt.digest,
       },
-    if (_synced case final synced?) ...{
+    if (state.synced case final synced?) ...{
       _syncedStatsKey: synced.stats.toJson(),
       _syncedSeqKey: synced.clientSeq,
     },
-    if (_legacyPending case final legacy?) _legacyPendingKey: legacy.toJson(),
-    _changesKey: [for (final change in changes ?? _changes) change.json],
-    _recordedRunsKey: recordedRuns ?? _recordedRuns,
-    _historyIdKey: _historyId ??= _newHistoryId(),
+    if (state.legacyPending case final legacy?)
+      _legacyPendingKey: legacy.toJson(),
+    _changesKey: [for (final change in changes ?? state.changes) change.json],
+    _recordedRunsKey: recordedRuns ?? state.recordedRuns,
+    _historyIdKey: historyId,
   };
 
   /// Una sola escritura guarda el historial y el estado de sincronización.
@@ -720,11 +648,33 @@ class StatsManager {
     bool? dirty,
     List<StatsChange>? changes,
   }) async {
+    _historyId = await _writeActiveRecord(
+      _captureState(),
+      stats: stats,
+      recordedRuns: recordedRuns,
+      localSeq: localSeq,
+      dirty: dirty,
+      changes: changes,
+    );
+    _historyIdOnDisk = true;
+  }
+
+  Future<String> _writeActiveRecord(
+    _MemoryState state, {
+    LocalAllStats? stats,
+    List<Map<String, dynamic>>? recordedRuns,
+    int? localSeq,
+    bool? dirty,
+    List<StatsChange>? changes,
+  }) async {
+    final historyId = state.historyId ?? _newHistoryId();
     final saved = await _prefs.setString(
       SharedPreferenceConstants.localAllStatsKey,
       jsonEncode({
-        ...(stats ?? _allStats!).toJson(),
+        ...(stats ?? state.allStats!).toJson(),
         ..._recordState(
+          state,
+          historyId,
           recordedRuns: recordedRuns,
           localSeq: localSeq,
           dirty: dirty,
@@ -733,7 +683,7 @@ class StatsManager {
       }),
     );
     if (!saved) throw StateError('Could not save local stats');
-    _historyIdOnDisk = true;
+    return historyId;
   }
 
   LocalAllStats _loadLocalAllStats() {
@@ -773,7 +723,7 @@ class StatsManager {
     List<Map<String, dynamic>> owners,
   ) => (jsonDecode(jsonEncode(owners)) as List).cast<Map<String, dynamic>>();
 
-  Future<void> _savePendingOwners(List<Map<String, dynamic>> owners) async {
+  Future<void> _writePendingOwners(List<Map<String, dynamic>> owners) async {
     final saved = owners.isEmpty
         ? await _prefs.remove(_pendingOwnerKey)
         : await _prefs.setString(
@@ -784,6 +734,10 @@ class StatsManager {
             }),
           );
     if (!saved) throw StateError('Could not preserve pending stats');
+  }
+
+  Future<void> _savePendingOwners(List<Map<String, dynamic>> owners) async {
+    await _writePendingOwners(owners);
     _confirmedOwners = _deepCopy(owners);
   }
 
@@ -950,7 +904,7 @@ class StatsManager {
     if (!_historyIdOnDisk) await _saveLocalAllStatsToSharedPrefs();
     // Copia en JSON puro: la unión con otra copia sin dueño la vuelve a leer.
     return {
-      ..._recordState(),
+      ..._recordState(_captureState(), _historyId!),
       'stats': jsonDecode(jsonEncode(_allStats!.toJson())),
     };
   }
@@ -958,13 +912,6 @@ class StatsManager {
   Future<void> _ensureStatsLoaded() async {
     if (!_isInitialized) await initialize();
     _allStats ??= _loadLocalAllStats();
-  }
-
-  double _updateDerivedStats() {
-    _allStats = calculateStreak(_allStats!);
-    final score = calculateConsistencyScore(_allStats!);
-    _allStats = _allStats!.copyWith(consistencyScore: score);
-    return score;
   }
 
   /// Racha y constancia calculadas sobre una copia: la memoria no cambia.
@@ -1187,15 +1134,29 @@ class StatsManager {
     String runId, {
     Duration timeout = const Duration(seconds: 5),
   }) async {
-    if (runId.isEmpty) return false;
+    if (runId.isEmpty || _changingAccount) return false;
     if (_hasRecordedRun(runId)) return true;
     // Se escucha en el mismo paso que la consulta: ningún aviso se pierde.
-    final arrived = _confirmedRuns.stream.firstWhere((id) => id == runId);
+    final generation = _clearGeneration;
+    final arrived = Completer<bool>();
+    final subscription = _confirmedRuns.stream.listen((id) {
+      if (arrived.isCompleted) return;
+      if (id == null || generation != _clearGeneration || _changingAccount) {
+        arrived.complete(false);
+      } else if (id == runId) {
+        arrived.complete(true);
+      }
+    });
     try {
-      await arrived.timeout(timeout);
-      return true;
-    } on TimeoutException {
-      return _hasRecordedRun(runId);
+      return await arrived.future.timeout(
+        timeout,
+        onTimeout: () =>
+            generation == _clearGeneration &&
+            !_changingAccount &&
+            _hasRecordedRun(runId),
+      );
+    } finally {
+      await subscription.cancel();
     }
   }
 
@@ -1398,7 +1359,10 @@ class StatsManager {
   }
 
   Future<void> flushPendingPost() {
-    if (!_dirty || _allStats == null || _verifiedUserId == null) {
+    if (!_dirty ||
+        _allStats == null ||
+        _verifiedUserId == null ||
+        _changingAccount) {
       return Future.value();
     }
 
@@ -1418,14 +1382,14 @@ class StatsManager {
 
   Future<void> _postPendingChanges(int generation) async {
     var retried = false;
-    while (generation == _clearGeneration && _dirty) {
+    while (generation == _clearGeneration && _dirty && !_changingAccount) {
       if (_synced == null || _needsResync) {
         final startedSeq = _localSeq;
         final remote = await _statsService.fetchAllStats();
         if (generation != _clearGeneration) return;
         if (startedSeq != _localSeq) continue;
         if (remote == null) return;
-        final rebased = await _transaction(() async {
+        final rebased = await _locked(() async {
           if (generation != _clearGeneration || startedSeq != _localSeq) {
             return false;
           }
@@ -1447,7 +1411,11 @@ class StatsManager {
         await _saveLocalAllStatsToSharedPrefs();
         return (sent: sent, seq: seq, changeCount: changeCount);
       });
-      if (attempt == null || generation != _clearGeneration) return;
+      if (attempt == null ||
+          generation != _clearGeneration ||
+          _changingAccount) {
+        return;
+      }
       final (:sent, :seq, :changeCount) = attempt;
 
       StatsPostResult? result;
@@ -1478,11 +1446,10 @@ class StatsManager {
           _localSeq = accepted.clientSeq + (_dirty ? 1 : 0);
         }
         await _saveLocalAllStatsToSharedPrefs();
+        await _markSynced();
         return true;
       });
       if (!saved || generation != _clearGeneration) return;
-      _lastSyncedAt = _getCurrentDate();
-      await _saveLastSyncedAt();
     }
   }
 
@@ -1493,31 +1460,39 @@ class StatsManager {
 
   // Se llama dentro del candado.
   Future<void> _rebasePendingChanges(StatsSnapshot remote) async {
-    final attempt = _attempt;
+    final before = _captureState();
+    final attempt = before.attempt;
+    final changes = before.changes;
+    var legacy = before.legacyPending;
     if (attempt != null &&
         attempt.seq == remote.clientSeq &&
         attempt.digest == _statsDigest(remote.stats)) {
       // El servidor ya guardó estos cambios. Conserva los que llegaron después.
-      _changes.removeRange(0, attempt.changes);
-      _legacyPending = null;
+      changes.removeRange(0, attempt.changes);
+      legacy = null;
     }
-    _attempt = null;
-    _synced = remote;
+    // Las versiones anteriores solo guardaban la copia sin el detalle de los cambios.
+    var stats = legacy == null ? remote.stats : _merge(legacy, remote.stats);
     final now = _getCurrentDate().millisecondsSinceEpoch;
-    if (_legacyPending case final legacy?) {
-      // Las versiones anteriores solo guardaban la copia sin el detalle de los cambios.
-      _allStats = legacy;
-      _merge(remote.stats);
-    } else {
-      _allStats = remote.stats;
+    for (final change in changes) {
+      stats = change.apply(stats, now, replay: true);
     }
-    for (final change in _changes) {
-      _allStats = change.apply(_allStats!, now, replay: true);
-    }
-    _updateDerivedStats();
-    if (remote.clientSeq >= _localSeq) _localSeq = remote.clientSeq + 1;
-    _needsResync = false;
-    await _saveLocalAllStatsToSharedPrefs();
+    final _MemoryState next = (
+      allStats: _withDerivedStats(stats),
+      localSeq: max(before.localSeq, remote.clientSeq + 1),
+      dirty: before.dirty,
+      needsResync: false,
+      attempt: null,
+      synced: remote,
+      legacyPending: legacy,
+      verifiedUserId: before.verifiedUserId,
+      changes: changes,
+      recordedRuns: before.recordedRuns,
+      historyId: before.historyId,
+      historyIdOnDisk: before.historyIdOnDisk,
+    );
+    final historyId = await _writeActiveRecord(next);
+    _restoreState(next, savedHistoryId: historyId);
     _updateHomeWidget();
   }
 
@@ -1615,54 +1590,118 @@ class StatsManager {
   Future<void> removeTrackChecked(String trackId) =>
       setTracksChecked([trackId], checked: false);
 
+  Future<void> _writeServerUserId(String? userId) async {
+    const key = SharedPreferenceConstants.serverUserId;
+    final saved = userId == null
+        ? await _prefs.remove(key)
+        : await _prefs.setString(key, userId);
+    if (!saved) throw StateError('Could not save the stats owner');
+  }
+
   Future<void> acceptServerUser(String userId) async {
     final generation = _clearGeneration;
     await initialize();
-    final accepted = await _transaction(() async {
+    final accepted = await _locked(() async {
       if (generation != _clearGeneration ||
           _prefs.getBool(SharedPreferenceConstants.isLoggedIn) != true ||
-          !_uuidPattern.hasMatch(userId) ||
-          _verifiedUserId == userId) {
+          !_uuidPattern.hasMatch(userId)) {
+        return null;
+      }
+      if (_verifiedUserId == userId) {
+        // Repara la otra preferencia si el proceso se cerró entre escrituras.
+        if (_prefs.getString(SharedPreferenceConstants.serverUserId) !=
+            userId) {
+          await _writeServerUserId(userId);
+        }
         return null;
       }
 
-      final active = await _archiveActiveStats();
-      final owners = _pendingOwners();
-      // Solo /me puede confirmar el UUID de una copia guardada.
-      final matching = owners
-          .where((owner) => owner[_ownerKey] == userId)
-          .firstOrNull;
-      final transition = ++_clearGeneration;
-      _verifiedUserId = userId;
-      _allStats = matching == null
-          ? LocalAllStats.empty()
-          : LocalAllStats.fromJson(matching['stats'] as Map<String, dynamic>);
-      _loadRecordState(matching);
-      // Los registros de la versión anterior solo se guardaban si había cambios.
-      if (matching != null && !matching.containsKey(_pendingSyncKey)) {
-        _dirty = true;
-      }
-      _lastSyncedAt = null;
+      _changingAccount = true;
+      // Invalida los envíos de la cuenta anterior mientras cambia el dueño.
+      _clearGeneration++;
+      _confirmedRuns.add(null);
+      try {
+        _allStats ??= _loadLocalAllStats();
+        final active = await _archiveActiveStats();
+        final owners = _pendingOwners();
+        // Solo /me puede confirmar el UUID de una copia guardada.
+        final matching = owners
+            .where((owner) => owner[_ownerKey] == userId)
+            .firstOrNull;
+        final next = _readRecordState(
+          matching,
+          stats: matching == null
+              ? LocalAllStats.empty()
+              : LocalAllStats.fromJson(
+                  matching['stats'] as Map<String, dynamic>,
+                ),
+          owner: userId,
+          archived: true,
+        );
+        final archivedOwners = active == null
+            ? owners
+            : _withPendingOwner(owners, active);
+        if (active != null) await _writePendingOwners(archivedOwners);
 
-      if (active != null) {
-        final next = _withPendingOwner(owners, active);
-        owners
-          ..clear()
-          ..addAll(next);
-        await _savePendingOwners(owners);
-      }
-      if (transition != _clearGeneration) return null;
+        // Guarda el dueño anterior en el registro si era de una versión vieja.
+        // Así, un reinicio entre escrituras aún puede identificar el historial.
+        final currentRecord = _readStatsRecord(
+          SharedPreferenceConstants.localAllStatsKey,
+        );
+        if (currentRecord?.containsKey(_ownerKey) != true) {
+          await _saveLocalAllStatsToSharedPrefs();
+        }
 
-      await _saveLocalAllStatsToSharedPrefs();
-      if (transition != _clearGeneration) return null;
-      await _prefs.setString(SharedPreferenceConstants.serverUserId, userId);
-      if (transition != _clearGeneration) return null;
-      if (matching != null) {
-        owners.removeWhere((owner) => owner[_ownerKey] == userId);
-        await _savePendingOwners(owners);
+        final previousUser = _prefs.getString(
+          SharedPreferenceConstants.serverUserId,
+        );
+        final String historyId;
+        try {
+          await _writeServerUserId(userId);
+          if (!await _saveLastSyncedAt(null)) {
+            throw StateError('Could not clear the stats sync date');
+          }
+          historyId = await _writeActiveRecord(next);
+        } catch (_) {
+          try {
+            await _writeServerUserId(previousUser);
+          } catch (error) {
+            AppLogger.e(
+              'STATS_MANAGER',
+              'No se pudo restaurar el dueño anterior',
+              error,
+            );
+          }
+          await _saveLastSyncedAt(_lastSyncedAt);
+          rethrow;
+        }
+
+        var confirmedOwners = archivedOwners;
+        if (matching != null) {
+          final remaining = [
+            for (final owner in archivedOwners)
+              if (owner[_ownerKey] != userId) owner,
+          ];
+          try {
+            await _writePendingOwners(remaining);
+            confirmedOwners = remaining;
+          } catch (error) {
+            // El historial activo ya se guardó. La copia extra sigue en disco.
+            AppLogger.e(
+              'STATS_MANAGER',
+              'No se pudo quitar la copia archivada',
+              error,
+            );
+          }
+        }
+        _confirmedOwners = confirmedOwners;
+        _restoreState(next, savedHistoryId: historyId);
+        _lastSyncedAt = null;
+        // También invalida las operaciones que llegaron durante el cambio.
+        return ++_clearGeneration;
+      } finally {
+        _changingAccount = false;
       }
-      await _saveLastSyncedAt();
-      return transition;
     });
     if (accepted != null && accepted == _clearGeneration) {
       flushPendingPost().ignore();
@@ -1672,20 +1711,26 @@ class StatsManager {
   Future<void> clearAllStats({bool preservePending = true}) async {
     await initialize();
     await _transaction(() async {
+      _changingAccount = true;
       _clearGeneration++;
-      final active = preservePending ? await _archiveActiveStats() : null;
-      _verifiedUserId = null;
-      _allStats = LocalAllStats.empty();
-      _loadRecordState(null);
-      _lastSyncedAt = null;
-      if (active != null) {
-        await _savePendingOwners(_withPendingOwner(_pendingOwners(), active));
-      }
+      _confirmedRuns.add(null);
+      try {
+        final active = preservePending ? await _archiveActiveStats() : null;
+        _verifiedUserId = null;
+        _allStats = LocalAllStats.empty();
+        _loadRecordState(null);
+        _lastSyncedAt = null;
+        if (active != null) {
+          await _savePendingOwners(_withPendingOwner(_pendingOwners(), active));
+        }
 
-      await _saveLocalAllStatsToSharedPrefs();
-      if (!preservePending) await _savePendingOwners([]);
-      await _prefs.remove(SharedPreferenceConstants.serverUserId);
-      await _saveLastSyncedAt();
+        await _saveLocalAllStatsToSharedPrefs();
+        if (!preservePending) await _savePendingOwners([]);
+        await _prefs.remove(SharedPreferenceConstants.serverUserId);
+        await _saveLastSyncedAt(null);
+      } finally {
+        _changingAccount = false;
+      }
     });
   }
 
@@ -1838,6 +1883,9 @@ class StatsManager {
   @visibleForTesting
   LocalAllStats? get currentStats => _allStats;
 
+  @visibleForTesting
+  bool get hasTimerRunConfirmationListeners => _confirmedRuns.hasListener;
+
   void setCurrentDateForTesting(DateTime date) {
     _testDate = date;
   }
@@ -1895,6 +1943,8 @@ class StatsManager {
     _testDate = null;
     _lastSyncedAt = null;
     _clearGeneration++;
+    _confirmedRuns.add(null);
+    _changingAccount = false;
     _verifiedUserId = null;
     _loadRecordState(null);
     _postsInFlight.clear();
