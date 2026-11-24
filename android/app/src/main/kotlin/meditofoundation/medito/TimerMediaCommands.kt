@@ -2,8 +2,9 @@ package meditofoundation.medito
 
 import androidx.media3.common.Player
 
+/** Comandos de medios para cualquier temporizador: sin saltos ni adelantos (UX-13). */
 internal object TimerMediaCommands {
-    val extraTime = setOf(
+    val timer = setOf(
         Player.COMMAND_PLAY_PAUSE,
         Player.COMMAND_STOP,
         Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
@@ -16,6 +17,6 @@ internal object TimerMediaCommands {
         Player.COMMAND_GET_TRACKS
     )
 
-    fun allows(hasExtraTime: Boolean, command: Int): Boolean =
-        !hasExtraTime || command in extraTime
+    fun allows(isTimer: Boolean, command: Int): Boolean =
+        !isTimer || command in timer
 }

@@ -18,14 +18,15 @@ class TimerMediaCommandsTest {
         Player.COMMAND_SEEK_FORWARD
     )
 
-    @Test fun extraTimePublishesPlayPauseStopAndReadCommands() {
-        assertTrue(Player.COMMAND_PLAY_PAUSE in TimerMediaCommands.extraTime)
-        assertTrue(Player.COMMAND_STOP in TimerMediaCommands.extraTime)
-        assertTrue(Player.COMMAND_GET_CURRENT_MEDIA_ITEM in TimerMediaCommands.extraTime)
-        assertTrue(Player.COMMAND_GET_METADATA in TimerMediaCommands.extraTime)
+    @Test fun timersPublishPlayPauseStopAndReadCommands() {
+        assertTrue(Player.COMMAND_PLAY_PAUSE in TimerMediaCommands.timer)
+        assertTrue(Player.COMMAND_STOP in TimerMediaCommands.timer)
+        assertTrue(Player.COMMAND_GET_CURRENT_MEDIA_ITEM in TimerMediaCommands.timer)
+        assertTrue(Player.COMMAND_GET_METADATA in TimerMediaCommands.timer)
+        assertTrue(TimerMediaCommands.allows(isTimer = true, command = Player.COMMAND_PLAY_PAUSE))
     }
 
-    @Test fun extraTimeRejectsSeekSkipSpeedAndPlaylistChanges() {
+    @Test fun everyTimerRejectsSeekSkipSpeedAndPlaylistChanges() {
         val blocked = seekAndSkip + setOf(
             Player.COMMAND_SET_SPEED_AND_PITCH,
             Player.COMMAND_SET_REPEAT_MODE,
@@ -34,14 +35,14 @@ class TimerMediaCommandsTest {
             Player.COMMAND_CHANGE_MEDIA_ITEMS
         )
         for (command in blocked) {
-            assertFalse(command in TimerMediaCommands.extraTime)
-            assertFalse(TimerMediaCommands.allows(hasExtraTime = true, command = command))
+            assertFalse(command in TimerMediaCommands.timer)
+            assertFalse(TimerMediaCommands.allows(isTimer = true, command = command))
         }
     }
 
-    @Test fun regularPlaybackKeepsSeekAndSkipCommands() {
+    @Test fun guidedPlaybackKeepsSeekAndSkipCommands() {
         for (command in seekAndSkip) {
-            assertTrue(TimerMediaCommands.allows(hasExtraTime = false, command = command))
+            assertTrue(TimerMediaCommands.allows(isTimer = false, command = command))
         }
     }
 }

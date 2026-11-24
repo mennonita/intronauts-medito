@@ -2,8 +2,13 @@
 
 package meditofoundation.medito
 
+import android.Manifest
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -80,6 +85,25 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private var timerSeed: Long? = null
     private var timerStopLabel: String? = null
     private var timerHasExtraTime = false
+    // Parámetros de la sesión de temporizador actual; null en sesiones guiadas.
+    private var timerParams: TimerSessionParams? = null
+    private var focusPolicy: TimerFocusPolicy? = null
+    // Pausa puesta por la política de foco (llamada, otra app): no suelta el foco.
+    private var pausedByPolicy = false
+    private var duckFactor = 1f
+    private var lastClockPhase = -1
+    private var lastStoreWriteAtMs = 0L
+    // Número de foto del registro, tomado en el evento (R108).
+    private var snapshotSeq = 0L
+    // El último pedido de foco quedó en espera (llamada en curso).
+    private var focusDelayed = false
+    // Cierre natural que falló y se reintenta al terminar las campanas.
+    private var naturalCloseRetry: (() -> TimerCloseResult)? = null
+    private var timerEndPassed = false
+    private var backgroundFadeJob: Job? = null
+    private val focus by lazy { TimerAudioFocus(AndroidFocusBackend()) }
+    private val runStore by lazy { TimerRunStore.forContext(this) }
+    private val endBackup by lazy { TimerEndBackup.scheduler(this) }
     private var lastTimerStop: Pair<Long, TimerStopReport>? = null
     private var playbackAttempt = 0L
     private var timerPlaybackStopped = false
@@ -87,7 +111,6 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private val timerStart = TimerStartGate()
     private var pendingTimerBellsEnabled = false
     private var isCompletionHandled = false
-    private var hasAudioFocus = false
     private var isServiceFullyInitialized = false
     private lateinit var audioManager: AudioManager
     private var currentRepeatMode: RepeatMode = RepeatMode.NONE
@@ -133,11 +156,13 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         try {
             isUpdatingPlaybackState = true
             
-            // ExoPlayer methods should be called on main thread for thread safety
-            val state = withContext(Dispatchers.Main) {
+            // ExoPlayer methods should be called on main thread for thread safety.
+            // Posición, sesión e intento se toman JUNTOS (R104): un evento de otra
+            // sesión nunca toca el respaldo ni el registro de la nueva.
+            val snapshot = withContext(Dispatchers.Main) {
                 if (!::primaryPlayer.isInitialized) return@withContext null
-                
-                PlaybackState(
+                val attempt = playbackAttempt
+                val state = PlaybackState(
                     isPlaying = primaryPlayer.isPlaying,
                     position = primaryPlayer.currentPosition,
                     volume = primaryPlayer.volume.toLong(),
@@ -146,20 +171,23 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     duration = primaryPlayer.duration,
                     isSeeking = primaryPlayer.playbackState == Player.STATE_BUFFERING,
                     isCompleted = false, // Completion is emitted by the native listener.
-                    track = trackFromCurrentMediaItem()
+                    track = trackFromCurrentMediaItem(),
+                    endCueRang = timerEndCueRang(),
+                    runId = timerParams?.runId
                 )
-            } ?: return
-
-            // Apply background sound volume on main thread (touches ExoPlayer)
-            withContext(Dispatchers.Main) {
+                // Apply background sound volume on main thread (touches ExoPlayer)
                 applyBackgroundSoundVolume(state.duration, state.position)
-            }
+                Triple(state, timerTick(state.position), attempt)
+            } ?: return
+            val (state, storeWrite, attempt) = snapshot
+            storeWrite?.invoke()
 
             // Pigeon channel communication - already async/non-blocking
             // Post to main thread handler to ensure thread safety for callback
             val api = meditoAudioApi
             if (api != null) {
                 handler.post {
+                    if (attempt != playbackAttempt) return@post
                     api.updatePlaybackState(state) {
                         if (state.isCompleted && !isCompletionHandled) {
                             isCompletionHandled = true
@@ -210,11 +238,17 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             duration = duration,
             isSeeking = false,
             isCompleted = true,
-            track = trackFromCurrentMediaItem()
+            track = trackFromCurrentMediaItem(),
+            endCueRang = timerEndCueRang(),
+            runId = timerParams?.runId
         )
 
         api.updatePlaybackState(state) { /* fire-and-forget */ }
     }
+
+    // Sólo en temporizadores: si la campana final de verdad empezó a sonar (R98).
+    private fun timerEndCueRang(): Boolean? =
+        if (timerSeed != null && ::sessionBells.isInitialized) sessionBells.endCueStarted else null
 
     private fun handleTrackCompletion(state: PlaybackState) {
         val completionData = createCompletionData(state)
@@ -311,20 +345,29 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             // Only apply fade if background sound is set, initialized, and volume is set
             if (backgroundSoundUri == null || 
                 !::backgroundMusicPlayer.isInitialized || 
-                backgroundMusicVolume <= 0.0F) {
+                backgroundMusicVolume <= 0.0F ||
+                backgroundFadeJob?.isActive == true) {
                 return
             }
 
-            if (trackDuration != C.TIME_UNSET &&
+            val params = timerParams.takeIf { timerSeed != null }
+            if (params != null && params.isPlainCountdown && trackDuration != C.TIME_UNSET &&
+                trackDuration > params.endMs
+            ) {
+                // Cuenta regresiva simple: se apaga en la cola final, desde el fin planeado.
+                val window = (trackDuration - params.endMs).toFloat()
+                val fraction = ((trackDuration - currentPosition).toFloat() / window).coerceIn(0f, 1f)
+                backgroundMusicPlayer.volume = backgroundMusicVolume * fraction * duckFactor
+            } else if (trackDuration != C.TIME_UNSET &&
                 trackDuration - currentPosition <= fadeOutDurationMillis &&
                 trackDuration > fadeOutDurationMillis
             ) {
                 val volumeFraction =
                     (trackDuration - currentPosition).toFloat() / fadeOutDurationMillis
                 backgroundMusicPlayer.volume =
-                    backgroundMusicVolume * volumeFraction
+                    backgroundMusicVolume * volumeFraction * duckFactor
             } else {
-                backgroundMusicPlayer.volume = backgroundMusicVolume
+                backgroundMusicPlayer.volume = backgroundMusicVolume * duckFactor
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -377,22 +420,20 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private fun createMediaSession(): MediaSession {
         val player = object : ForwardingPlayer(primaryPlayer) {
             override fun play() {
-                if (timerSeed != null) playTimer() else super.play()
+                if (timerSeed != null) userResumeTimer() else super.play()
             }
 
             override fun pause() {
-                if (timerSeed != null) timerStart.pause()
-                super.pause()
+                if (timerSeed != null) userPauseTimer() else super.pause()
             }
 
             override fun setPlayWhenReady(playWhenReady: Boolean) {
                 if (timerSeed == null) {
                     super.setPlayWhenReady(playWhenReady)
                 } else if (playWhenReady) {
-                    playTimer()
+                    userResumeTimer()
                 } else {
-                    timerStart.pause()
-                    primaryPlayer.pause()
+                    userPauseTimer()
                 }
             }
 
@@ -458,7 +499,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                         if (event.action == KeyEvent.ACTION_DOWN) requestSystemTimerStop()
                         return true
                     }
-                    return timerHasExtraTime && event.keyCode in extraTimeBlockedKeys
+                    // Ningún temporizador acepta saltos ni adelantos (UX-13).
+                    return timerSeed != null && event.keyCode in timerBlockedKeys
                 }
 
                 override fun onPlayerCommandRequest(
@@ -466,8 +508,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     controller: MediaSession.ControllerInfo,
                     playerCommand: Int
                 ): Int {
-                    if ((timerSeed != null && playerCommand == Player.COMMAND_SET_SPEED_AND_PITCH) ||
-                        !TimerMediaCommands.allows(timerHasExtraTime, playerCommand)) {
+                    if (!TimerMediaCommands.allows(timerSeed != null, playerCommand)) {
                         return SessionResult.RESULT_ERROR_NOT_SUPPORTED
                     }
                     return SessionResult.RESULT_SUCCESS
@@ -494,11 +535,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     private fun mediaPlayerCommands(): Player.Commands =
-        if (timerHasExtraTime) Player.Commands.Builder()
-            .addAll(*TimerMediaCommands.extraTime.toIntArray())
-            .build()
-        else if (timerSeed != null) MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-            .remove(Player.COMMAND_SET_SPEED_AND_PITCH)
+        if (timerSeed != null) Player.Commands.Builder()
+            .addAll(*TimerMediaCommands.timer.toIntArray())
             .build()
         else MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
 
@@ -553,6 +591,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         println("🔊 [AudioPlayerService] onCreate called")
         Log.d(TAG, "🔊 Service onCreate called")
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        isActive = true
+        backupRescheduleHook = { rescheduleBackupFromPlayer() }
 
         // Flutter Engine and API setup is handled in onStartCommand
 
@@ -577,7 +617,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                                 requestAudioFocus()
 
                                 // 👉 Sync background to resume
-                                if (backgroundSoundUri != null && !backgroundMusicPlayer.isPlaying) {
+                                if (backgroundSoundUri != null && !backgroundMusicPlayer.isPlaying &&
+                                    backgroundFadeJob?.isActive != true) {
                                     Log.d(
                                         TAG,
                                         "🔊 Resuming background sound from playWhenReadyChanged"
@@ -589,10 +630,21 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                                     TAG,
                                     "🔊 Player set to playWhenReady=false, abandoning audio focus"
                                 )
-                                abandonAudioFocus()
+                                if (timerSeed != null &&
+                                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+                                ) {
+                                    // Se desconectaron los audífonos: pausa de la persona, con aviso (D2).
+                                    focusPolicy?.onUserPause()
+                                    timerStart.pause()
+                                    pausedByPolicy = false
+                                    postTimerAlert(timerParams?.headphonesPausedText)
+                                }
+                                // Una pausa de la política (llamada, otra app) conserva el foco.
+                                if (!pausedByPolicy) abandonAudioFocus()
+                                if (timerSeed != null) onTimerPaused()
 
                                 // 👉 Sync background to pause
-                                if (backgroundMusicPlayer.isPlaying) {
+                                if (backgroundMusicPlayer.isPlaying && backgroundFadeJob?.isActive != true) {
                                     Log.d(
                                         TAG,
                                         "🔊 Pausing background sound from playWhenReadyChanged"
@@ -617,6 +669,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             Log.d(TAG, "🔊 Background music player initialized successfully")
 
             sessionBells = SessionBellPlayer(this, primaryPlayer)
+            sessionBells.onEndCueStarted = { markTimerEndPassed() }
             primaryPlayer.addListener(this)
 
             primaryMediaSession = createMediaSession()
@@ -643,6 +696,16 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     override fun onDestroy() {
         timerStart.cancel()
         Log.d(TAG, "🔊 Service onDestroy called")
+        isActive = false
+        backupRescheduleHook = null
+        // La sesión murió con el servicio: sin aviso de respaldo y sin «No molestar».
+        if (timerSeed != null) {
+            cancelTimerBackup()
+            TimerEndBackup.markEnded(this, timerParams?.runId)
+        }
+        currentRunId = null
+        dndOwnerId = null
+        DndGuard.restore(this)
 
         // Always remove the foreground notification on teardown, even when the
         // service dies via a path that didn't call finishPlayback()/stopAudio()
@@ -655,7 +718,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
 
         // First, ensure we've released audio focus
-        if (hasAudioFocus) {
+        if (focus.isHeld) {
             Log.d(TAG, "🔊 Abandoning audio focus on destroy")
             abandonAudioFocus()
         }
@@ -704,12 +767,19 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         updateNotification()
     }
 
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        // El cronómetro de la notificación del temporizador se rehace al pausar y reanudar.
+        if (timerSeed != null && !isCompletionHandled) updateNotification()
+    }
+
     override fun onPlayerError(error: PlaybackException) {
         Log.e(TAG, "❌ Player error: ${error.errorCodeName} — ${error.message}", error)
         if (!::primaryPlayer.isInitialized) return
         val resumePos = primaryPlayer.currentPosition.takeIf { it > 0 } ?: 0L
         val duration = primaryPlayer.duration.takeIf { it != C.TIME_UNSET } ?: -1L
         val api = meditoAudioApi
+        // El id se toma al ocurrir el error, no cuando se envía (R104).
+        val errorRunId = timerParams?.runId.takeIf { timerSeed != null }
         if (api != null) {
             handler.post {
                 api.reportPlayerError(
@@ -717,7 +787,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     error.message ?: "unknown",
                     resumePos,
                     duration,
-                    null,
+                    errorRunId,
                 ) { /* fire-and-forget */ }
             }
         }
@@ -736,12 +806,18 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             // updateNotification() below avoids re-posting the stuck "ended" card.
             if (!isCompletionHandled) {
                 isCompletionHandled = true
+                if (timerSeed != null) {
+                    completeTimerNaturally()
+                    return
+                }
                 // Push a final isCompleted=true state to Dart before teardown:
                 // finishPlayback() cancels the position poll before it can observe
                 // STATE_ENDED, and PlayerView opens the end screen off that flag.
                 sessionBells.disable()
                 pushCompletedStateToDart()
                 recordPlaythroughFromPlayer(isTerminal = true)
+                // La sesión guiada terminó: se quita el «No molestar» que puso el servicio.
+                restoreDnd()
             }
             return
         }
@@ -772,6 +848,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Only stop service if not playing
         if (!primaryPlayer.isPlaying) {
+            // Temporizador en pausa y app cerrada: cierre del sistema que guarda el tiempo.
+            if (timerSeed != null) requestSystemTimerStop()
             serviceScope.launch {
                 // Session analytics: the user swiped the app away while the
                 // track was paused — i.e. abandoned it. Push one last position
@@ -792,6 +870,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                 clearNotification()
                 resetPrimaryQueue()
                 resetBackgroundQueue()
+                DndGuard.restore(this@AudioPlayerService)
+                dndOwnerId = null
                 stopSelf()
             }
         }
@@ -812,6 +892,15 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "🔊 Service onStartCommand called with action: ${intent?.action}")
+
+        // Recreado por START_STICKY tras morir el proceso: no hay sesión que seguir.
+        // Se quita el «No molestar» que dejó la sesión muerta y el servicio se cierra.
+        if (intent == null && timerSeed == null && primaryPlayerIdle()) {
+            Log.d(TAG, "🔊 Servicio recreado sin sesión: se restaura «No molestar» y se detiene")
+            DndGuard.restoreIfStale(this, null)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         
         // Handle media button actions from notification
         when (intent?.action) {
@@ -993,6 +1082,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         val attempt = ++playbackAttempt
         timerStart.cancel()
         isCompletionHandled = false
+        backgroundFadeJob?.cancel()
+        backgroundFadeJob = null
         playbackGeneration = SharedPreferencesManager.currentGeneration()
         val accountGeneration = playbackGeneration
         completedPlaythroughs = 0
@@ -1010,6 +1101,25 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             if (timerSeed != null) timerStart.reset()
             timerStopLabel = audioData.timerStopLabel
             timerHasExtraTime = timerSeed != null && audioData.timerHasExtraTime == true
+            if (timerSeed == null && timerParams != null) {
+                // Una sesión guiada reemplaza al temporizador sin cerrarlo: su aviso de
+                // respaldo ya no aplica y la sesión pasa a recuperada con su última foto.
+                cancelTimerBackup()
+                TimerEndBackup.markEnded(this, timerParams?.runId)
+                if (runStore.recoverStale(null, SharedPreferencesManager.currentGeneration())) {
+                    deliverPendingRuns()
+                }
+            }
+            timerParams = if (timerSeed != null) TimerSessionParams.from(audioData) else null
+            focusPolicy = timerParams?.let { TimerFocusPolicy(it.mixWithOthers) }
+            pausedByPolicy = false
+            setDuck(1f)
+            lastClockPhase = -1
+            lastStoreWriteAtMs = 0L
+            timerEndPassed = false
+            currentRunId = timerParams?.runId
+            // Temporizador: archivo local (LOCAL). Guiada: puede ser de red (NETWORK) (TECH-14).
+            primaryPlayer.setWakeMode(if (timerSeed != null) C.WAKE_MODE_LOCAL else C.WAKE_MODE_NETWORK)
             ensureMediaSession()
             primaryMediaSession?.let(::updateTimerMediaControls)
             lastTimerStop = null
@@ -1019,12 +1129,17 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             sessionBells.configure(
                 if (timerSeed != null) pendingTimerBellCues ?: emptyList() else null,
                 pendingTimerBellsEnabled,
-                backgroundMusicVolume
+                backgroundMusicVolume,
+                timerParams?.bellOutput,
+                timerParams?.languageTag
             )
             installingTimerBellCues = false
 
             // Apply current repeat mode
             configurePrimaryPlaylist(buildPrimaryMediaItem(audioData), currentRepeatMode)
+
+            // «No molestar» lo pone y lo quita el servicio (cualquier sesión, también guiadas).
+            applyDnd(audioData)
 
             // Request audio focus before preparing (but don't stop background sound)
             val audioFocusGranted = requestAudioFocus()
@@ -1043,7 +1158,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                 if (playbackAttempt != attempt ||
                     accountGeneration != SharedPreferencesManager.currentGeneration()) return@start
                 // Ensure we still have audio focus or request it again
-                if (!hasAudioFocus) {
+                if (!focus.granted) {
                     requestAudioFocus()
                 }
                 
@@ -1106,11 +1221,13 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
             Log.d(TAG, "🔊 Started primary audio playback preparation")
 
+            timerParams?.let { startTimerRun(it, audioData, accountGeneration) }
             return true
         } catch (e: Exception) {
             if (audioData.timerSeed != null) {
                 timerStart.cancel()
                 sessionBells.disable()
+                currentRunId = null
             }
             Log.e(TAG, "❌ Error in playAudio: ${e.message}")
             e.printStackTrace()
@@ -1173,6 +1290,11 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         artist: String,
         artworkBitmap: Bitmap?
     ): NotificationCompat.Builder {
+        val params = timerParams.takeIf { timerSeed != null }
+        // Temporizador con permiso de notificaciones: notificación simple con cronómetro.
+        if (params != null && canPostNotifications()) {
+            return createTimerNotificationBuilder(title, params)
+        }
         val isPlaying = if (::primaryPlayer.isInitialized) primaryPlayer.isPlaying else false
 
         val builder = NotificationCompat.Builder(this@AudioPlayerService, CHANNEL_ID)
@@ -1195,8 +1317,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             PendingIntent.FLAG_UPDATE_CURRENT
         }
 
-        // Skip backward action
-        if (!timerHasExtraTime) builder.addAction(
+        // Skip backward action (ningún temporizador tiene saltos)
+        if (timerSeed == null) builder.addAction(
             NotificationCompat.Action(
                 R.drawable.ic_skip_backward,
                 "Skip Backward",
@@ -1216,7 +1338,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         )
 
         // Skip forward action
-        if (!timerHasExtraTime) builder.addAction(
+        if (timerSeed == null) builder.addAction(
             NotificationCompat.Action(
                 R.drawable.ic_skip_forward,
                 "Skip Forward",
@@ -1240,7 +1362,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         // Apply MediaStyle with actions shown in compact view
         primaryMediaSession?.let { session ->
             val style = MediaStyleNotificationHelper.MediaStyle(session)
-            if (timerHasExtraTime) {
+            if (timerSeed != null) {
                 if (timerStopLabel != null) style.setShowActionsInCompactView(0, 1)
                 else style.setShowActionsInCompactView(0)
             } else {
@@ -1250,6 +1372,106 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
 
         return builder
+    }
+
+    private fun canPostNotifications(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun notificationFlags(): Int =
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+
+    /**
+     * Notificación del temporizador sin MediaStyle (§4.8): el cronómetro se ve en
+     * todas las versiones. Acciones: Pausa/Reanudar y «Terminar». Media3 no la
+     * reemplaza porque `onUpdateNotification` no publica nada en temporizadores.
+     */
+    private fun createTimerNotificationBuilder(
+        title: String,
+        params: TimerSessionParams
+    ): NotificationCompat.Builder {
+        val playing = ::primaryPlayer.isInitialized && primaryPlayer.isPlaying
+        val position = if (::primaryPlayer.isInitialized) primaryPlayer.currentPosition else 0L
+        val clock = TimerNotificationClock.clock(
+            nowMs = System.currentTimeMillis(),
+            positionMs = position,
+            isPlaying = playing,
+            prepMs = params.prepMs,
+            plannedMs = params.plannedMs,
+            extraTime = params.extraTime,
+            isStopwatch = params.isStopwatch
+        )
+        val builder = NotificationCompat.Builder(this@AudioPlayerService, CHANNEL_ID)
+            .setContentTitle(title)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setUsesChronometer(clock.usesChronometer)
+            .setShowWhen(clock.usesChronometer)
+            .setWhen(clock.whenMs)
+            .setChronometerCountDown(clock.countDown)
+        TimerEndBackup.openAppIntent(this)?.let(builder::setContentIntent)
+        when (clock.subText) {
+            TimerClock.Kind.PREP -> params.prepText?.let(builder::setSubText)
+            TimerClock.Kind.EXTRA_TIME -> params.extraTimeText?.let(builder::setSubText)
+            null -> Unit
+        }
+        if (!playing) params.pausedText?.let(builder::setContentText)
+
+        // Textos de Media3 (traducidos por el sistema): sin texto fijo en inglés.
+        val playPauseIcon = if (playing) R.drawable.ic_pause else R.drawable.ic_play
+        val playPauseTitle = getString(
+            if (playing) androidx.media3.session.R.string.media3_controls_pause_description
+            else androidx.media3.session.R.string.media3_controls_play_description
+        )
+        builder.addAction(
+            playPauseIcon,
+            playPauseTitle,
+            createMediaButtonPendingIntent(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, notificationFlags())
+        )
+        timerStopLabel?.let { label ->
+            val stopIntent = Intent(this, AudioPlayerService::class.java).apply {
+                action = ACTION_TIMER_STOP
+                putExtra(KEY_TIMER_SEED, timerSeed ?: 0L)
+                data = Uri.parse("medito://timer-stop/$timerSeed")
+            }
+            builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                label,
+                PendingIntent.getService(this, 0, stopIntent, notificationFlags())
+            )
+        }
+        return builder
+    }
+
+    /** Aviso de pausa (audífonos u otra app) en el canal `timer_alerts`. */
+    private fun postTimerAlert(text: String?) {
+        if (text.isNullOrBlank() || !canPostNotifications()) return
+        try {
+            val manager = getSystemService(NotificationManager::class.java) ?: return
+            if (manager.getNotificationChannel(TIMER_ALERTS_CHANNEL_ID) == null) {
+                val name = timerParams?.alertsChannelName?.takeIf { it.isNotBlank() } ?: return
+                manager.createNotificationChannel(
+                    NotificationChannel(TIMER_ALERTS_CHANNEL_ID, name, NotificationManager.IMPORTANCE_DEFAULT)
+                )
+            }
+            val builder = NotificationCompat.Builder(this, TIMER_ALERTS_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            TimerEndBackup.openAppIntent(this)?.let(builder::setContentIntent)
+            manager.notify(TIMER_ALERT_NOTIFICATION_ID, builder.build())
+        } catch (error: Exception) {
+            Log.e(TAG, "No se pudo mostrar el aviso de pausa", error)
+        }
     }
 
     private fun createMediaButtonPendingIntent(keyCode: Int, flags: Int): PendingIntent {
@@ -1275,6 +1497,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
         try {
             Log.d(TAG, "🔊 Setting up background sound: $backgroundSoundUri")
+            backgroundFadeJob?.cancel()
+            backgroundFadeJob = null
 
             // First ensure we've stopped any existing playback
             resetBackgroundQueue()
@@ -1291,7 +1515,14 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
             // Ensure volume is set before playing
             if (backgroundMusicVolume > 0.0F) {
-                backgroundMusicPlayer.volume = backgroundMusicVolume
+                backgroundMusicPlayer.volume = backgroundMusicVolume * duckFactor
+            }
+
+            // Temporizador en pausa (p. ej. terminó una descarga): se prepara sin sonar;
+            // al reanudar, onPlayWhenReadyChanged lo arranca (R106).
+            if (timerSeed != null && ::primaryPlayer.isInitialized && !primaryPlayer.playWhenReady) {
+                Log.d(TAG, "🔊 Temporizador en pausa: el fondo espera")
+                return
             }
 
             // Start playing once prepared
@@ -1313,6 +1544,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
         // Always stop the current background sound first
         try {
+            backgroundFadeJob?.cancel()
+            backgroundFadeJob = null
             if (::backgroundMusicPlayer.isInitialized) {
                 backgroundMusicPlayer.stop()
                 Log.d(TAG, "🔊 Stopped current background sound")
@@ -1334,6 +1567,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     override fun stopBackgroundSound() {
         try {
             Log.d(TAG, "🔊 Stopping background sound")
+            backgroundFadeJob?.cancel()
+            backgroundFadeJob = null
             if (::backgroundMusicPlayer.isInitialized) {
                 backgroundMusicPlayer.stop()
                 // Don't clear the URI - that should be done by setBackgroundSound(null)
@@ -1369,13 +1604,14 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
         this.backgroundMusicVolume = volume.toFloat()
         sessionBells.setVolume(this.backgroundMusicVolume)
-        if (::backgroundMusicPlayer.isInitialized) {
-            backgroundMusicPlayer.volume = this.backgroundMusicVolume
+        if (::backgroundMusicPlayer.isInitialized && backgroundFadeJob?.isActive != true) {
+            backgroundMusicPlayer.volume = this.backgroundMusicVolume * duckFactor
         }
     }
 
     override fun seekToPosition(position: Long) {
-        if (timerHasExtraTime) return
+        // Ningún temporizador permite adelantar o regresar (UX-13).
+        if (timerSeed != null) return
         isCompletionHandled = false
         primaryPlayer.seekTo(position)
     }
@@ -1394,7 +1630,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     private fun seekBy(deltaMs: Long) {
-        if (timerHasExtraTime || !::primaryPlayer.isInitialized) return
+        if (timerSeed != null || !::primaryPlayer.isInitialized) return
 
         val currentPosition = primaryPlayer.currentPosition
         val targetPosition = if (deltaMs > 0) {
@@ -1442,7 +1678,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private fun requestSystemTimerStop(): Boolean {
         val seed = timerSeed ?: return false
         val engine = FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID)
-        val report = stopTimerPlaybackInternal(seed, systemStop = true)
+        // Un cierre del sistema (notificación, auriculares, app cerrada) guarda el tiempo.
+        val report = stopTimerPlaybackInternal(seed, systemStop = true, save = true)
         if (report.stopped && engine != null) {
             MeditoTimerStopCallbackApi(engine.dartExecutor.binaryMessenger).timerStopped(seed, report) { result ->
                 result.exceptionOrNull()?.let {
@@ -1454,9 +1691,9 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     override fun stopTimerPlayback(sessionSeed: Long, save: Boolean): TimerStopReport =
-        stopTimerPlaybackInternal(sessionSeed, systemStop = false)
+        stopTimerPlaybackInternal(sessionSeed, systemStop = false, save = save)
 
-    private fun stopTimerPlaybackInternal(sessionSeed: Long, systemStop: Boolean): TimerStopReport {
+    private fun stopTimerPlaybackInternal(sessionSeed: Long, systemStop: Boolean, save: Boolean): TimerStopReport {
         if (playbackGeneration != SharedPreferencesManager.currentGeneration()) {
             return TimerStopReport(0L, false, false)
         }
@@ -1468,36 +1705,52 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
 
         val position = primaryPlayer.currentPosition
-        val completion = if (systemStop) {
-            val fileId = primaryPlayer.currentMediaItem?.mediaMetadata?.extras?.getString(KEY_FILE_ID).orEmpty()
-            NativeCompletionRecord.timerClose(fileId, position, System.currentTimeMillis())
-        } else null
+        val params = timerParams
+        val runId = params?.runId
+        val generation = playbackGeneration
+        var completionPersisted = false
+        if (params != null) {
+            if (save) {
+                // El cierre se guarda con su tiempo FINAL antes de detener el audio.
+                val elapsed = params.elapsedMs(position)
+                val seconds = elapsed / 1000L
+                val result = runStore.finish(
+                    runId = params.runId,
+                    durationMs = seconds * 1000L,
+                    trackId = TimerElapsed.trackId(elapsed),
+                    timestamp = System.currentTimeMillis(),
+                    generation = generation,
+                    fallback = activeRunSnapshot(params, position)
+                )
+                Log.d(TAG, "Cierre del temporizador (sistema=$systemStop): ${elapsed} ms, resultado=$result")
+                if (result == TimerCloseResult.FAILED && !systemStop) {
+                    // No se pudo guardar: la sesión sigue sonando y se informa el fallo (R100).
+                    return TimerStopReport(position, false, false, false, runId)
+                }
+                // Cierre del sistema que falló: se detiene igual y la última foto
+                // confirmada queda en `active` para recuperarla después.
+                completionPersisted = result == TimerCloseResult.SAVED
+            } else if (!runStore.discard(params.runId, generation)) {
+                // «Salir sin guardar» no pudo borrar la sesión: no se detiene nada (R52).
+                Log.e(TAG, "No se pudo descartar la sesión; el temporizador sigue")
+                return TimerStopReport(position, false, false, runId = runId)
+            }
+        }
         playbackAttempt++
         timerStart.cancel()
         var endCueRang = false
         try {
             endCueRang = sessionBells.stopAndReportEnd()
-            stopPlayers(clearTimerQueue = true)
+            stopPlayers(clearTimerQueue = true, fadeBackground = true)
         } catch (error: Exception) {
             Log.e(TAG, "No se pudo detener el temporizador", error)
-            return TimerStopReport(position, endCueRang, false)
+            return TimerStopReport(position, endCueRang, false, completionPersisted, runId)
         }
-        val generation = playbackGeneration
-        val saved = completion != null &&
-            SharedPreferencesManager.saveCompletionData(this, completion, generation)
-        val report = TimerStopReport(position, endCueRang, true, saved)
+        endTimerRun(runId)
+        val report = TimerStopReport(position, endCueRang, true, completionPersisted, runId)
         lastTimerStop = sessionSeed to report
         finishManualStop()
-        if (saved && completion != null) {
-            val engine = FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID)
-            engine?.let {
-                MeditoAudioServiceCallbackApi(it.dartExecutor.binaryMessenger).handleCompletedTrack(completion) { result ->
-                    if (result.getOrNull() == true) {
-                        SharedPreferencesManager.clearCompletionData(this, completion, generation)
-                    }
-                }
-            }
-        }
+        if (completionPersisted) deliverPendingRuns()
         return report
     }
 
@@ -1505,18 +1758,65 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         playbackAttempt++
         timerStart.cancel()
         sessionBells.disable()
-        stopPlayers(clearTimerQueue = timerSeed != null)
+        val wasTimer = timerSeed != null
+        // stopAudio en un temporizador vivo = salir sin guardar (R102). Aunque el
+        // descarte no se confirme, la sesión queda marcada y nunca se recupera.
+        val params = timerParams
+        if (wasTimer && params != null && !isCompletionHandled) {
+            if (!runStore.discard(params.runId, playbackGeneration, rememberOnFailure = true)) {
+                Log.e(TAG, "No se pudo confirmar el descarte de la sesión en stopAudio")
+            }
+        }
+        stopPlayers(clearTimerQueue = wasTimer, fadeBackground = false)
+        if (wasTimer) endTimerRun(params?.runId) else restoreDnd()
         finishManualStop()
     }
 
-    private fun stopPlayers(clearTimerQueue: Boolean) {
+    private fun stopPlayers(clearTimerQueue: Boolean, fadeBackground: Boolean = false) {
+        // El desvanecimiento se protege ANTES de detener el reloj: su paso a IDLE
+        // ya no puede pausar el fondo (R107).
+        val fade = fadeBackground && backgroundMusicPlayer.isPlaying
+        if (fade) fadeOutBackground(clear = clearTimerQueue)
         primaryPlayer.stop()
-        backgroundMusicPlayer.stop()
+        if (!fade) {
+            backgroundFadeJob?.cancel()
+            backgroundFadeJob = null
+            backgroundMusicPlayer.stop()
+            if (clearTimerQueue) backgroundMusicPlayer.clearMediaItems()
+        }
         if (clearTimerQueue) {
             backgroundSoundUri = null
             primaryPlayer.clearMediaItems()
-            backgroundMusicPlayer.clearMediaItems()
         }
+    }
+
+    /**
+     * Al terminar un temporizador a mano, el sonido de fondo baja a 0 en 3 s
+     * (15 pasos) y luego se detiene; campanas y reloj ya se detuvieron.
+     */
+    private fun fadeOutBackground(clear: Boolean) {
+        backgroundFadeJob?.cancel()
+        val startVolume = backgroundMusicPlayer.volume
+        val job = serviceScope.launch {
+            for (step in 1..BACKGROUND_FADE_STEPS) {
+                delay(BACKGROUND_FADE_MS / BACKGROUND_FADE_STEPS)
+                backgroundMusicPlayer.volume = startVolume * (1f - step.toFloat() / BACKGROUND_FADE_STEPS)
+            }
+            backgroundMusicPlayer.stop()
+            if (clear) backgroundMusicPlayer.clearMediaItems()
+        }
+        backgroundFadeJob = job
+        job.invokeOnCompletion {
+            handler.post { if (backgroundFadeJob === job) backgroundFadeJob = null }
+        }
+    }
+
+    /** Cierra lo nativo de la sesión: respaldo, estado, «No molestar». */
+    private fun endTimerRun(runId: String?) {
+        cancelTimerBackup()
+        TimerEndBackup.markEnded(this, runId)
+        if (currentRunId == runId) currentRunId = null
+        restoreDnd()
     }
 
     private fun finishManualStop() {
@@ -1524,6 +1824,10 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         timerSeed = null
         timerStopLabel = null
         timerHasExtraTime = false
+        timerParams = null
+        focusPolicy = null
+        pausedByPolicy = false
+        setDuck(1f)
         isCompletionHandled = false
         stopPositionUpdates()
         try {
@@ -1540,18 +1844,49 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             if (attempt != playbackAttempt ||
                 playbackGeneration != SharedPreferencesManager.currentGeneration()
             ) return@play
-            requestAudioFocus()
+            val granted = requestAudioFocus()
+            val params = timerParams
+            val policy = focusPolicy
+            if (params != null && policy != null) {
+                val inCall = TimerFocusPolicy.isCallMode(audioManager.mode)
+                // Modo normal: se espera el foco si quedó en espera o hay llamada.
+                // Modo mezcla: se revisa la llamada en cada arranque (R103).
+                val waitForFocus = !params.mixWithOthers && !granted && (focusDelayed || inCall)
+                if (!policy.onStartAttempt(params.mixWithOthers && inCall, !waitForFocus)) {
+                    Log.d(TAG, "🔊 El reloj espera: llamada o foco pendiente")
+                    pausedByPolicy = true
+                    updateNotification()
+                    return@play
+                }
+            }
+            pausedByPolicy = false
             primaryPlayer.play()
             updateNotification()
             startPositionUpdates()
+            scheduleTimerBackup()
         }
+    }
+
+    /** Reanudar pedido por la persona (app, notificación, controles del sistema). */
+    private fun userResumeTimer() {
+        focusPolicy?.onUserResume()
+        playTimer()
+    }
+
+    /** Pausa pedida por la persona: cancela la reanudación automática y suelta el foco. */
+    private fun userPauseTimer() {
+        focusPolicy?.onUserPause()
+        timerStart.pause()
+        if (pausedByPolicy) {
+            pausedByPolicy = false
+            abandonAudioFocus()
+        }
+        primaryPlayer.pause()
     }
 
     override fun playPauseAudio() {
         Log.d(TAG, "🔊 playPauseAudio called")
         try {
-            isCompletionHandled = false
-            
             // Check if player is initialized and in a valid state
             if (!::primaryPlayer.isInitialized) {
                 Log.e(TAG, "❌ Primary player not initialized")
@@ -1559,14 +1894,16 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
             }
             
             if (timerSeed != null) {
+                // Un temporizador terminado (esperando sus campanas) ya no se reanuda.
+                if (isCompletionHandled) return
                 if (primaryPlayer.playWhenReady) {
-                    timerStart.pause()
-                    primaryPlayer.pause()
+                    userPauseTimer()
                 } else {
-                    playTimer()
+                    userResumeTimer()
                 }
                 return
             }
+            isCompletionHandled = false
 
             if (primaryPlayer.isPlaying) {
                 Log.d(TAG, "🔊 Pausing primary player")
@@ -1629,106 +1966,376 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
     }
 
+    /** Pide el foco a través del único dueño; en modo mezcla no pide nada. */
     private fun requestAudioFocus(): Boolean {
-        try {
-            if (hasAudioFocus) {
-                Log.d(TAG, "🔊 Already have audio focus, not requesting again")
-                return true
-            }
-
-            Log.d(TAG, "🔊 Requesting audio focus")
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-
-            val audioAttributes = android.media.AudioAttributes.Builder()
-                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-
-            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(audioAttributes)
-                .setOnAudioFocusChangeListener { focusChange ->
-                    Log.d(TAG, "🔊 Audio focus changed to: $focusChange")
-                    when (focusChange) {
-                        AudioManager.AUDIOFOCUS_GAIN -> {
-                            Log.d(TAG, "🔊 Audio focus GAINED")
-                            hasAudioFocus = true
-                            if (::primaryPlayer.isInitialized) {
-                                // Restore volume
-                                primaryPlayer.volume = 1f
-
-                                // Resume playback if we should be playing
-                                if (primaryPlayer.playWhenReady && !primaryPlayer.isPlaying &&
-                                    primaryPlayer.playbackState != Player.STATE_IDLE &&
-                                    primaryPlayer.playbackState != Player.STATE_ENDED
-                                ) {
-                                    Log.d(TAG, "🔊 Resuming playback after gaining focus")
-                                    primaryPlayer.play()
-                                }
-                            }
-                        }
-
-                        AudioManager.AUDIOFOCUS_LOSS -> {
-                            Log.d(TAG, "🔊 Audio focus LOST")
-                            hasAudioFocus = false
-                            // Do NOT pause the primary player on audio focus loss
-                            // Just lower the volume to be polite to other apps
-                            if (::primaryPlayer.isInitialized && primaryPlayer.isPlaying) {
-                                primaryPlayer.volume = 0.3f
-                            }
-                        }
-
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                            Log.d(TAG, "🔊 Audio focus LOST TRANSIENT")
-                            // Do NOT pause the primary player on transient focus loss
-                            // Just lower the volume to be polite to other apps
-                            if (::primaryPlayer.isInitialized && primaryPlayer.isPlaying) {
-                                primaryPlayer.volume = 0.3f
-                            }
-                        }
-
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                            Log.d(TAG, "🔊 Audio focus LOST TRANSIENT (CAN DUCK)")
-                            if (::primaryPlayer.isInitialized) {
-                                Log.d(TAG, "🔊 Ducking volume due to transient focus loss")
-                                primaryPlayer.volume = 0.2f
-                            }
-                        }
-                    }
-                }
-                .build()
-
-            val result = audioManager.requestAudioFocus(focusRequest)
-            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-
-            Log.d(
-                TAG,
-                "🔊 Audio focus request result: $result (${if (hasAudioFocus) "GRANTED" else "DENIED"})"
-            )
-            
-            return hasAudioFocus
+        return try {
+            val kind = if (timerSeed != null) FocusKind.TIMER else FocusKind.GUIDED
+            val mix = timerSeed != null && timerParams?.mixWithOthers == true
+            val granted = focus.ensure(kind, mix)
+            Log.d(TAG, "🔊 Audio focus ($kind, mezcla=$mix): ${if (granted) "GRANTED" else "NOT HELD"}")
+            granted
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error requesting audio focus: ${e.message}")
             e.printStackTrace()
-            return false
+            false
         }
     }
 
     private fun abandonAudioFocus() {
-        if (hasAudioFocus) {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            audioManager.abandonAudioFocusRequest(
-                AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(
-                        android.media.AudioAttributes.Builder()
-                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build()
-                    )
-                    .build()
-            )
-            hasAudioFocus = false
+        try {
+            focus.abandon()
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error abandoning audio focus: ${e.message}")
         }
     }
+
+    /** Foco real de Android: arma la solicitud una vez y avisa los cambios por tipo de sesión. */
+    private inner class AndroidFocusBackend : FocusBackend<AudioFocusRequest> {
+        override fun build(kind: FocusKind): AudioFocusRequest {
+            val audioAttributes = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            return AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(audioAttributes)
+                // El temporizador acepta foco en espera: durante una llamada llega GAIN al colgar.
+                .setAcceptsDelayedFocusGain(kind == FocusKind.TIMER)
+                .setOnAudioFocusChangeListener({ change -> onAudioFocusChange(kind, change) }, handler)
+                .build()
+        }
+
+        override fun request(request: AudioFocusRequest): Boolean {
+            val result = audioManager.requestAudioFocus(request)
+            focusDelayed = result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
+            return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+
+        override fun abandon(request: AudioFocusRequest) {
+            audioManager.abandonAudioFocusRequest(request)
+        }
+    }
+
+    private fun onAudioFocusChange(kind: FocusKind, focusChange: Int) {
+        Log.d(TAG, "🔊 Audio focus changed to: $focusChange ($kind)")
+        focus.onFocusChange(focusChange == AudioManager.AUDIOFOCUS_GAIN)
+        if (kind == FocusKind.TIMER) {
+            val policy = focusPolicy ?: return
+            val change = TimerFocusPolicy.fromAndroid(focusChange) ?: return
+            applyFocusActions(policy.onFocusChange(change, timerWantsToPlay()))
+            return
+        }
+        // Sesiones guiadas: el comportamiento de siempre.
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                Log.d(TAG, "🔊 Audio focus GAINED")
+                if (::primaryPlayer.isInitialized) {
+                    // Restore volume
+                    primaryPlayer.volume = 1f
+
+                    // Resume playback if we should be playing
+                    if (primaryPlayer.playWhenReady && !primaryPlayer.isPlaying &&
+                        primaryPlayer.playbackState != Player.STATE_IDLE &&
+                        primaryPlayer.playbackState != Player.STATE_ENDED
+                    ) {
+                        Log.d(TAG, "🔊 Resuming playback after gaining focus")
+                        primaryPlayer.play()
+                    }
+                }
+            }
+
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                Log.d(TAG, "🔊 Audio focus LOST")
+                // Do NOT pause the primary player on audio focus loss
+                // Just lower the volume to be polite to other apps
+                if (::primaryPlayer.isInitialized && primaryPlayer.isPlaying) {
+                    primaryPlayer.volume = 0.3f
+                }
+            }
+
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                Log.d(TAG, "🔊 Audio focus LOST TRANSIENT")
+                // Do NOT pause the primary player on transient focus loss
+                // Just lower the volume to be polite to other apps
+                if (::primaryPlayer.isInitialized && primaryPlayer.isPlaying) {
+                    primaryPlayer.volume = 0.3f
+                }
+            }
+
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                Log.d(TAG, "🔊 Audio focus LOST TRANSIENT (CAN DUCK)")
+                if (::primaryPlayer.isInitialized) {
+                    Log.d(TAG, "🔊 Ducking volume due to transient focus loss")
+                    primaryPlayer.volume = 0.2f
+                }
+            }
+        }
+    }
+
+    // ---- Temporizador: política de foco, reloj, registro, respaldo ----
+
+    private fun timerWantsToPlay(): Boolean =
+        ::primaryPlayer.isInitialized && primaryPlayer.playWhenReady &&
+            primaryPlayer.playbackState != Player.STATE_IDLE &&
+            primaryPlayer.playbackState != Player.STATE_ENDED
+
+    private fun applyFocusActions(actions: List<FocusAction>) {
+        if (timerSeed == null) return
+        for (action in actions) {
+            Log.d(TAG, "🔊 Política de foco: $action")
+            when (action) {
+                is FocusAction.Pause -> {
+                    // Pausa de la política: el foco se conserva para recibir GAIN.
+                    pausedByPolicy = true
+                    timerStart.pause()
+                    primaryPlayer.pause()
+                }
+                FocusAction.Resume -> playTimer()
+                FocusAction.Duck -> setDuck(DUCK_FACTOR)
+                FocusAction.Unduck -> setDuck(1f)
+                FocusAction.NotifyOtherAudio -> {
+                    // Otra app se quedó con el audio: ya no habrá GAIN, se suelta el foco.
+                    pausedByPolicy = false
+                    abandonAudioFocus()
+                    postTimerAlert(timerParams?.otherAudioPausedText)
+                }
+                FocusAction.None -> Unit
+            }
+        }
+    }
+
+    /** Sonido de fondo y campanas al 20 % (o de vuelta al 100 %); nunca el reloj silencioso. */
+    private fun setDuck(factor: Float) {
+        duckFactor = factor
+        if (::sessionBells.isInitialized) sessionBells.setDuck(factor)
+        if (::backgroundMusicPlayer.isInitialized && backgroundFadeJob?.isActive != true &&
+            backgroundMusicVolume > 0f
+        ) {
+            backgroundMusicPlayer.volume = backgroundMusicVolume * duckFactor
+        }
+    }
+
+    private fun onTimerPaused() {
+        val params = timerParams ?: return
+        cancelTimerBackup()
+        val position = primaryPlayer.currentPosition
+        runStore.update(params.runId, position, timerEndPassed, System.currentTimeMillis(), playbackGeneration, ++snapshotSeq)
+        lastStoreWriteAtMs = System.currentTimeMillis()
+    }
+
+    /**
+     * Revisión de cada segundo (hilo principal). Devuelve la escritura periódica
+     * del registro para hacerla fuera del hilo principal.
+     */
+    private fun timerTick(position: Long): (() -> Unit)? {
+        val params = timerParams ?: return null
+        if (timerSeed == null || isCompletionHandled) return null
+
+        // Modo mezcla: las llamadas se ven en el modo de audio.
+        focusPolicy?.takeIf { it.mixWithOthers }?.let { policy ->
+            applyFocusActions(policy.onCallState(TimerFocusPolicy.isCallMode(audioManager.mode), timerWantsToPlay()))
+        }
+        if (!timerEndPassed && position >= params.endMs) markTimerEndPassed()
+
+        val phase = TimerNotificationClock.phase(position, params.prepMs, params.plannedMs)
+        if (phase != lastClockPhase) {
+            lastClockPhase = phase
+            updateNotification()
+        }
+
+        val now = System.currentTimeMillis()
+        if (!primaryPlayer.isPlaying || now - lastStoreWriteAtMs < STORE_WRITE_INTERVAL_MS) return null
+        lastStoreWriteAtMs = now
+        val runId = params.runId
+        val endPassed = timerEndPassed
+        val generation = playbackGeneration
+        val seq = ++snapshotSeq
+        return { runStore.update(runId, position, endPassed, now, generation, seq) }
+    }
+
+    /** Pasó el final planeado (sonó la campana final o la posición llegó): sin respaldo (R79). */
+    private fun markTimerEndPassed() {
+        val params = timerParams ?: return
+        cancelTimerBackup()
+        if (timerEndPassed) return
+        timerEndPassed = true
+        TimerEndBackup.markEnded(this, params.runId)
+        val position = primaryPlayer.currentPosition
+        val generation = playbackGeneration
+        val seq = ++snapshotSeq
+        backgroundScope.launch {
+            runStore.update(params.runId, position, true, System.currentTimeMillis(), generation, seq)
+        }
+    }
+
+    private fun backupRequest(params: TimerSessionParams) = TimerBackupRequest(
+        runId = params.runId,
+        title = params.backupTitle,
+        body = params.backupBody,
+        output = params.bellOutput,
+        channelName = params.backupChannelName,
+        silentChannelName = params.backupSilentChannelName
+    )
+
+    private fun scheduleTimerBackup() {
+        val params = timerParams ?: return
+        try {
+            endBackup.schedule(
+                request = backupRequest(params),
+                prepMs = params.prepMs,
+                plannedMs = params.plannedMs,
+                extraTime = params.extraTime,
+                isStopwatch = params.isStopwatch,
+                positionMs = primaryPlayer.currentPosition,
+                endPassed = timerEndPassed
+            )
+        } catch (error: Exception) {
+            Log.e(TAG, "No se pudo programar el aviso de respaldo", error)
+        }
+    }
+
+    private fun cancelTimerBackup() {
+        try {
+            endBackup.cancel()
+        } catch (error: Exception) {
+            Log.e(TAG, "No se pudo cancelar el aviso de respaldo", error)
+        }
+    }
+
+    /** La alarma sonó con la sesión viva: se recalcula con lo que le queda al reproductor. */
+    private fun rescheduleBackupFromPlayer() {
+        if (timerSeed == null || !::primaryPlayer.isInitialized || !primaryPlayer.isPlaying) return
+        scheduleTimerBackup()
+    }
+
+    private fun activeRunSnapshot(params: TimerSessionParams, position: Long): TimerActiveRun {
+        val metadata = primaryPlayer.currentMediaItem?.mediaMetadata
+        val now = System.currentTimeMillis()
+        return TimerActiveRun(
+            runId = params.runId,
+            ownerId = params.ownerId,
+            fileId = metadata?.extras?.getString(KEY_FILE_ID).orEmpty(),
+            trackId = primaryPlayer.currentMediaItem?.mediaId.orEmpty(),
+            guideId = metadata?.artist?.toString(),
+            startEpochMs = params.startEpochMs,
+            prepMs = params.prepMs,
+            plannedMs = params.plannedMs,
+            extraTime = params.extraTime,
+            isStopwatch = params.isStopwatch,
+            lastPositionMs = position,
+            updatedAtMs = now,
+            endPassed = timerEndPassed
+        )
+    }
+
+    /** Escribe la sesión al aceptarla; una sesión vieja sin cerrar pasa a recuperada. */
+    private fun startTimerRun(params: TimerSessionParams, audioData: AudioData, generation: Long) {
+        TimerEndBackup.writeRunState(this, params.runId, ended = false)
+        val run = TimerActiveRun(
+            runId = params.runId,
+            ownerId = params.ownerId,
+            fileId = audioData.track.fileId,
+            trackId = audioData.track.id,
+            guideId = audioData.track.artist,
+            startEpochMs = params.startEpochMs,
+            prepMs = params.prepMs,
+            plannedMs = params.plannedMs,
+            extraTime = params.extraTime,
+            isStopwatch = params.isStopwatch,
+            lastPositionMs = 0L,
+            updatedAtMs = params.startEpochMs,
+            endPassed = false
+        )
+        val hadFinished = runStore.pending().size
+        if (!runStore.start(run, generation)) {
+            Log.e(TAG, "No se pudo guardar el inicio de la sesión del temporizador")
+        } else if (runStore.pending().size > hadFinished) {
+            deliverPendingRuns()
+        }
+    }
+
+    /**
+     * Fin natural del temporizador: el cierre (tiempo planeado) se guarda en el
+     * acto; la pantalla final y el cierre del servicio esperan a que suenen
+     * completas las campanas pendientes (máximo 60 s, R53).
+     */
+    private fun completeTimerNaturally() {
+        val params = timerParams
+        val attempt = playbackAttempt
+        cancelTimerBackup()
+        if (params != null) {
+            timerEndPassed = true
+            TimerEndBackup.markEnded(this, params.runId)
+            val mediaItem = primaryPlayer.currentMediaItem
+            // Cuenta regresiva y cronómetro: lo planeado (TECH-9; el cronómetro tiene 5 h).
+            // Tiempo extra que llegó al final del archivo: lo meditado, con su tope.
+            val duration = if (params.extraTime) params.elapsedMs(primaryPlayer.currentPosition)
+            else params.plannedMs
+            val trackId = mediaItem?.mediaId ?: TimerElapsed.trackId(params.plannedMs)
+            val fallback = activeRunSnapshot(params, primaryPlayer.currentPosition)
+            val generation = playbackGeneration
+            val closeNatural = {
+                runStore.finish(params.runId, duration, trackId, System.currentTimeMillis(), generation, fallback)
+            }
+            var result = closeNatural()
+            Log.d(TAG, "Fin natural del temporizador: $result")
+            if (result == TimerCloseResult.FAILED) {
+                // Reintento con el tiempo final; si sigue fallando, la foto final queda
+                // en `active` para que la recuperación use ese tiempo (R100).
+                result = closeNatural()
+                if (result == TimerCloseResult.FAILED) {
+                    runStore.update(params.runId, primaryPlayer.currentPosition, true,
+                        System.currentTimeMillis(), generation, ++snapshotSeq)
+                    naturalCloseRetry = closeNatural
+                }
+            }
+        }
+        sessionBells.drainThen {
+            naturalCloseRetry?.let { retry ->
+                naturalCloseRetry = null
+                if (retry() == TimerCloseResult.FAILED) {
+                    Log.e(TAG, "No se pudo guardar el fin natural; queda para la recuperación")
+                }
+            }
+            if (attempt != playbackAttempt) {
+                // Otra sesión empezó mientras sonaban las campanas: sólo se entrega el cierre.
+                deliverPendingRuns()
+                return@drainThen
+            }
+            pushCompletedStateToDart()
+            sessionBells.disable()
+            endTimerRun(params?.runId)
+            finishPlayback()
+            deliverPendingRuns()
+        }
+    }
+
+    /** Entrega a Dart los cierres pendientes si el motor de Flutter vive. */
+    private fun deliverPendingRuns() {
+        val engine = FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID) ?: return
+        val api = MeditoAudioServiceCallbackApi(engine.dartExecutor.binaryMessenger)
+        handler.post {
+            runStore.deliverPending { completion, reply ->
+                api.handleCompletedTrack(completion) { result -> reply(result.getOrNull() == true) }
+            }
+        }
+    }
+
+    private fun applyDnd(audioData: AudioData) {
+        if (audioData.dndRequested == true) {
+            val owner = timerParams?.runId ?: "guided-${System.currentTimeMillis()}-$playbackAttempt"
+            if (DndGuard.apply(this, owner, audioData.timerDndRuleName)) dndOwnerId = owner
+        } else {
+            restoreDnd()
+        }
+    }
+
+    private fun restoreDnd() {
+        DndGuard.restore(this)
+        dndOwnerId = null
+    }
+
+    private fun primaryPlayerIdle(): Boolean =
+        !::primaryPlayer.isInitialized || primaryPlayer.currentMediaItem == null
 
     private fun syncBackgroundWithPrimaryState() {
         if (!::primaryPlayer.isInitialized || !::backgroundMusicPlayer.isInitialized) {
@@ -1736,6 +2343,8 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         }
 
         try {
+            // Un apagado gradual en curso no se interrumpe.
+            if (backgroundFadeJob?.isActive == true) return
             // If primary is playing, ensure background is playing too
             if (primaryPlayer.isPlaying && backgroundSoundUri != null) {
                 if (!backgroundMusicPlayer.isPlaying) {
@@ -1780,10 +2389,32 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     companion object {
         const val CHANNEL_ID = "medito_reminder_channel"
         const val NOTIFICATION_ID = 101011
+        const val TIMER_ALERTS_CHANNEL_ID = "timer_alerts"
+        const val TIMER_ALERT_NOTIFICATION_ID = 101012
+        private const val DUCK_FACTOR = 0.2f
+        private const val STORE_WRITE_INTERVAL_MS = 3000L
+        private const val BACKGROUND_FADE_MS = 3000L
+        private const val BACKGROUND_FADE_STEPS = 15
+
+        /** True desde onCreate hasta onDestroy (mismo proceso). */
+        @Volatile
+        var isActive = false
+
+        /** Id de la sesión de temporizador en curso; null si no hay. */
+        @Volatile
+        var currentRunId: String? = null
+
+        /** Dueño del «No molestar» puesto por la sesión en curso (timer o guiada). */
+        @Volatile
+        var dndOwnerId: String? = null
+
+        /** Lo usa el receptor del respaldo para pedir al servicio vivo que reprograme. */
+        @Volatile
+        internal var backupRescheduleHook: (() -> Unit)? = null
         private const val TAG = "MeditoAudioService"
         const val ACTION_BIND_SERVICE = "meditofoundation.medito.BIND_SERVICE"
         const val ACTION_PLAY_PAUSE = "meditofoundation.medito.ACTION_PLAY_PAUSE"
-        private val extraTimeBlockedKeys = setOf(
+        private val timerBlockedKeys = setOf(
             KeyEvent.KEYCODE_MEDIA_NEXT,
             KeyEvent.KEYCODE_MEDIA_PREVIOUS,
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
@@ -1844,5 +2475,70 @@ internal class TimerStartGate {
         val action = pendingPlay
         pendingPlay = null
         action?.invoke()
+    }
+}
+
+
+/** Parámetros de una sesión de temporizador que llegan de Dart en [AudioData]. */
+internal data class TimerSessionParams(
+    val runId: String,
+    val ownerId: String,
+    val startEpochMs: Long,
+    val prepMs: Long,
+    val plannedMs: Long,
+    val isStopwatch: Boolean,
+    val extraTime: Boolean,
+    val bellOutput: String,
+    val mixWithOthers: Boolean,
+    val languageTag: String?,
+    val pausedText: String?,
+    val prepText: String?,
+    val extraTimeText: String?,
+    val headphonesPausedText: String?,
+    val otherAudioPausedText: String?,
+    val alertsChannelName: String?,
+    val backupTitle: String?,
+    val backupBody: String?,
+    val backupChannelName: String?,
+    val backupSilentChannelName: String?
+) {
+    val isPlainCountdown: Boolean get() = !isStopwatch && !extraTime
+
+    /** Momento del archivo en que termina lo planeado (incluye la preparación). */
+    val endMs: Long get() = prepMs + plannedMs
+
+    fun elapsedMs(positionMs: Long): Long =
+        TimerElapsed.elapsedMs(positionMs, prepMs, plannedMs, extraTime, isStopwatch)
+
+    companion object {
+        fun from(audioData: AudioData): TimerSessionParams {
+            val isStopwatch = audioData.timerIsStopwatch == true
+            val planned = audioData.timerPlannedMs
+                ?: if (isStopwatch) TimerElapsed.STOPWATCH_CAP_MS else 0L
+            return TimerSessionParams(
+                // Sin id de Dart (no debería pasar) se crea uno local para no perder el registro.
+                runId = audioData.timerRunId?.takeIf { it.isNotBlank() }
+                    ?: java.util.UUID.randomUUID().toString().replace("-", ""),
+                ownerId = audioData.timerOwnerId ?: "",
+                startEpochMs = System.currentTimeMillis(),
+                prepMs = (audioData.timerPrepMs ?: 0L).coerceAtLeast(0L),
+                plannedMs = planned.coerceAtLeast(0L),
+                isStopwatch = isStopwatch,
+                extraTime = !isStopwatch && audioData.timerHasExtraTime == true,
+                bellOutput = audioData.timerBellOutput ?: SessionBellPlayer.OUTPUT_SOUND,
+                mixWithOthers = audioData.timerMixWithOthers == true,
+                languageTag = audioData.timerLanguageTag,
+                pausedText = audioData.timerPausedText,
+                prepText = audioData.timerPrepText,
+                extraTimeText = audioData.timerExtraTimeText,
+                headphonesPausedText = audioData.timerHeadphonesPausedText,
+                otherAudioPausedText = audioData.timerOtherAudioPausedText,
+                alertsChannelName = audioData.timerAlertsChannelName,
+                backupTitle = audioData.timerBackupTitle,
+                backupBody = audioData.timerBackupBody,
+                backupChannelName = audioData.timerBackupChannelName,
+                backupSilentChannelName = audioData.timerBackupSilentChannelName
+            )
+        }
     }
 }
