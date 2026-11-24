@@ -11,6 +11,7 @@ import 'package:medito/constants/icons/medito_icons.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/models/models.dart';
+import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/notification/reminder_provider.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/review_service_provider.dart';
@@ -36,6 +37,7 @@ import 'package:medito/views/root/root_page_view.dart';
 import 'package:medito/widgets/medito_icon.dart';
 import 'package:medito/widgets/snackbar_widget.dart';
 
+import 'timer_completion_summary.dart';
 import 'widgets/account_prompt_card.dart';
 import 'widgets/animated_end_screen_section.dart';
 import 'widgets/donation_widget.dart';
@@ -56,7 +58,7 @@ class EndScreenView extends ConsumerStatefulWidget {
   /// Historial anterior a la sesión que acaba de terminar.
   final LocalAllStats? priorStats;
 
-  // Tiempo meditado del temporizador; lo usa W3-END.
+  // Tiempo meditado del temporizador.
   final Duration? timerElapsed;
 
   const EndScreenView({
@@ -89,6 +91,9 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
   late AnimationController _statsAnimationController;
   late AnimationController _reminderAnimationController;
   late AnimationController _cardAnimationController;
+  bool _animationsStarted = false;
+  Timer? _reminderAnimationDelay;
+  Timer? _cardAnimationDelay;
 
   late Animation<Offset> _statsSlideAnimation;
   late Animation<double> _statsFadeAnimation;
@@ -157,26 +162,39 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
     _cardFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _cardAnimationController, curve: Curves.easeOut),
     );
+  }
 
-    _startAnimations();
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _reminderAnimationDelay?.cancel();
+      _cardAnimationDelay?.cancel();
+      _statsAnimationController.value = 1;
+      _reminderAnimationController.value = 1;
+      _cardAnimationController.value = 1;
+    } else if (!_animationsStarted) {
+      _startAnimations();
+    }
+    _animationsStarted = true;
   }
 
   void _startAnimations() {
     _statsAnimationController.forward();
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (mounted) {
-        _reminderAnimationController.forward();
-      }
-    });
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (mounted) {
-        _cardAnimationController.forward();
-      }
-    });
+    _reminderAnimationDelay = Timer(
+      const Duration(milliseconds: 200),
+      _reminderAnimationController.forward,
+    );
+    _cardAnimationDelay = Timer(
+      const Duration(milliseconds: 400),
+      _cardAnimationController.forward,
+    );
   }
 
   @override
   void dispose() {
+    _reminderAnimationDelay?.cancel();
+    _cardAnimationDelay?.cancel();
     _statsAnimationController.dispose();
     _reminderAnimationController.dispose();
     _cardAnimationController.dispose();
@@ -242,6 +260,11 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
           child: SafeArea(
             child: Column(
               children: [
+                if (widget.request.isTimer)
+                  TimerCompletionSummary(
+                    request: widget.request,
+                    timerElapsed: widget.timerElapsed,
+                  ),
                 SlideTransition(
                   position: _statsSlideAnimation,
                   child: FadeTransition(
