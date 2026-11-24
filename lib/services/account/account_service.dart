@@ -61,6 +61,8 @@ const _accountPrefKeys = [
   SharedPreferenceConstants.pendingHealthSessions,
   SharedPreferenceConstants.healthSyncEnabled,
   SharedPreferenceConstants.healthSyncAccountId,
+  // Contador de mantras: dato religioso sensible, solo de esta cuenta (R89).
+  SharedPreferenceConstants.mantraCounter,
   // Track completions still waiting to be posted as stats.
   CompletedTracksStorage.completedTracksKey,
   // Legacy keys no current code writes: the v3.x plaintext API token and the
