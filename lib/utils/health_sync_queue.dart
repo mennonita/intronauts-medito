@@ -433,6 +433,12 @@ class HealthSyncQueue {
       // la cuenta borra la clave sin este bloqueo), no se vuelve a escribir.
       var stored = _raw(prefs);
       bool stillOurs() => generation == _generation && _raw(prefs) == stored;
+      // Después de CADA espera y justo antes de llamar a Salud: la misma
+      // generación (apagar Salud o cambiar de cuenta la sube al instante,
+      // antes de tocar el permiso guardado), la misma cuenta dueña, el mismo
+      // permiso y la misma lista (TIMER-REVIEW-02).
+      bool maySend(HealthSyncEntry entry) =>
+          stillOurs() && _maySend(prefs, entry);
       Future<bool> save(List<HealthSyncEntry> entries) async {
         if (!stillOurs()) return false;
         if (!await _save(prefs, entries)) return false;
@@ -459,7 +465,7 @@ class HealthSyncQueue {
         }
         // Justo antes de CADA envío: misma cuenta, mismo permiso y la cola
         // no se vació mientras se escribía la anterior.
-        if (!_maySend(prefs, entry) || !stillOurs()) return;
+        if (!maySend(entry)) return;
         if (_d.isIOS) {
           if (entry.attempting) {
             // Un intento anterior se cortó a la mitad y pudo haber llegado:
@@ -471,8 +477,9 @@ class HealthSyncQueue {
           }
           entries[i] = entry.copyWith(attempting: true);
           if (!await save(entries)) return;
-          if (!_maySend(prefs, entry)) return;
         }
+        // Sin ninguna espera entre esta revisión y la llamada a Salud.
+        if (!maySend(entry)) return;
         final written = await _tryWrite(entry);
         if (!written) {
           if (_d.isIOS) {

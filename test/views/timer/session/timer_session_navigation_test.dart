@@ -426,6 +426,63 @@ void main() {
     },
   );
 
+  testWidgets('otra corrida tras el diálogo: no borra su posición compartida '
+      '(TIMER-REVIEW-05)', (tester) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 90000);
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    // Mientras el diálogo espera, otra corrida toma el reproductor y ya
+    // publica su posición.
+    h.player.replaceRun(_long);
+    _update(h.container, _long, positionMs: 45000);
+    await tester.tap(find.text('Salir sin guardar'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayerView), findsNothing);
+    expect(h.player.closedRuns, isEmpty);
+    expect(h.player.stops, 0);
+    final audio = h.container.read(audioStateProvider);
+    expect(audio.runId, _long.timerRunId);
+    expect(audio.position, 45000);
+    expect(h.sounds.stopCalls, 0);
+  });
+
+  testWidgets('la pantalla vieja solo quita su ruta, no la de la otra corrida '
+      '(TIMER-REVIEW-05)', (tester) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 90000);
+    await tester.pump();
+    final oldSession = find.byType(TimerSessionLayout);
+    final oldLayout = tester.widget<TimerSessionLayout>(oldSession);
+    final oldRoute = ModalRoute.of(tester.element(oldSession))!;
+    // La otra corrida abre su propia pantalla encima de la vieja.
+    h.player.replaceRun(_long);
+    _update(h.container, _long, positionMs: 45000);
+    const newScreen = Key('pantalla-de-la-otra-corrida');
+    unawaited(
+      oldRoute.navigator!.push<void>(
+        MaterialPageRoute(builder: (_) => const Scaffold(key: newScreen)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(oldRoute.isCurrent, isFalse);
+
+    // La pantalla vieja intenta salir (por ejemplo, un ✕ que llegó tarde).
+    oldLayout.onClosePressed();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(newScreen), findsOneWidget);
+    expect(find.byType(PlayerView, skipOffstage: false), findsNothing);
+    expect(oldRoute.isActive, isFalse);
+    expect(h.player.closedRuns, isEmpty);
+    expect(h.player.stops, 0);
+    final audio = h.container.read(audioStateProvider);
+    expect(audio.runId, _long.timerRunId);
+    expect(audio.position, 45000);
+  });
+
   testWidgets('cada cierre pide el runId de esta pantalla (TIMER-05)', (
     tester,
   ) async {

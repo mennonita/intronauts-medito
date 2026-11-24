@@ -989,12 +989,11 @@ class StatsManager {
       if (generation != _clearGeneration) return false;
       _allStats ??= _loadLocalAllStats();
       final change = _completionChange(audioCompleted, duration);
-      _allStats = _applyCompletion(
-        _allStats!,
-        change,
-        completedAt: audioCompleted.timestamp,
-      );
+      _allStats = _applyCompletion(_allStats!, change);
       await _commitLocalChange(change: change, score: _updateDerivedStats());
+      if (generation == _clearGeneration) {
+        _rememberPracticeDay(change, completedAt: audioCompleted.timestamp);
+      }
       return true;
     });
     if (!saved || skipPost || generation != _clearGeneration) return;
@@ -1020,27 +1019,35 @@ class StatsManager {
     return StatsChange.completion(audioCompleted, duration);
   }
 
-  LocalAllStats _applyCompletion(
-    LocalAllStats stats,
-    StatsChange change, {
-    required int completedAt,
-  }) {
-    final session = LocalAudioCompleted.fromJson(
-      change.json['session'] as Map<String, dynamic>,
-    );
-    final updated = change.apply(
-      stats,
-      _getCurrentDate().millisecondsSinceEpoch,
-    );
-    PracticeHistory.read(
-      updated,
-      prefs: _prefs,
-      now: _getCurrentDate(),
-      offset: _dayBoundaryOffset,
-      storedSession: session,
-      completedAt: completedAt,
-    );
-    return updated;
+  LocalAllStats _applyCompletion(LocalAllStats stats, StatsChange change) =>
+      change.apply(stats, _getCurrentDate().millisecondsSinceEpoch);
+
+  /// Publica el día de práctica (y el «regreso») de una sesión nueva. Se
+  /// llama solo DESPUÉS de confirmar el guardado de la sesión: si el guardado
+  /// falla, no queda un regreso sin su sesión (TIMER-REVIEW-04).
+  void _rememberPracticeDay(StatsChange change, {required int completedAt}) {
+    final stats = _allStats;
+    if (stats == null) return;
+    try {
+      PracticeHistory.read(
+        stats,
+        prefs: _prefs,
+        now: _getCurrentDate(),
+        offset: _dayBoundaryOffset,
+        storedSession: LocalAudioCompleted.fromJson(
+          change.json['session'] as Map<String, dynamic>,
+        ),
+        completedAt: completedAt,
+      );
+    } catch (error) {
+      // La sesión ya quedó guardada; el historial se repone en la siguiente
+      // lectura.
+      AppLogger.e(
+        'STATS_MANAGER',
+        'No se pudo anotar el día de práctica',
+        error,
+      );
+    }
   }
 
   /// Guarda una sesión del temporizador una sola vez por su `runId`, en el
@@ -1076,7 +1083,7 @@ class StatsManager {
             return TimerRecordResult.duplicate;
           }
           final change = _completionChange(completion, duration);
-          _allStats = _applyCompletion(_allStats!, change, completedAt: endMs);
+          _allStats = _applyCompletion(_allStats!, change);
           // La marca de Salud viaja en la MISMA escritura, pero la memoria
           // solo la publica cuando el guardado se confirmó (TIMER-03).
           final runs = _appendRun(_recordedRuns, {
@@ -1093,6 +1100,9 @@ class StatsManager {
             score: _updateDerivedStats(),
             recordedRuns: runs,
           );
+          if (generation == _clearGeneration) {
+            _rememberPracticeDay(change, completedAt: endMs);
+          }
           return TimerRecordResult.accepted;
         }
         if (ownerId.isNotEmpty) {
