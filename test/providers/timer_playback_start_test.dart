@@ -77,7 +77,7 @@ void main() {
           timerBells: any(named: 'timerBells'),
         ),
       ).thenAnswer((call) async {
-        expect(request.timerBellCues?.map((cue) => cue.offsetMs), [0, 173500]);
+        expect(request.timerBellCues?.map((cue) => cue.offsetMs), [0, 180000]);
         final settings =
             call.namedArguments[#timerBells] as ({bool enabled, double volume});
         expect(settings.enabled, isTrue);
