@@ -69,6 +69,10 @@ class HealthSyncEntry {
 typedef HealthWrite =
     Future<bool> Function(HealthSyncEntry entry, bool Function() stillAllowed);
 
+/// Suelta una pausa de [HealthSyncQueue.holdForAccountChange]. Llamarla más
+/// de una vez no hace nada.
+typedef HealthSyncRelease = void Function();
+
 /// Lo que la cola necesita del resto de la app. Las pruebas lo reemplazan.
 class HealthSyncDependencies {
   HealthSyncDependencies({
@@ -86,6 +90,7 @@ class HealthSyncDependencies {
     Future<List<HealthPendingRun>> Function()? pendingRuns,
     Future<bool> Function(String runId)? clearPending,
     Future<bool> Function(SharedPreferences prefs, String? raw)? persist,
+    bool Function(SharedPreferences prefs)? accountChanging,
   }) : prefs = prefs ?? SharedPreferences.getInstance,
        ready = ready ?? _statsReady,
        currentAccountId = currentAccountId ?? _verifiedAccountId,
@@ -106,7 +111,10 @@ class HealthSyncDependencies {
        clearPending =
            clearPending ??
            ((runId) => StatsManager().clearHealthPending(runId)),
-       persist = persist ?? _persist;
+       persist = persist ?? _persist,
+       accountChanging =
+           accountChanging ??
+           _sessionClosedFor(currentAccountId ?? _verifiedAccountId);
 
   final Future<SharedPreferences> Function() prefs;
 
@@ -130,6 +138,19 @@ class HealthSyncDependencies {
   /// Guarda la lista ya codificada (`null` = sin entradas). Devuelve `false`
   /// si el guardado no se confirmó.
   final Future<bool> Function(SharedPreferences prefs, String? raw) persist;
+
+  /// La cuenta está cambiando aunque nadie haya pausado la cola: la sesión ya
+  /// se cerró (cierre de sesión, sesión vencida o eliminación), pero el
+  /// historial todavía es de la cuenta anterior. Nada sale a Salud hasta que
+  /// la nueva identidad quede asentada (REV-02).
+  final bool Function(SharedPreferences prefs) accountChanging;
+
+  static bool Function(SharedPreferences prefs) _sessionClosedFor(
+    String Function(SharedPreferences prefs) account,
+  ) =>
+      (prefs) =>
+          prefs.getBool(SharedPreferenceConstants.isLoggedIn) == false &&
+          account(prefs).isNotEmpty;
 
   static Future<bool> _persist(SharedPreferences prefs, String? raw) {
     if (raw == null) {
@@ -196,6 +217,8 @@ class HealthSyncQueue {
     _again = false;
     _lockTail = null;
     _generation = 0;
+    _accountHolds = 0;
+    _flushHeld = false;
   }
 
   // Sube con cada cambio de cuenta, eliminación o Salud apagada. Un envío que
@@ -211,6 +234,34 @@ class HealthSyncQueue {
       AppLogger.e(_tag, 'No se pudo soltar la escritura pendiente', error);
     }
   }
+
+  // Pausas activas por cambio de cuenta (cierre de sesión, eliminación).
+  static int _accountHolds = 0;
+  // Se pidió un envío durante la pausa: sale al soltarla.
+  static bool _flushHeld = false;
+
+  /// Detiene los envíos a Salud al EMPEZAR un cambio de cuenta (cierre de
+  /// sesión, eliminación): suelta la escritura en curso y ningún envío nuevo
+  /// sale hasta llamar a lo que devuelve, cuando la nueva identidad ya quedó
+  /// asentada (REV-02). Todo pasa antes de la primera espera de quien llama.
+  static HealthSyncRelease holdForAccountChange() {
+    _accountHolds++;
+    _bumpGeneration();
+    var released = false;
+    return () {
+      if (released) return;
+      released = true;
+      _accountHolds--;
+      if (_accountHolds == 0 && _flushHeld) {
+        _flushHeld = false;
+        unawaited(flush());
+      }
+    };
+  }
+
+  /// Ningún envío ni guardado de la cuenta anterior mientras cambia la cuenta.
+  static bool _accountChanging(SharedPreferences prefs) =>
+      _accountHolds > 0 || _d.accountChanging(prefs);
 
   /// Invalida los envíos pendientes y vacía la cola bajo su propio bloqueo.
   /// Se llama al cambiar de cuenta o eliminarla: un envío en curso no manda
@@ -340,7 +391,8 @@ class HealthSyncQueue {
   }) async {
     await _d.ready();
     final prefs = await _d.prefs();
-    if (!hasConsent(prefs)) return false;
+    // A mitad de un cambio de cuenta la sesión ya no es de nadie.
+    if (_accountChanging(prefs) || !hasConsent(prefs)) return false;
     return add(
       HealthSyncEntry(
         key: key,
@@ -377,6 +429,11 @@ class HealthSyncQueue {
       try {
         await _d.ready();
         final prefs = await _d.prefs();
+        if (_accountChanging(prefs)) {
+          // Sale cuando la nueva identidad quede asentada.
+          _flushHeld = true;
+          continue;
+        }
         await _drainTimerMarks(prefs, generation);
         await _writePending(prefs, generation);
       } catch (error) {
@@ -403,7 +460,7 @@ class HealthSyncQueue {
     if (marks.isEmpty) return;
     for (final mark in marks) {
       // Cambió la cuenta o se apagó Salud: estas marcas ya no son de aquí.
-      if (generation != _generation) return;
+      if (generation != _generation || _accountChanging(prefs)) return;
       final account = _d.currentAccountId(prefs);
       var queued = true;
       if (mark.accountId == account) {
@@ -456,7 +513,11 @@ class HealthSyncQueue {
     SharedPreferences prefs,
     int generation,
   ) async {
-    if (generation != _generation || !hasConsent(prefs)) return;
+    if (generation != _generation ||
+        _accountChanging(prefs) ||
+        !hasConsent(prefs)) {
+      return;
+    }
     final marked = {for (final run in await _d.pendingRuns()) run.runId};
     await _locked(() async {
       if (generation != _generation) return;
@@ -464,7 +525,10 @@ class HealthSyncQueue {
       // Lo último que la cola guardó. Si cambia por fuera (la eliminación de
       // la cuenta borra la clave sin este bloqueo), no se vuelve a escribir.
       var stored = _raw(prefs);
-      bool stillOurs() => generation == _generation && _raw(prefs) == stored;
+      bool stillOurs() =>
+          generation == _generation &&
+          !_accountChanging(prefs) &&
+          _raw(prefs) == stored;
       // Después de CADA espera y justo antes de llamar a Salud: la misma
       // generación (apagar Salud o cambiar de cuenta la sube al instante,
       // antes de tocar el permiso guardado), la misma cuenta dueña, el mismo

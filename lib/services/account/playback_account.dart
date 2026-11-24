@@ -27,10 +27,13 @@ class PlaybackAccount {
   // Sube con cada clear(): un ensureBound que empezó antes ya no vincula
   // nada al volver de una espera (TMR-05).
   static int _clearEpoch = 0;
-  // Identidad que clear() retiró. Mientras la eliminación borra las
-  // preferencias, ensureBound no la vuelve a tomar de ahí; solo un bind()
-  // explícito la acepta otra vez.
-  static String? _retiredClientId;
+  // Identidades que clear() o la eliminación retiraron. Mientras siguen
+  // guardadas en las preferencias, ensureBound no las vuelve a tomar de ahí;
+  // solo un bind() explícito las acepta otra vez.
+  static final Set<String> _retiredClientIds = {};
+  // Limpiezas locales en curso (eliminación de la cuenta): ensureBound no
+  // vincula nada hasta que terminen (REV-06).
+  static int _wipes = 0;
 
   /// Android: el servicio nativo guarda las colas y las sesiones por cuenta.
   /// Las pruebas lo activan para ver las llamadas al canal.
@@ -45,7 +48,8 @@ class PlaybackAccount {
   static bool get isBound => _bound && _clientId != null;
 
   static Future<void> bind(String clientId, {String? userId}) async {
-    _retiredClientId = null;
+    // Durante una eliminación, la identidad borrada sigue retirada.
+    if (_wipes == 0) _retiredClientIds.clear();
     final changed =
         _clientId != null &&
         (_clientId != clientId ||
@@ -80,7 +84,14 @@ class PlaybackAccount {
   ///
   /// Si la cuenta se borra ([clear]) mientras tanto, el intento se descarta
   /// con [StateError] y no vuelve a vincular la identidad anterior (TMR-05).
+  /// Durante toda la limpieza de una eliminación ([holdForWipe]) también
+  /// falla con [StateError], aunque nada se haya vinculado antes (REV-06).
   static Future<void> ensureBound({SharedPreferences? prefs}) {
+    if (_wipes > 0) {
+      return Future.error(
+        StateError('La cuenta se está borrando; aún no se vincula nada'),
+      );
+    }
     if (isBound) return Future.value();
     final running = _ensuring;
     if (running != null) return running;
@@ -97,7 +108,7 @@ class PlaybackAccount {
     // Después de CADA espera: si se borró la cuenta, este intento ya no es
     // de nadie y no vincula nada.
     void checkEpoch() {
-      if (epoch != _clearEpoch) {
+      if (epoch != _clearEpoch || _wipes > 0) {
         throw StateError('La cuenta se borró mientras se vinculaba');
       }
     }
@@ -113,7 +124,7 @@ class PlaybackAccount {
       return;
     }
     var clientId = store.getString(SharedPreferenceConstants.userId);
-    if (clientId != null && clientId == _retiredClientId) {
+    if (clientId != null && _retiredClientIds.contains(clientId)) {
       // La eliminación aún no termina de borrar las preferencias.
       throw StateError('La identidad guardada es de la cuenta que se borró');
     }
@@ -148,12 +159,34 @@ class PlaybackAccount {
     }
   }
 
+  /// Bloquea [ensureBound] durante TODA la limpieza local de una eliminación,
+  /// también al reanudarla antes de la primera vinculación, cuando no hay
+  /// ninguna identidad cargada (REV-06). Se llama antes de la primera espera
+  /// de la limpieza, con la identidad guardada en las preferencias.
+  ///
+  /// Lo que devuelve se llama al terminar, haya salido bien o no. Aun así,
+  /// mientras [persistedClientId] siga guardada no se vuelve a vincular: solo
+  /// cuando se confirma que se quitó de las preferencias.
+  static void Function() holdForWipe(String? persistedClientId) {
+    _wipes++;
+    _clearEpoch++;
+    _ensuring = null;
+    if (persistedClientId != null) _retiredClientIds.add(persistedClientId);
+    var released = false;
+    return () {
+      if (released) return;
+      released = true;
+      _wipes--;
+    };
+  }
+
   static Future<void> clear() {
     // Antes de soltar la identidad: ningún ensureBound en curso la vuelve a
     // vincular, y uno nuevo no se une al intento anterior (TMR-05).
     _clearEpoch++;
     _ensuring = null;
-    _retiredClientId = _clientId ?? _retiredClientId;
+    final retired = _clientId;
+    if (retired != null) _retiredClientIds.add(retired);
     _clientId = null;
     _userId = null;
     _bound = false;
@@ -172,7 +205,8 @@ class PlaybackAccount {
     _userId = null;
     _bound = false;
     _ensuring = null;
-    _retiredClientId = null;
+    _retiredClientIds.clear();
+    _wipes = 0;
     bindsNatively = Platform.isAndroid;
   }
 
