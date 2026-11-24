@@ -2374,12 +2374,18 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     naturalCloseRetry = closeNatural
                 }
             }
+            // Guardado: el cierre va ya al historial de Dart, que es quien confirma
+            // «Guardamos tu sesión» al publicar el final (END-01).
+            if (NaturalTimerClose.deliverBeforeEnd(result)) deliverPendingRuns()
         }
         sessionBells.drainThen {
             naturalCloseRetry?.let { retry ->
                 naturalCloseRetry = null
-                if (retry() == TimerCloseResult.FAILED) {
+                val retried = retry()
+                if (retried == TimerCloseResult.FAILED) {
                     Log.e(TAG, "No se pudo guardar el fin natural; queda para la recuperación")
+                } else if (NaturalTimerClose.deliverBeforeEnd(retried)) {
+                    deliverPendingRuns()
                 }
             }
             if (attempt != playbackAttempt) {
@@ -2627,4 +2633,15 @@ internal data class TimerSessionParams(
             )
         }
     }
+}
+
+/**
+ * Fin natural del temporizador (END-01). El final se publica a Dart aunque el
+ * guardado haya fallado; lo que dice si quedó guardado es el historial. Por eso
+ * un cierre confirmado se entrega al historial en cuanto se guarda, antes de
+ * esperar las campanas y de publicar el final; uno fallido no se entrega y
+ * queda en `active` para la recuperación, y la pantalla no promete el guardado.
+ */
+internal object NaturalTimerClose {
+    fun deliverBeforeEnd(result: TimerCloseResult?): Boolean = result == TimerCloseResult.SAVED
 }

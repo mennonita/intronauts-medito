@@ -131,6 +131,8 @@ class StatsManager {
   // El registro activo en disco ya guarda [_historyId].
   bool _historyIdOnDisk = false;
   final _postsInFlight = <int, Future<void>>{};
+  // `runId` de cada sesión del temporizador que el historial confirma.
+  final _confirmedRuns = StreamController<String>.broadcast();
 
   // Un solo escritor a la vez para el registro de estadísticas y el de
   // dueños pendientes (R63).
@@ -683,10 +685,13 @@ class StatsManager {
 
   Map<String, dynamic> _recordState({
     List<Map<String, dynamic>>? recordedRuns,
+    int? localSeq,
+    bool? dirty,
+    List<StatsChange>? changes,
   }) => {
     _ownerKey: _verifiedUserId,
-    _localSeqKey: _localSeq,
-    _pendingSyncKey: _dirty,
+    _localSeqKey: localSeq ?? _localSeq,
+    _pendingSyncKey: dirty ?? _dirty,
     _resyncKey: _needsResync,
     if (_attempt case final attempt?)
       _attemptKey: {
@@ -699,22 +704,32 @@ class StatsManager {
       _syncedSeqKey: synced.clientSeq,
     },
     if (_legacyPending case final legacy?) _legacyPendingKey: legacy.toJson(),
-    _changesKey: [for (final change in _changes) change.json],
+    _changesKey: [for (final change in changes ?? _changes) change.json],
     _recordedRunsKey: recordedRuns ?? _recordedRuns,
     _historyIdKey: _historyId ??= _newHistoryId(),
   };
 
   /// Una sola escritura guarda el historial y el estado de sincronización.
-  /// Con [recordedRuns] se escribe esa lista; la memoria la recibe quien
-  /// llama, solo después de confirmar el guardado (TIMER-03).
+  /// Con [stats], [recordedRuns], [localSeq], [dirty] o [changes] se escriben
+  /// esas copias; la memoria las recibe quien llama, solo después de
+  /// confirmar el guardado (TIMER-03, TMR-04).
   Future<void> _saveLocalAllStatsToSharedPrefs({
+    LocalAllStats? stats,
     List<Map<String, dynamic>>? recordedRuns,
+    int? localSeq,
+    bool? dirty,
+    List<StatsChange>? changes,
   }) async {
     final saved = await _prefs.setString(
       SharedPreferenceConstants.localAllStatsKey,
       jsonEncode({
-        ..._allStats!.toJson(),
-        ..._recordState(recordedRuns: recordedRuns),
+        ...(stats ?? _allStats!).toJson(),
+        ..._recordState(
+          recordedRuns: recordedRuns,
+          localSeq: localSeq,
+          dirty: dirty,
+          changes: changes,
+        ),
       }),
     );
     if (!saved) throw StateError('Could not save local stats');
@@ -952,18 +967,41 @@ class StatsManager {
     return score;
   }
 
+  /// Racha y constancia calculadas sobre una copia: la memoria no cambia.
+  LocalAllStats _withDerivedStats(LocalAllStats stats) {
+    final withStreak = calculateStreak(stats);
+    return withStreak.copyWith(
+      consistencyScore: calculateConsistencyScore(withStreak),
+    );
+  }
+
   /// Guarda un cambio local en una sola escritura. Se llama dentro del candado;
   /// el envío al servidor lo hace quien llama, ya fuera del candado.
+  ///
+  /// [stats] es la copia ya calculada del historial nuevo. Todo se escribe
+  /// desde copias y la memoria las publica solo cuando el guardado se
+  /// confirmó: una lectura durante la espera (por ejemplo `returns`) nunca ve
+  /// una sesión que luego puede no guardarse (TMR-04).
   Future<void> _commitLocalChange({
     StatsChange? change,
+    LocalAllStats? stats,
     double? score,
     List<Map<String, dynamic>>? recordedRuns,
   }) async {
     final generation = _clearGeneration;
-    _localSeq++;
+    final localSeq = _localSeq + 1;
+    final changes = change == null ? _changes : [..._changes, change];
+    await _saveLocalAllStatsToSharedPrefs(
+      stats: stats,
+      recordedRuns: recordedRuns,
+      localSeq: localSeq,
+      dirty: true,
+      changes: changes,
+    );
+    _localSeq = localSeq;
     _dirty = true;
-    if (change != null) _changes.add(change);
-    await _saveLocalAllStatsToSharedPrefs(recordedRuns: recordedRuns);
+    _changes = changes;
+    if (stats != null) _allStats = stats;
     // Las marcas de Salud se publican solo con el guardado confirmado.
     if (recordedRuns != null) _recordedRuns = recordedRuns;
     if (generation != _clearGeneration) return;
@@ -989,8 +1027,12 @@ class StatsManager {
       if (generation != _clearGeneration) return false;
       _allStats ??= _loadLocalAllStats();
       final change = _completionChange(audioCompleted, duration);
-      _allStats = _applyCompletion(_allStats!, change);
-      await _commitLocalChange(change: change, score: _updateDerivedStats());
+      final stats = _withDerivedStats(_applyCompletion(_allStats!, change));
+      await _commitLocalChange(
+        change: change,
+        stats: stats,
+        score: stats.consistencyScore,
+      );
       if (generation == _clearGeneration) {
         _rememberPracticeDay(change, completedAt: audioCompleted.timestamp);
       }
@@ -1083,7 +1125,11 @@ class StatsManager {
             return TimerRecordResult.duplicate;
           }
           final change = _completionChange(completion, duration);
-          _allStats = _applyCompletion(_allStats!, change);
+          // La sesión se calcula en una copia: la memoria la publica solo
+          // cuando el guardado se confirmó (TMR-04).
+          final stats = _withDerivedStats(
+            _applyCompletion(_allStats!, change),
+          );
           // La marca de Salud viaja en la MISMA escritura, pero la memoria
           // solo la publica cuando el guardado se confirmó (TIMER-03).
           final runs = _appendRun(_recordedRuns, {
@@ -1097,7 +1143,8 @@ class StatsManager {
           });
           await _commitLocalChange(
             change: change,
-            score: _updateDerivedStats(),
+            stats: stats,
+            score: stats.consistencyScore,
             recordedRuns: runs,
           );
           if (generation == _clearGeneration) {
@@ -1118,6 +1165,11 @@ class StatsManager {
       AppLogger.e('STATS_MANAGER', 'No se pudo guardar la sesión', error);
       return TimerRecordResult.failed;
     }
+    if ((result == TimerRecordResult.accepted ||
+            result == TimerRecordResult.duplicate) &&
+        generation == _clearGeneration) {
+      _confirmedRuns.add(runId);
+    }
     if (result == TimerRecordResult.accepted &&
         ownerId == (_verifiedUserId ?? '') &&
         generation == _clearGeneration) {
@@ -1125,6 +1177,41 @@ class StatsManager {
       _updateHomeWidget();
     }
     return result;
+  }
+
+  /// Verdadero cuando el historial ya tiene guardada la sesión [runId] (la
+  /// cuenta activa o el historial de antes de verificar). Si aún no está,
+  /// espera como máximo [timeout] a que llegue. Falso = el guardado sigue
+  /// pendiente: nadie debe decir «Guardamos tu sesión» (END-01).
+  Future<bool> confirmTimerRun(
+    String runId, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    if (runId.isEmpty) return false;
+    if (_hasRecordedRun(runId)) return true;
+    // Se escucha en el mismo paso que la consulta: ningún aviso se pierde.
+    final arrived = _confirmedRuns.stream.firstWhere((id) => id == runId);
+    try {
+      await arrived.timeout(timeout);
+      return true;
+    } on TimeoutException {
+      return _hasRecordedRun(runId);
+    }
+  }
+
+  bool _hasRecordedRun(String runId) {
+    if (_recordedRuns.any((run) => run['runId'] == runId)) return true;
+    if (!_isInitialized) return false;
+    try {
+      return _pendingOwners().any(
+        (owner) =>
+            owner[_ownerKey] == null &&
+            _readRecordedRuns(owner).any((run) => run['runId'] == runId),
+      );
+    } catch (_) {
+      AppLogger.w('STATS_MANAGER', 'No se pudo leer el historial previo');
+      return false;
+    }
   }
 
   /// Escribe la sesión en el historial de antes de verificar (la copia
@@ -1296,11 +1383,13 @@ class StatsManager {
       if (generation != _clearGeneration) return false;
       _allStats ??= _loadLocalAllStats();
       final change = StatsChange.repeat(duration);
-      _allStats = change.apply(
-        _allStats!,
-        _getCurrentDate().millisecondsSinceEpoch,
+      await _commitLocalChange(
+        change: change,
+        stats: change.apply(
+          _allStats!,
+          _getCurrentDate().millisecondsSinceEpoch,
+        ),
       );
-      await _commitLocalChange(change: change);
       return true;
     });
     if (!saved || generation != _clearGeneration) return;
@@ -1450,11 +1539,14 @@ class StatsManager {
         offset: _dayBoundaryOffset,
       );
       final change = StatsChange.restore(snapshot);
-      _allStats = change.apply(
-        snapshot,
-        _getCurrentDate().millisecondsSinceEpoch,
+      final stats = _withDerivedStats(
+        change.apply(snapshot, _getCurrentDate().millisecondsSinceEpoch),
       );
-      await _commitLocalChange(change: change, score: _updateDerivedStats());
+      await _commitLocalChange(
+        change: change,
+        stats: stats,
+        score: stats.consistencyScore,
+      );
       return true;
     });
     if (!saved || generation != _clearGeneration) return;
@@ -1480,8 +1572,12 @@ class StatsManager {
         _getCurrentDate().millisecondsSinceEpoch,
       );
       if (identical(updated, _allStats)) return false;
-      _allStats = updated;
-      await _commitLocalChange(change: change, score: _updateDerivedStats());
+      final stats = _withDerivedStats(updated);
+      await _commitLocalChange(
+        change: change,
+        stats: stats,
+        score: stats.consistencyScore,
+      );
       return true;
     });
     if (!saved || generation != _clearGeneration) return;
@@ -1509,8 +1605,7 @@ class StatsManager {
         _getCurrentDate().millisecondsSinceEpoch,
       );
       if (identical(updated, _allStats)) return false;
-      _allStats = updated;
-      await _commitLocalChange(change: change);
+      await _commitLocalChange(change: change, stats: updated);
       return true;
     });
     if (!saved || generation != _clearGeneration) return;
@@ -1770,10 +1865,7 @@ class StatsManager {
 
     await _transaction(() async {
       if (_allStats == null) return;
-      _allStats = calculateStreak(_allStats!);
-      final newConsistencyScore = calculateConsistencyScore(_allStats!);
-      _allStats = _allStats!.copyWith(consistencyScore: newConsistencyScore);
-      await _commitLocalChange();
+      await _commitLocalChange(stats: _withDerivedStats(_allStats!));
     });
   }
 

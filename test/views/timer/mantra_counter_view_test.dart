@@ -432,4 +432,46 @@ void main() {
       }
     }
   });
+
+  group('pantalla encendida compartida (WAKE-01)', () {
+    late List<bool> applied;
+
+    setUp(() {
+      KeepScreenOnRequests.resetForTesting();
+      applied = [];
+      KeepScreenOnRequests.apply = (on) async => applied.add(on);
+    });
+    tearDown(KeepScreenOnRequests.resetForTesting);
+
+    test('manda la vista de arriba y al irse vuelve la de abajo', () {
+      final counter = Object();
+      final timer = Object();
+      KeepScreenOnRequests.request(counter, on: true);
+      KeepScreenOnRequests.request(timer, on: false);
+      KeepScreenOnRequests.release(timer);
+      expect(applied, [true, false, true]);
+      KeepScreenOnRequests.release(counter);
+      expect(applied, [true, false, true, false]);
+    });
+
+    test('quitar una vista de abajo no cambia la de arriba', () {
+      final counter = Object();
+      final timer = Object();
+      KeepScreenOnRequests.request(counter, on: true);
+      KeepScreenOnRequests.request(timer, on: true);
+      KeepScreenOnRequests.release(counter);
+      expect(applied, [true]);
+      KeepScreenOnRequests.release(timer);
+      expect(applied, [true, false]);
+    });
+
+    test('una vista que vuelve al frente vuelve a mandar', () {
+      final counter = Object();
+      final timer = Object();
+      KeepScreenOnRequests.request(counter, on: true);
+      KeepScreenOnRequests.request(timer, on: false);
+      KeepScreenOnRequests.request(counter, on: true);
+      expect(applied, [true, false, true]);
+    });
+  });
 }

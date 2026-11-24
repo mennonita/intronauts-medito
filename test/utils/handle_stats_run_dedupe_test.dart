@@ -279,6 +279,46 @@ void main() {
       expect(await stats.returns, 1);
     });
 
+    test('una lectura durante el guardado no ve la sesión y no deja un '
+        'regreso huérfano (TMR-04)', () async {
+      await stats.localAllStats;
+      prefs.gate = Completer<void>();
+      prefs.failAfterGate = true;
+
+      final saving = stats.recordTimerRun(_run('a'));
+      await pumpEventQueue();
+      // El guardado sigue esperando: la memoria aún no tiene la sesión.
+      expect(stats.currentStats?.audioCompleted ?? const [], isEmpty);
+      expect(await stats.returns, 0);
+
+      prefs.gate!.complete();
+      expect(await saving, TimerRecordResult.failed);
+      await pumpEventQueue();
+      expect(practiceKeys(), isEmpty);
+      expect(stats.currentStats?.audioCompleted ?? const [], isEmpty);
+      expect(await stats.returns, 0);
+    });
+
+    test('guiada: una lectura durante el guardado no ve la sesión '
+        '(TMR-04)', () async {
+      await stats.localAllStats;
+      prefs.gate = Completer<void>();
+      prefs.failAfterGate = true;
+      final session = LocalAudioCompleted(
+        id: 'guiada',
+        timestamp: DateTime(2026, 11, 24, 10).millisecondsSinceEpoch,
+      );
+
+      final saving = stats.addAudioCompleted(session, 600000, skipPost: true);
+      await pumpEventQueue();
+      expect(await stats.returns, 0);
+
+      prefs.gate!.complete();
+      await expectLater(saving, throwsA(isA<StateError>()));
+      await pumpEventQueue();
+      expect(practiceKeys(), isEmpty);
+    });
+
     test('guiada: si el guardado falla no queda el regreso', () async {
       await stats.localAllStats;
       prefs.failStats = true;
@@ -489,4 +529,56 @@ void main() {
       );
     },
   );
+
+  group('el historial confirma la sesión guardada (END-01)', () {
+    test('confirma una sesión ya guardada sin esperar', () async {
+      expect(await stats.recordTimerRun(_run('a')), TimerRecordResult.accepted);
+      expect(
+        await stats.confirmTimerRun('a', timeout: Duration.zero),
+        isTrue,
+      );
+    });
+
+    test('espera la sesión que llega después', () async {
+      final confirming = stats.confirmTimerRun(
+        'b',
+        timeout: const Duration(seconds: 5),
+      );
+      expect(await stats.recordTimerRun(_run('b')), TimerRecordResult.accepted);
+      expect(await confirming, isTrue);
+    });
+
+    test('un guardado fallido no se confirma', () async {
+      prefs.failStats = true;
+      final confirming = stats.confirmTimerRun(
+        'c',
+        timeout: const Duration(milliseconds: 50),
+      );
+      expect(await stats.recordTimerRun(_run('c')), TimerRecordResult.failed);
+      expect(await confirming, isFalse);
+    });
+
+    test('la sesión de otra cuenta no se confirma', () async {
+      final confirming = stats.confirmTimerRun(
+        'd',
+        timeout: const Duration(milliseconds: 50),
+      );
+      expect(
+        await stats.recordTimerRun(_run('d', ownerId: _other)),
+        TimerRecordResult.rejected,
+      );
+      expect(await confirming, isFalse);
+    });
+
+    test('confirma una sesión del historial de antes de verificar', () async {
+      expect(
+        await stats.recordTimerRun(_run('e', ownerId: '')),
+        TimerRecordResult.accepted,
+      );
+      expect(
+        await stats.confirmTimerRun('e', timeout: Duration.zero),
+        isTrue,
+      );
+    });
+  });
 }

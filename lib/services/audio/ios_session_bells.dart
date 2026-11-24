@@ -138,6 +138,13 @@ class IosSessionBells {
     if (!enabled) await _clearTimerBell();
   }
 
+  /// Resultado de la campana final al terminar la espera del final natural.
+  /// Se toma ANTES de soltar las campanas: `disable` borra la marca (SIT-01).
+  bool captureEndStarted() {
+    _checkEndStarted(_activeBell?.position ?? Duration.zero);
+    return _endStarted;
+  }
+
   bool stopBellsAndReportEnd() {
     _checkEndStarted(_activeBell?.position ?? Duration.zero);
     _generation++;
