@@ -21,11 +21,40 @@ void main() {
     return container;
   }
 
-  test('las dos preferencias empiezan desactivadas', () {
+  test('las preferencias empiezan desactivadas', () {
     final state = newContainer().read(timerPreferencesProvider);
     expect(state.mixWithOthers, isFalse);
     expect(state.keepScreenOn, isFalse);
+    expect(state.openOnTimer, isFalse);
+    expect(state.skipEndScreen, isFalse);
   });
+
+  test(
+    'abrir el temporizador y saltar el final se guardan por separado',
+    () async {
+      final container = newContainer();
+      final notifier = container.read(timerPreferencesProvider.notifier);
+      await notifier.setOpenOnTimer(true);
+      expect(container.read(timerPreferencesProvider).openOnTimer, isTrue);
+      expect(container.read(timerPreferencesProvider).skipEndScreen, isFalse);
+      expect(prefs.getBool('timer_open_on_timer'), isTrue);
+
+      await notifier.setSkipEndScreen(true);
+      final restored = TimerPreferences.read(prefs);
+      expect(restored.openOnTimer, isTrue);
+      expect(restored.skipEndScreen, isTrue);
+      expect(prefs.getBool('timer_skip_end_screen'), isTrue);
+
+      await notifier.setOpenOnTimer(false);
+      expect(TimerPreferences.read(prefs).openOnTimer, isFalse);
+      expect(
+        newContainer().read(timerPreferencesProvider).skipEndScreen,
+        isTrue,
+      );
+      await notifier.setSkipEndScreen(false);
+      expect(TimerPreferences.read(prefs).skipEndScreen, isFalse);
+    },
+  );
 
   test('los cambios actualizan el estado y se conservan al volver', () async {
     final container = newContainer();

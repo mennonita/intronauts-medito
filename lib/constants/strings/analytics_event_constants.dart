@@ -825,6 +825,8 @@ class AnalyticsEventConstants {
   static const String sourceShortcut = 'shortcut';
   static const String sourceOffline = 'offline';
   static const String sourceHistory = 'history';
+  static const String sourceTimerOnly = 'timer_only';
+  static const String sourceReminderAction = 'reminder_action';
 
   /// Guide reported on the audio_session_* events of a Timer session.
   static const String timerGuide = 'timer';
