@@ -329,7 +329,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Mi borrador.'), findsOneWidget);
-      expect(find.text(_l10n.timerNoteError), findsOneWidget);
+      // Cada resultado explica lo que pasó con su propio mensaje.
+      final message = result == TimerNoteSaveResult.conflict
+          ? _l10n.timerNoteConflict
+          : _l10n.timerNoteUnconfirmed;
+      expect(find.text(message), findsOneWidget);
       expect(find.text(_l10n.timerNoteSaved), findsNothing);
       expect(
         tester.widget<TextField>(field).readOnly,
