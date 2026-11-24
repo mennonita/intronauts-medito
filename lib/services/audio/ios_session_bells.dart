@@ -286,14 +286,9 @@ class IosSessionBells {
     _pumpTimer();
   }
 
-  /// Campanas que tocan ahora. W1-MODEL cambia `update` para devolver una
-  /// lista (varias atrasadas en orden); esto acepta las dos formas.
-  List<TimerBellCue> _dueCues(TimerBellSchedule timer, int positionMs) {
-    final Object? due = timer.update(positionMs, enabled: _enabled);
-    if (due is List<TimerBellCue>) return due;
-    if (due is TimerBellCue) return [due];
-    return const [];
-  }
+  /// Campanas que tocan ahora, en orden (pueden ser varias atrasadas).
+  List<TimerBellCue> _dueCues(TimerBellSchedule timer, int positionMs) =>
+      timer.update(positionMs, enabled: _enabled);
 
   bool get _atEnd =>
       _draining || primary.processingState == ProcessingState.completed;

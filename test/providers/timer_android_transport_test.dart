@@ -178,7 +178,7 @@ void main() {
               assetKey: 'assets/audio/session_bell_v2.wav',
             ),
             BellCue(
-              offsetMs: 178324,
+              offsetMs: 180000, // La campana final suena justo al terminar (TECH-10).
               kind: 'end',
               assetKey: 'assets/audio/bells/p8-kalimba.mp3',
             ),
