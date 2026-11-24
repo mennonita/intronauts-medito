@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,26 +9,32 @@ import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/models.dart';
 import 'package:medito/models/timer/last_timer_store.dart';
+import 'package:medito/models/timer/timer_house_content.dart';
 import 'package:medito/models/timer/timer_launch.dart';
 import 'package:medito/models/timer/timer_preset.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/providers.dart';
+import 'package:medito/providers/timer/timer_content_provider.dart';
 import 'package:medito/providers/timer/timer_presets_provider.dart';
 import 'package:medito/providers/timer/timer_settings_provider.dart';
 import 'package:medito/repositories/background_sounds/background_sounds_repository.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/services/audio/timer_audio_file.dart';
+import 'package:medito/services/timer/timer_route_tracker.dart';
 import 'package:medito/repositories/track/track_repository.dart';
 import 'package:medito/widgets/network_image_widget.dart';
 import 'package:medito/widgets/adaptive/adaptive_page_body.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/views/home/widgets/home_gradient_border.dart';
 import 'package:medito/views/player/player_view.dart';
+import 'package:medito/views/timer/mantra/mantra_counter_view.dart';
 import 'package:medito/widgets/inputs/medito_segmented_tabs.dart';
 import 'package:medito/views/player/widgets/bottom_actions/single_back_action_bar.dart';
 
 import 'widgets/timer_bell_controls.dart';
 import 'widgets/timer_duration_wheels.dart';
+import 'widgets/timer_house_practices.dart';
+import 'widgets/timer_house_texts.dart';
 import 'widgets/timer_prep_selector.dart';
 import 'widgets/timer_preset_chips.dart';
 import 'widgets/timer_preset_manager_sheet.dart';
@@ -57,6 +64,10 @@ class TimerView extends ConsumerStatefulWidget {
   /// Pantalla que se abre al empezar; las pruebas la reemplazan.
   @visibleForTesting
   static WidgetBuilder playerPageBuilder = (_) => const PlayerView();
+
+  /// Hora local para el día de práctica; las pruebas la reemplazan.
+  @visibleForTesting
+  static DateTime Function() clock = DateTime.now;
 
   @override
   ConsumerState<TimerView> createState() => _TimerViewState();
@@ -96,6 +107,8 @@ class _TimerViewState extends ConsumerState<TimerView> {
   @override
   void initState() {
     super.initState();
+    // El arranque de la app no abre otro temporizador si ya hay uno abierto.
+    TimerRouteTracker.openTimerViews++;
     // Last known cover first: its image is in the disk cache, so the
     // backdrop shows offline too. The fetch below refreshes it.
     _coverUrl = ref
@@ -123,6 +136,12 @@ class _TimerViewState extends ConsumerState<TimerView> {
         if (mounted) unawaited(_handleLaunch(launch));
       });
     }
+  }
+
+  @override
+  void dispose() {
+    TimerRouteTracker.openTimerViews--;
+    super.dispose();
   }
 
   Future<void> _loadCover() async {
@@ -205,9 +224,7 @@ class _TimerViewState extends ConsumerState<TimerView> {
         mode: settings.mode,
         duration: settings.sessionDuration,
         filePath: path,
-        title: settings.mode == TimerMode.stopwatch
-            ? l10n.timerModeStopwatch
-            : l10n.timerTitle,
+        title: _modeWord(settings.mode, l10n),
         coverUrl: _coverUrl,
         bells: settings.bells,
         extraTime: settings.hasExtraTime,
@@ -284,7 +301,21 @@ class _TimerViewState extends ConsumerState<TimerView> {
       }
       return;
     }
-    await _start(launch: resolved);
+    // Preparación mínima del arranque (por ejemplo «Sentarme 3 min»): solo
+    // para esta sesión; la preparación guardada no cambia (§4.19).
+    final minPrep = launch.minPrepSeconds;
+    final settings = resolved.settings;
+    await _start(
+      launch: minPrep == null
+          ? resolved
+          : (
+              settings: settings.copyWith(
+                prepSeconds: math.max(settings.prepSeconds, minPrep),
+              ),
+              ambient: resolved.ambient,
+              lengthSource: resolved.lengthSource,
+            ),
+    );
   }
 
   _ResolvedLaunch? _resolveLaunch(TimerLaunch launch) {
@@ -313,6 +344,9 @@ class _TimerViewState extends ConsumerState<TimerView> {
         );
       }
     }
+    // Unos minutos = una sola cuenta regresiva de esos minutos, sin partes ni
+    // tiempo extra, aunque los ajustes guardados sean por partes (R91). Las
+    // campanas, el sonido de fondo y la preparación son los guardados.
     final minutes = launch.minutes;
     if (minutes != null) {
       return (
@@ -365,6 +399,27 @@ class _TimerViewState extends ConsumerState<TimerView> {
       unawaited(_wheels.currentState?.animateTo(preset.settings.minutes));
     }
     _showSnack(l10n.timerPresetLoaded(preset.name));
+  }
+
+  /// Tocar una práctica de la casa la carga igual que un temporizador
+  /// guardado; no empieza. Su sonido de fondo se busca por id en el catálogo;
+  /// sin id o con uno que ya no existe, va sin sonido de fondo.
+  void _loadHousePractice(TimerHousePractice practice, TimerSettings settings) {
+    final soundId = practice.soundId;
+    final sound = soundId == null ? null : _ambientFromId(soundId)?.sound;
+    unawaited(
+      _loadPreset(
+        TimerPreset(name: practice.name, settings: settings, sound: sound),
+      ),
+    );
+  }
+
+  /// Palabra de la organización para cada modo, o la de la app.
+  String _modeWord(TimerMode mode, AppLocalizations l10n) {
+    final content = ref.read(timerHouseContentProvider);
+    return mode == TimerMode.stopwatch
+        ? houseWord(content, HouseWord.stopwatch, l10n.timerModeStopwatch)
+        : houseWord(content, HouseWord.timer, l10n.timerTitle);
   }
 
   Future<void> _onPresetAction(
@@ -445,6 +500,7 @@ class _TimerViewState extends ConsumerState<TimerView> {
     final isStopwatch = settings.mode == TimerMode.stopwatch;
     final isMultiStage = settings.isMultiStage;
     final presets = ref.watch(timerPresetsProvider);
+    final house = ref.watch(timerHouseContentProvider);
     final atPresetLimit = presets.length >= kMaxTimerPresets;
     final settingsNotifier = ref.read(timerSettingsProvider.notifier);
     final showZeroHint = !isStopwatch && !settings.canStart;
@@ -470,6 +526,10 @@ class _TimerViewState extends ConsumerState<TimerView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      TimerPracticeDayLine(
+                        content: house,
+                        clock: TimerView.clock,
+                      ),
                       if (coverUrl != null) ...[
                         AspectRatio(
                           aspectRatio: 16 / 9,
@@ -486,7 +546,10 @@ class _TimerViewState extends ConsumerState<TimerView> {
                         const SizedBox(height: 20),
                       ],
                       MeditoSegmentedTabs(
-                        labels: [l10n.timerTitle, l10n.timerModeStopwatch],
+                        labels: [
+                          _modeWord(TimerMode.countdown, l10n),
+                          _modeWord(TimerMode.stopwatch, l10n),
+                        ],
                         selectedIndex: settings.mode.index,
                         onChanged: (index) {
                           unawaited(HapticFeedback.selectionClick());
@@ -495,6 +558,32 @@ class _TimerViewState extends ConsumerState<TimerView> {
                               .setMode(TimerMode.values[index]);
                         },
                       ),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: TextButton(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const MantraCounterView(),
+                            ),
+                          ),
+                          child: Text(
+                            houseWord(
+                              house,
+                              HouseWord.counter,
+                              l10n.mantraCounterTitle,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (house.practices.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        TimerHousePractices(
+                          practices: house.practices,
+                          enabled: !_starting,
+                          onLoad: _loadHousePractice,
+                        ),
+                      ],
                       if (presets.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         Text(l10n.timerSavedPresets),
@@ -619,6 +708,7 @@ class _TimerViewState extends ConsumerState<TimerView> {
                             )
                           : const SizedBox.shrink(),
                     ),
+                    TimerOpeningText(text: house.openingText),
                     _StartButton(
                       enabled: settings.canStart,
                       loading: _starting,
