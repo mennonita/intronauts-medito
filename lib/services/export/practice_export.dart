@@ -70,9 +70,15 @@ class PracticeExport {
 
   static Future<void> cleanupExpiredCopies() => _cleanup(expiredOnly: true);
 
-  static Future<void> clearForAccountChange() {
+  /// Borra todas las copias exportadas. Nunca falla: un error solo se anota,
+  /// porque el cambio de cuenta no debe quedarse a medias por la caché.
+  static Future<void> clearForAccountChange() async {
     _generation++;
-    return _cleanup();
+    try {
+      await _cleanup();
+    } catch (error) {
+      AppLogger.w('EXPORT', 'No se pudieron borrar las copias: $error');
+    }
   }
 
   static Future<void> _cleanup({
@@ -134,8 +140,6 @@ Future<void> sharePracticeCsv(BuildContext context) async {
   final exportGeneration = PracticeExport._generation;
   _sharingPracticeCsv = true;
   try {
-    final temp = await getTemporaryDirectory();
-    await PracticeExport._cleanup(expiredOnly: true, temp: temp);
     // Carga el historial local antes de pedirlo para evitar la sincronización.
     await stats.hasLocalStats();
     final owner = stats.verifiedUserId;
@@ -164,6 +168,8 @@ Future<void> sharePracticeCsv(BuildContext context) async {
       toLocal: DateTime.fromMillisecondsSinceEpoch,
     );
     final date = DateFormat('yyyy-MM-dd', 'en_US').format(DateTime.now());
+    final temp = await getTemporaryDirectory();
+    await PracticeExport._cleanup(expiredOnly: true, temp: temp);
     final folder = await temp.createTemp(PracticeExport._folderPrefix);
     final android = defaultTargetPlatform == TargetPlatform.android;
     final folderName = folder.uri.pathSegments.where((s) => s.isNotEmpty).last;

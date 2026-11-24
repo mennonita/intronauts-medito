@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // ignore: depend_on_referenced_packages
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:medito/services/export/practice_export.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/constants/http/http_constants.dart';
 import 'package:medito/constants/theme/app_theme.dart';
@@ -89,6 +90,8 @@ void main() async {
   DevicePreview.enable(enabled: DebugOptions.enableDevicePreview);
 
   WidgetsFlutterBinding.ensureInitialized();
+  // Borra las copias exportadas que ya cumplieron su plazo.
+  unawaited(PracticeExport.cleanupExpiredCopies());
 
   // Google Sans ships under the SIL Open Font License 1.1, which requires the
   // license notice to travel with the app. Register it so it's included in the

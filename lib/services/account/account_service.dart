@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:medito/services/export/practice_export.dart';
 import 'package:medito/constants/http/http_constants.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/exceptions/app_error.dart';
@@ -170,6 +171,7 @@ class AccountService {
     final releaseHealth = _holdHealthSync();
     try {
       await _clearMantraCounter();
+      await PracticeExport.clearForAccountChange();
       await _clearHealthQueue();
       await _authRepository.signOut();
       await _statsManager.clearAllStats();

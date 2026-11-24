@@ -8,6 +8,7 @@ import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/providers/player/player_provider.dart';
 import 'package:medito/services/audio/session_bell_preview.dart';
 import 'package:medito/services/timer/ios_timer_run_store.dart';
+import 'package:medito/services/export/practice_export.dart';
 import 'package:medito/services/timer/mantra_counter_store.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
 import 'package:medito/utils/health_sync_queue.dart';
@@ -227,6 +228,8 @@ class PlaybackAccount {
         // Las cuentas de mantras de la cuenta anterior se borran y ningún
         // guardado pendiente las vuelve a escribir (R89).
         MantraCounterStore.clearForAccountChange(),
+        // Las copias del historial exportado no quedan para la cuenta nueva.
+        PracticeExport.clearForAccountChange(),
       ]);
     } finally {
       _discarding--;
