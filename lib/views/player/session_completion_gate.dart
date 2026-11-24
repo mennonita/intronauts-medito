@@ -14,22 +14,30 @@ import 'package:medito/src/audio_pigeon.g.dart';
 /// loaded and the state has read not-completed at least once since: every real
 /// session passes through that before it can finish, even when it replays the
 /// same track, so no track id comparison is needed.
+///
+/// Un temporizador además liga la compuerta a su `runId`: el final de una
+/// corrida anterior o posterior nunca abre la pantalla final de esta (R31).
 class SessionCompletionGate {
   /// Shorter "completions" are load/error artefacts, not a finished session.
   static const minCompletedPositionMs = 5000;
 
   bool _trackLoaded = false;
   bool _armed = false;
+  String? _runId;
 
   /// Playback is (re)starting on this screen: nothing seen so far counts.
   void reset() {
     _trackLoaded = false;
     _armed = false;
+    _runId = null;
   }
 
   /// This screen's track has loaded; [isCompleted] is the shared state now.
-  void trackLoaded({required bool isCompleted}) {
+  /// [runId] es la corrida del temporizador de esta pantalla (vacío o null en
+  /// una meditación guiada).
+  void trackLoaded({required bool isCompleted, String? runId}) {
     _trackLoaded = true;
+    _runId = (runId?.isEmpty ?? true) ? null : runId;
     completionChanged(isCompleted);
   }
 
@@ -40,5 +48,8 @@ class SessionCompletionGate {
 
   /// Whether [state] is the completion of this screen's session.
   bool isSessionComplete(PlaybackState state) =>
-      _armed && state.isCompleted && state.position > minCompletedPositionMs;
+      _armed &&
+      state.isCompleted &&
+      state.position > minCompletedPositionMs &&
+      (_runId == null || state.runId == _runId);
 }

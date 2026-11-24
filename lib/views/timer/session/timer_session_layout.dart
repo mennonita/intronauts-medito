@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/player/playback_request.dart';
+import 'package:medito/models/timer/timer_timeline.dart';
+import 'package:medito/providers/player/audio_state_provider.dart';
 import 'package:medito/providers/timer/timer_background_provider.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/views/background_sound/background_sound_view.dart';
@@ -47,8 +49,25 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
   bool _sheetOpen = false;
   late SystemUiOverlayStyle _exitOverlayStyle;
 
+  // Preparación o tiempo extra: los controles se quedan a la vista.
+  bool _holdControls = false;
+
   bool get _canHideControls =>
-      widget.isPlaying && !widget.isAudioLoading && !_accessibleNavigation;
+      widget.isPlaying &&
+      !widget.isAudioLoading &&
+      !_accessibleNavigation &&
+      !_holdControls;
+
+  bool _holdsControlsAt(int positionMs) {
+    final timeline = TimerTimeline.fromRequest(widget.request);
+    return timeline.inPrep(positionMs) || timeline.isExtraTime(positionMs);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _holdControls = _holdsControlsAt(ref.read(audioStateProvider).position);
+  }
 
   bool get _isClosing => widget.isClosing?.call() ?? false;
 
@@ -73,8 +92,12 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
   @override
   void didUpdateWidget(covariant TimerSessionLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.request != widget.request) {
+      _holdControls = _holdsControlsAt(ref.read(audioStateProvider).position);
+    }
     if (oldWidget.isPlaying != widget.isPlaying ||
-        oldWidget.isAudioLoading != widget.isAudioLoading) {
+        oldWidget.isAudioLoading != widget.isAudioLoading ||
+        oldWidget.request != widget.request) {
       _controlsVisible = true;
       _scheduleFade();
     }
@@ -136,6 +159,17 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(
+      audioStateProvider.select((state) => _holdsControlsAt(state.position)),
+      (_, hold) {
+        if (hold == _holdControls) return;
+        setState(() {
+          _holdControls = hold;
+          _controlsVisible = true;
+        });
+        _scheduleFade();
+      },
+    );
     final background = ref.watch(timerBackgroundProvider);
     final foreground = background.foreground;
     final icons = foreground == Colors.white
@@ -193,6 +227,7 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
                         )),
                         request: request,
                         foreground: foreground,
+                        paused: !widget.isPlaying && !widget.isAudioLoading,
                       ),
                     ),
                   ),
@@ -203,7 +238,7 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
                       SafeArea(
                         bottom: false,
                         child: IconButton(
-                          tooltip: l10n.close,
+                          tooltip: l10n.timerExit,
                           color: foreground,
                           onPressed: _isClosing ? null : widget.onClosePressed,
                           icon: Icon(
@@ -222,12 +257,15 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
                     child: fadingControls(
                       SafeArea(
                         top: false,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: _buildControls(
-                            l10n,
-                            foreground,
-                            compact: height < 440,
+                        // Sin reducir el tamaño: con letra grande los
+                        // controles se acomodan en filas y se desplazan.
+                        child: Center(
+                          child: SingleChildScrollView(
+                            child: _buildControls(
+                              l10n,
+                              foreground,
+                              compact: height < 440,
+                            ),
                           ),
                         ),
                       ),
@@ -274,24 +312,41 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
               shadows: shadows,
             ),
     );
-    final end = TextButton(
+    final end = OutlinedButton(
       onPressed: _isClosing ? null : widget.onEndSession,
-      style: TextButton.styleFrom(foregroundColor: foreground),
-      child: Text(l10n.timerEndSession, style: TextStyle(shadows: shadows)),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: foreground,
+        disabledForegroundColor: foreground.withValues(alpha: 0.55),
+        minimumSize: const Size(120, 48),
+        side: BorderSide(color: foreground.withValues(alpha: 0.55)),
+      ),
+      child: Text(
+        l10n.timerEndSession,
+        textAlign: TextAlign.center,
+        style: TextStyle(shadows: shadows),
+      ),
     );
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (compact)
-          Row(children: [playPause, const SizedBox(width: 12), end])
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [playPause, end],
+          )
         else ...[
           playPause,
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           end,
         ],
         const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 12,
+          runSpacing: 4,
           children: [
             Semantics(
               selected: widget.isBackgroundSoundSelected,
@@ -304,7 +359,6 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
                 () => _openSheet(_showSounds),
               ),
             ),
-            const SizedBox(width: 12),
             _optionButton(
               l10n.timerBackgroundTitle,
               Icons.palette_outlined,
@@ -326,12 +380,20 @@ class _TimerSessionLayoutState extends ConsumerState<TimerSessionLayout> {
     final shadows = timerForegroundShadows(foreground);
     return TextButton(
       onPressed: _isClosing ? null : onPressed,
-      style: TextButton.styleFrom(foregroundColor: foreground),
+      style: TextButton.styleFrom(
+        foregroundColor: foreground,
+        minimumSize: const Size(48, 48),
+      ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 22, shadows: shadows),
           const SizedBox(height: 4),
-          Text(label, style: TextStyle(shadows: shadows)),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(shadows: shadows),
+          ),
         ],
       ),
     );

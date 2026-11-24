@@ -50,3 +50,19 @@ String formatTimerLength(Duration duration, AppLocalizations l10n) {
   if (minutes == 0) return '$hours ${l10n.hours}';
   return '$hours ${l10n.hours} $minutes ${l10n.min}';
 }
+
+/// Dice la duración en palabras para el lector de pantalla, como
+/// «12 minutos» o «1 hora 5 minutos». Los segundos solo se dicen cuando falta
+/// o se lleva menos de un minuto; si no, los minutos se redondean hacia abajo.
+String timerSpokenDuration(AppLocalizations l10n, Duration duration) {
+  final d = duration.isNegative ? Duration.zero : duration;
+  if (d < const Duration(minutes: 1)) {
+    return l10n.timerSpokenSeconds(d.inSeconds);
+  }
+  final hours = d.inHours;
+  final minutes = d.inMinutes.remainder(60);
+  return [
+    if (hours > 0) l10n.timerSpokenHours(hours),
+    if (minutes > 0) l10n.timerSpokenMinutes(minutes),
+  ].join(' ');
+}

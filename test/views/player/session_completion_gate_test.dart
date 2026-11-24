@@ -98,4 +98,30 @@ void main() {
     gate.completionChanged(true);
     expect(gate.isSessionComplete(completed), isTrue);
   });
+
+  test('un temporizador solo acepta el final de su propia corrida', () {
+    gate.trackLoaded(isCompleted: false, runId: 'corrida-a');
+    gate.completionChanged(true);
+    expect(
+      gate.isSessionComplete(_state(completed: true)..runId = 'corrida-b'),
+      isFalse,
+    );
+    expect(
+      gate.isSessionComplete(_state(completed: true)..runId = null),
+      isFalse,
+    );
+    expect(
+      gate.isSessionComplete(_state(completed: true)..runId = 'corrida-a'),
+      isTrue,
+    );
+  });
+
+  test('sin runId (meditación guiada) se comporta como antes', () {
+    gate.trackLoaded(isCompleted: false, runId: '');
+    gate.completionChanged(true);
+    expect(
+      gate.isSessionComplete(_state(completed: true)..runId = 'cualquiera'),
+      isTrue,
+    );
+  });
 }

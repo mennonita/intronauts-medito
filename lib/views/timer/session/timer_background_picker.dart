@@ -32,39 +32,55 @@ class TimerBackgroundPicker extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final selected = ref.watch(timerBackgroundProvider);
     final theme = Theme.of(context);
-    final groups = {
-      TimerBackgroundKind.animation: l10n.timerBackgroundAnimation,
-      TimerBackgroundKind.image: l10n.timerBackgroundImage,
-      TimerBackgroundKind.color: l10n.timerBackgroundColor,
-      TimerBackgroundKind.black: l10n.timerBackgroundNone,
-    };
+    // Negro abre «Colores»: es el color más simple.
+    final groups = [
+      (l10n.timerBackgroundAnimation, [TimerBackgroundKind.animation]),
+      (l10n.timerBackgroundImage, [TimerBackgroundKind.image]),
+      (
+        l10n.timerBackgroundColor,
+        [TimerBackgroundKind.black, TimerBackgroundKind.color],
+      ),
+    ];
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      padding: const EdgeInsets.fromLTRB(20, 8, 12, 16),
       children: [
-        Text(
-          l10n.timerBackgroundTitle,
-          style: theme.textTheme.titleLarge,
-          semanticsLabel: l10n.timerBackgroundTitle,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                l10n.timerBackgroundTitle,
+                style: theme.textTheme.titleLarge,
+                semanticsLabel: l10n.timerBackgroundTitle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: () => Navigator.maybePop(context),
+              child: Text(l10n.timerDone),
+            ),
+          ],
         ),
-        for (final MapEntry(:key, :value) in groups.entries) ...[
+        for (final (title, kinds) in groups) ...[
           const SizedBox(height: 16),
-          Text(value, style: theme.textTheme.titleSmall),
+          Text(title, style: theme.textTheme.titleSmall),
           const SizedBox(height: 4),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final background in TimerBackground.values)
-                if (background.kind == key)
-                  _BackgroundTile(
-                    background: background,
-                    label: _label(background, l10n),
-                    selected: background == selected,
-                    onTap: () => ref
-                        .read(timerBackgroundProvider.notifier)
-                        .set(background),
-                  ),
+              for (final kind in kinds)
+                for (final background in TimerBackground.values)
+                  if (background.kind == kind)
+                    _BackgroundTile(
+                      background: background,
+                      label: _label(background, l10n),
+                      selected: background == selected,
+                      onTap: () => ref
+                          .read(timerBackgroundProvider.notifier)
+                          .set(background),
+                    ),
             ],
           ),
         ],

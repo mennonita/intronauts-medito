@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
+import 'dart:math';
 import 'package:medito/widgets/adaptive/adaptive_player_layout.dart';
 import 'package:medito/models/player/playback_request.dart';
 import 'dart:ui';
@@ -11,6 +12,7 @@ import 'package:medito/exceptions/app_error.dart';
 import 'package:medito/models/events/donation/donation_page_model.dart';
 import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/models/timer/timer_timeline.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
 import 'package:medito/providers/timer/timer_session_closer.dart';
 import 'package:medito/utils/logger.dart';
@@ -21,7 +23,9 @@ import 'package:medito/providers/donation/end_screen_donation_experiment.dart';
 import 'package:medito/providers/stripe/payment_service_provider.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/stats_provider.dart';
+import 'package:medito/providers/timer/timer_preferences_provider.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
+import 'package:medito/services/timer/timer_device_channel.dart';
 import 'package:medito/views/end_screen/end_screen_view.dart';
 import 'package:medito/views/player/session_completion_gate.dart';
 import 'package:medito/views/player/widgets/artist_title_widget.dart';
@@ -30,13 +34,13 @@ import 'package:medito/views/player/widgets/duration_indicator_widget.dart';
 import 'package:medito/views/player/widgets/stopwatch_elapsed_widget.dart';
 import 'package:medito/views/player/widgets/player_buttons/player_buttons_widget.dart';
 import 'package:medito/l10n/app_localizations.dart';
+import 'package:medito/views/timer/session/timer_exit_dialogs.dart';
 import 'package:medito/views/timer/session/timer_session_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/background_sounds/background_sounds_notifier.dart';
 import '../../widgets/errors/medito_error_widget.dart';
-import '../../utils/health_kit_manager.dart';
 
 class PlayerView extends ConsumerStatefulWidget {
   const PlayerView({super.key});
@@ -50,6 +54,18 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   bool _isClosing = false;
   bool _timerStopped = false;
   StreamSubscription<TimerCloseResult>? _timerCloseSubscription;
+
+  /// La sesión de esta pantalla, tomada una sola vez al abrirla (R31). Un
+  /// temporizador solo cierra, guarda o abre el resumen de su propio `runId`.
+  PlaybackRequest? _ownRequest;
+  ValueNotifier<String?>? _timerStartFailed;
+  bool _timerStartErrorShown = false;
+  // Un diálogo de salir o terminar está abierto: no se abre otro encima.
+  bool _timerDialogOpen = false;
+  // La persona confirmó terminar en un diálogo: ya vio el aviso de sesión corta.
+  bool _timerEndConfirmed = false;
+  // La pantalla pidió mantener encendida la pantalla del teléfono.
+  bool _keepingScreenOn = false;
   // Set when play() throws (e.g. offline, native audio failed to start). The
   // caller no longer awaits play() before navigating — we own starting
   // playback here — so this is how a start failure surfaces to the user.
@@ -85,16 +101,24 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   void initState() {
     super.initState();
     _statsAtSessionStart = ref.read(statsProvider).value;
+    _ownRequest = ref.read(playerProvider);
     // Bells are remembered per scope (on by default for a timer, off under
     // tracks); set before _initializePlayer restores them.
     ref
         .read(backgroundSoundsNotifierProvider.notifier)
-        .setTimerScope(ref.read(playerProvider)?.isTimer ?? false);
-    if (ref.read(playerProvider)?.isTimer ?? false) {
-      _timerCloseSubscription = ref
-          .read(playerProvider.notifier)
-          .timerCloses
-          .listen(_onTimerClosed);
+        .setTimerScope(_isOwnTimer);
+    if (_isOwnTimer) {
+      final player = ref.read(playerProvider.notifier);
+      _timerCloseSubscription = player.timerCloses.listen(_onTimerClosed);
+      // Un inicio que falla después de abrir la pantalla (R56).
+      _timerStartFailed = player.timerStartFailed
+        ..addListener(_onTimerStartFailed);
+      if (_timerStartFailed?.value == _ownRequest?.timerRunId) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _onTimerStartFailed(),
+        );
+      }
+      _keepScreenOnIfAsked();
     }
     _logScreenView();
     // A listener rather than build(): build only sees the latest value, and a
@@ -146,7 +170,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   /// silent, stuck player.
   Future<void> _startPlayback() async {
     if (!mounted || _isClosing || _timerStopped) return;
-    final request = ref.read(playerProvider);
+    final request = _ownRequest;
     if (request == null) return;
     _completionGate.reset();
     try {
@@ -154,6 +178,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       if (!mounted || _isClosing || _timerStopped) return;
       _completionGate.trackLoaded(
         isCompleted: ref.read(audioStateProvider).isCompleted,
+        runId: request.isTimer ? request.timerRunId : null,
       );
       // If audio never reports playing (e.g. an interruption right at start),
       // stop waiting and show the play button so the user can start it.
@@ -169,7 +194,12 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       }
     } catch (e, st) {
       AppLogger.e('PLAYER', 'Failed to start playback', e, st);
-      if (mounted) setState(() => _startFailed = true);
+      if (!mounted) return;
+      if (request.isTimer) {
+        _showTimerStartError();
+      } else {
+        setState(() => _startFailed = true);
+      }
     }
   }
 
@@ -195,6 +225,12 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     unawaited(AudioSessionTracker.instance.onPlayerClosed());
     _playbackStartFallback?.cancel();
     unawaited(_timerCloseSubscription?.cancel());
+    try {
+      _timerStartFailed?.removeListener(_onTimerStartFailed);
+    } catch (_) {
+      // El proveedor ya se desechó junto con su aviso.
+    }
+    _releaseScreenOn();
     _donationAskWarmup?.close();
     _endScreenConfigWarmup?.close();
     super.dispose();
@@ -243,7 +279,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   }
 
   Future<void> _initializePlayer() async {
-    final request = ref.read(playerProvider);
+    final request = _ownRequest;
     final sound = ref.read(backgroundSoundsNotifierProvider.notifier);
     if (request != null && request.isTimer) {
       sound.restoreTimerBackgroundSound(request);
@@ -252,22 +288,8 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     } else {
       sound.stopBackgroundSound();
     }
-
-    var healthKitManager = HealthKitManager();
-    if (await healthKitManager.isHealthSyncPermitted() != true) {
-      // Only auto-prompt once; after that the user can opt in via Settings.
-      // Avoids re-asking every session when they've declined.
-      await healthKitManager.maybeRequestAuthorization();
-    }
-
-    // Only enable DND if permission is already granted and toggle is on
-    if (Platform.isAndroid) {
-      final dndNotifier = ref.read(dndProvider.notifier);
-      final hasAccess = await dndNotifier.hasAccess();
-      if (hasAccess) {
-        await dndNotifier.setDndMode(true);
-      }
-    }
+    // Salud ya no se pide aquí: se activa en Configuración o en el resumen.
+    // No molestar lo pone y lo restaura el servicio nativo (DndGuard).
   }
 
   @override
@@ -280,7 +302,9 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       _openEndScreen();
     }
 
-    final currentlyPlayingTrack = ref.watch(playerProvider);
+    final watchedTrack = ref.watch(playerProvider);
+    // Un temporizador muestra siempre su propia corrida.
+    final currentlyPlayingTrack = _isOwnTimer ? _ownRequest : watchedTrack;
 
     ref.listen(playerProvider.select((p) => p?.coverUrl), (_, next) {
       if (next != null) {
@@ -341,22 +365,29 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
         (!_playbackStarted || audioState.isBuffering);
 
     final isBackgroundSoundSelected = _isBackgroundSoundSelected();
+    final isTimer = currentlyPlayingTrack.isTimer;
     return PopScope<void>(
+      // Un temporizador nunca se pierde con «atrás»: pasa por la salida.
+      canPop: !isTimer,
       onPopInvokedWithResult: (didPop, result) {
-        if (didPop && !(_isClosing && currentlyPlayingTrack.isTimer)) {
+        if (!didPop) {
+          if (isTimer) unawaited(_requestTimerExit());
+          return;
+        }
+        if (!(_isClosing && isTimer)) {
           _resetState();
           _stopAudio();
         }
       },
-      child: currentlyPlayingTrack.isTimer
+      child: isTimer
           ? TimerSessionLayout(
               request: currentlyPlayingTrack,
               isPlaying: isPlaying,
               isAudioLoading: isAudioLoading,
               isBackgroundSoundSelected: isBackgroundSoundSelected,
               onPlayPausePressed: onPlayPausePressed,
-              onClosePressed: _handleClose,
-              onEndSession: _endTimerSession,
+              onClosePressed: () => unawaited(_requestTimerExit()),
+              onEndSession: () => unawaited(_onTimerEndPressed()),
               isClosing: () => _isClosing,
             )
           : PlayerScreenLayout(
@@ -372,13 +403,147 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     );
   }
 
+  bool get _isOwnTimer => _ownRequest?.isTimer ?? false;
+
+  String get _ownRunId => _ownRequest?.timerRunId ?? '';
+
+  /// El proveedor sigue con la corrida de esta pantalla.
+  bool get _ownsCurrentRun =>
+      _ownRunId.isNotEmpty && ref.read(playerProvider)?.timerRunId == _ownRunId;
+
+  /// Posición del archivo de ESTA corrida; otra corrida o ninguna cuenta 0.
+  int _ownPositionMs() {
+    final state = ref.read(audioStateProvider);
+    if (_ownRunId.isEmpty || state.runId != _ownRunId) return 0;
+    return state.position;
+  }
+
+  TimerTimeline get _ownTimeline => TimerTimeline.fromRequest(_ownRequest!);
+
+  bool get _timerBusy =>
+      _endScreenOpened || _isClosing || _timerStopped || _timerDialogOpen;
+
+  void _keepScreenOnIfAsked() {
+    bool keepOn;
+    try {
+      keepOn = ref.read(timerPreferencesProvider).keepScreenOn;
+    } catch (error) {
+      AppLogger.w('TIMER', 'No se pudo leer «Pantalla encendida»: $error');
+      keepOn = false;
+    }
+    if (!keepOn) return;
+    _keepingScreenOn = true;
+    unawaited(TimerDeviceChannel.keepScreenOn(true));
+  }
+
+  void _releaseScreenOn() {
+    if (!_keepingScreenOn) return;
+    _keepingScreenOn = false;
+    unawaited(TimerDeviceChannel.keepScreenOn(false));
+  }
+
+  /// ✕ y «atrás» del sistema: con menos de un minuto sale sin preguntar;
+  /// con más, pregunta si guardar (UX-1).
+  Future<void> _requestTimerExit() async {
+    if (_timerBusy) return;
+    if (!_ownsCurrentRun) {
+      // Otra corrida ocupa el reproductor: esta pantalla solo se va.
+      _timerStopped = true;
+      _handleClose();
+      return;
+    }
+    final elapsedMs = _ownTimeline.elapsedMs(_ownPositionMs());
+    if (elapsedMs < kTimerExitConfirmMinMs) {
+      await _exitWithoutSaving();
+      return;
+    }
+    _timerDialogOpen = true;
+    final TimerExitChoice choice;
+    try {
+      choice = await showTimerExitDialog(context, elapsedMs: elapsedMs);
+    } finally {
+      _timerDialogOpen = false;
+    }
+    if (!mounted || _timerBusy) return;
+    switch (choice) {
+      case TimerExitChoice.keepMeditating:
+        return;
+      case TimerExitChoice.exitWithoutSaving:
+        await _exitWithoutSaving();
+      case TimerExitChoice.saveAndExit:
+        _timerEndConfirmed = true;
+        await _endTimerSession();
+    }
+  }
+
+  /// «Salir sin guardar»: el proveedor borra la sesión ANTES de detenerla
+  /// (R52, R102). Si no pudo, la sesión sigue sonando y se avisa.
+  Future<void> _exitWithoutSaving() async {
+    if (_endScreenOpened || _isClosing || _timerStopped) return;
+    setState(() => _isClosing = true);
+    _dismissPlayerOverlays();
+    TimerCloseResult? result;
+    try {
+      result = await ref.read(playerProvider.notifier).closeTimer(save: false);
+    } catch (error, stack) {
+      AppLogger.e('TIMER', 'No se pudo salir sin guardar', error, stack);
+      result = const TimerCloseResult(
+        Duration.zero,
+        stopped: false,
+        saved: false,
+      );
+    }
+    if (!mounted) return;
+    if (result != null && !result.stopped) {
+      setState(() => _isClosing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.timerExitFailed)),
+      );
+      return;
+    }
+    // Detenida por el proveedor; si no tenía sesión (aún no empezaba o ya
+    // terminó), la salida de siempre la detiene.
+    if (result != null || ref.read(audioStateProvider).isCompleted) {
+      _timerStopped = true;
+    }
+    _isClosing = false;
+    _handleClose();
+  }
+
+  /// «Terminar» (UX-3): confirma si aún falta un minuto o más de la cuenta
+  /// regresiva, o si la sesión es tan corta que no se guardaría.
+  Future<void> _onTimerEndPressed() async {
+    if (_timerBusy || !_ownsCurrentRun) return;
+    final timeline = _ownTimeline;
+    final position = _ownPositionMs();
+    if (timerEndNeedsConfirmation(timeline, position)) {
+      _timerDialogOpen = true;
+      final bool confirmed;
+      try {
+        confirmed = await showTimerEndDialog(
+          context,
+          elapsedMs: timeline.elapsedMs(position),
+        );
+      } finally {
+        _timerDialogOpen = false;
+      }
+      if (!confirmed || !mounted || _timerBusy) return;
+      _timerEndConfirmed = true;
+    }
+    await _endTimerSession();
+  }
+
   Future<void> _endTimerSession() async {
     if (_endScreenOpened || _isClosing || _timerStopped) return;
     try {
       final result = await ref.read(playerProvider.notifier).closeTimer();
-      if (result?.stopped == false) _showTimerStopError();
+      if (result?.stopped == false) {
+        _timerEndConfirmed = false;
+        _showTimerStopError();
+      }
     } catch (error, stack) {
       AppLogger.e('TIMER', 'No se pudo detener el temporizador', error, stack);
+      _timerEndConfirmed = false;
       _showTimerStopError();
     }
   }
@@ -393,15 +558,44 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
 
   void _onTimerClosed(TimerCloseResult result) {
     if (!mounted || _endScreenOpened || _isClosing) return;
+    // Solo el cierre de la corrida de esta pantalla (R31).
+    if (!_ownsCurrentRun) return;
     _timerStopped = true;
     if (result.recorded) {
-      _openEndScreen();
+      _openEndScreen(timerElapsed: result.elapsed);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.timerTooShort)),
-      );
+      // El aviso solo hace falta si nadie lo vio antes en un diálogo
+      // (por ejemplo, al detener desde la notificación).
+      if (!_timerEndConfirmed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.timerTooShort)),
+        );
+      }
       _handleClose();
     }
+  }
+
+  /// El inicio falló después de abrir la pantalla: `play` lanzó un error, o
+  /// el proveedor publicó `timerStartFailed` para esta corrida (R56).
+  void _onTimerStartFailed() {
+    final runId = _timerStartFailed?.value;
+    if (runId == null || runId.isEmpty || runId != _ownRunId) return;
+    _showTimerStartError();
+  }
+
+  /// Avisa que no se pudo iniciar y vuelve a la preparación del temporizador.
+  void _showTimerStartError() {
+    if (!mounted || _timerStartErrorShown || _endScreenOpened) return;
+    _timerStartErrorShown = true;
+    // El proveedor ya detuvo el reproductor y soltó la reserva.
+    _timerStopped = true;
+    _playbackStartFallback?.cancel();
+    _releaseScreenOn();
+    ref.read(backgroundSoundsNotifierProvider.notifier).stopBackgroundSound();
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context)!.timerStartError)),
+    );
+    _handleClose();
   }
 
   void onPlayPausePressed() {
@@ -430,22 +624,21 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     if (_isClosing) {
       return;
     }
-    final isTimer = ref.read(playerProvider)?.isTimer ?? false;
+    final isTimer = _isOwnTimer;
     if (isTimer) {
       setState(() => _isClosing = true);
       _dismissPlayerOverlays();
       _stopAudio();
+      _releaseScreenOn();
     } else {
       _isClosing = true;
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _resetState();
       if (!isTimer) _stopAudio();
-
-      await ref.read(dndProvider.notifier).setDndMode(false);
-      if (!mounted) return;
+      // No molestar lo restaura el servicio nativo (DndGuard).
       _endScreenOpened = false;
 
       if (shouldPop) {
@@ -488,15 +681,43 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     });
   }
 
-  void _openEndScreen() {
+  /// Tiempo meditado del final natural: lo planeado (TECH-9), o lo meditado
+  /// con su tope cuando el tiempo extra llegó al final del archivo.
+  Duration _naturalTimerElapsed(PlaybackRequest request) {
+    final position = ref.read(audioStateProvider).position;
+    return Duration(
+      milliseconds: max(
+        request.plannedDurationMs,
+        TimerTimeline.fromRequest(request).elapsedMs(position),
+      ),
+    );
+  }
+
+  void _openEndScreen({Duration? timerElapsed}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_endScreenOpened && mounted && !_isClosing) {
-        _resetState();
-        _stopAudio();
-        final currentlyPlayingTrack = ref.read(playerProvider);
+        final currentlyPlayingTrack = _isOwnTimer
+            ? _ownRequest
+            : ref.read(playerProvider);
         if (currentlyPlayingTrack == null) return;
-
-        unawaited(ref.read(dndProvider.notifier).setDndMode(false));
+        final isTimer = currentlyPlayingTrack.isTimer;
+        final elapsed = isTimer
+            ? timerElapsed ?? _naturalTimerElapsed(currentlyPlayingTrack)
+            : null;
+        _resetState();
+        if (isTimer && !_timerStopped) {
+          // Fin natural: el controlador de audio ya esperó la campana final y
+          // suelta las campanas y el sonido de fondo por su cuenta (SES-06).
+          // Aquí solo se cierra la sesión del proveedor y el estado del fondo.
+          ref.read(playerProvider.notifier).stop();
+          ref
+              .read(backgroundSoundsNotifierProvider.notifier)
+              .stopTimerAmbient(transportAlreadyStopped: true);
+        } else {
+          _stopAudio();
+        }
+        _releaseScreenOn();
+        // No molestar lo restaura el servicio nativo (DndGuard).
 
         // pushReplacement swaps whatever route is on top. If a sheet (repeat,
         // speed, background sound) is open when the session ends, that would
@@ -511,6 +732,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
             builder: (context) => EndScreenView(
               request: currentlyPlayingTrack,
               priorStats: _statsAtSessionStart,
+              timerElapsed: elapsed,
             ),
           ),
         );
