@@ -1837,5 +1837,7 @@
   "exportSourceDevice": "dieses Telefon",
   "exportEmpty": "Noch keine Sitzungen zum Exportieren.",
   "exportFailed": "Die Datei konnte nicht erstellt werden. Bitte versuche es erneut.",
-  "exportShareSubject": "Meine Praxis"
+  "exportShareSubject": "Meine Praxis",
+  "timerNoteConflict": "Du hast für diese Sitzung schon eine andere Notiz gespeichert. Dein Text bleibt hier, damit du ihn kopieren kannst.",
+  "timerNoteUnconfirmed": "Wir konnten deine Notiz nicht bestätigen. Versuch es noch einmal."
 }

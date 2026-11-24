@@ -109,9 +109,13 @@ class _TimerNoteSheetState extends ConsumerState<TimerNoteSheet> {
                 maxLength: 2000,
                 decoration: InputDecoration(
                   hintText: l10n.timerNoteHint,
-                  errorText: _result != null && !_saved
-                      ? l10n.timerNoteError
-                      : null,
+                  errorText: switch (_result) {
+                    null || TimerNoteSaveResult.saved => null,
+                    TimerNoteSaveResult.conflict => l10n.timerNoteConflict,
+                    TimerNoteSaveResult.unconfirmed =>
+                      l10n.timerNoteUnconfirmed,
+                    TimerNoteSaveResult.failed => l10n.timerNoteError,
+                  },
                   errorMaxLines: 3,
                 ),
                 onChanged: (_) => setState(() => _result = null),

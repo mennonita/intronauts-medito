@@ -3599,4 +3599,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get exportShareSubject => 'My practice';
+
+  @override
+  String get timerNoteConflict =>
+      'You already saved another note for this session. Your text is still here so you can copy it.';
+
+  @override
+  String get timerNoteUnconfirmed =>
+      'We couldn\'t confirm your note. Try again.';
 }

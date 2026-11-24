@@ -3664,4 +3664,12 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get exportShareSubject => 'Meine Praxis';
+
+  @override
+  String get timerNoteConflict =>
+      'Du hast für diese Sitzung schon eine andere Notiz gespeichert. Dein Text bleibt hier, damit du ihn kopieren kannst.';
+
+  @override
+  String get timerNoteUnconfirmed =>
+      'Wir konnten deine Notiz nicht bestätigen. Versuch es noch einmal.';
 }

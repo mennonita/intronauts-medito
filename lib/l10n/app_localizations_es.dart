@@ -3641,4 +3641,12 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get exportShareSubject => 'Mi práctica';
+
+  @override
+  String get timerNoteConflict =>
+      'Ya guardaste otra nota para esta sesión. Tu texto sigue aquí para que lo copies.';
+
+  @override
+  String get timerNoteUnconfirmed =>
+      'No pudimos confirmar tu nota. Intenta de nuevo.';
 }

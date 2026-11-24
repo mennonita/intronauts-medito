@@ -6411,6 +6411,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'My practice'**
   String get exportShareSubject;
+
+  /// No description provided for @timerNoteConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'You already saved another note for this session. Your text is still here so you can copy it.'**
+  String get timerNoteConflict;
+
+  /// No description provided for @timerNoteUnconfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t confirm your note. Try again.'**
+  String get timerNoteUnconfirmed;
 }
 
 class _AppLocalizationsDelegate

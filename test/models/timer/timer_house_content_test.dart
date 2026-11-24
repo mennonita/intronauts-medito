@@ -141,7 +141,7 @@ void main() {
         null,
         {'name': 'Sin id', 'mode': 'stopwatch'},
         {'id': 'sin-nombre', 'name': 5, 'mode': 'stopwatch'},
-        {'id': 'a' * 31, 'name': 'Id largo', 'mode': 'stopwatch'},
+        {'id': 'a' * 41, 'name': 'Id largo', 'mode': 'stopwatch'},
         {'id': 'a', 'name': 'a' * 31, 'mode': 'stopwatch'},
         {'id': 'sin-modo', 'name': 'Sin modo'},
         {'id': 'larga', 'name': 'Larga', 'mode': 'countdown', 'minutes': 300},

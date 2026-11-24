@@ -2618,5 +2618,7 @@
   "exportSourceDevice": "this phone",
   "exportEmpty": "There are no sessions to export yet.",
   "exportFailed": "Couldn't create the file. Please try again.",
-  "exportShareSubject": "My practice"
+  "exportShareSubject": "My practice",
+  "timerNoteConflict": "You already saved another note for this session. Your text is still here so you can copy it.",
+  "timerNoteUnconfirmed": "We couldn't confirm your note. Try again."
 }

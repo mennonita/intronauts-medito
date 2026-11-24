@@ -1602,5 +1602,7 @@
   "exportSourceDevice": "este teléfono",
   "exportEmpty": "Aún no hay sesiones para exportar.",
   "exportFailed": "No se pudo crear el archivo. Inténtalo de nuevo.",
-  "exportShareSubject": "Mi práctica"
+  "exportShareSubject": "Mi práctica",
+  "timerNoteConflict": "Ya guardaste otra nota para esta sesión. Tu texto sigue aquí para que lo copies.",
+  "timerNoteUnconfirmed": "No pudimos confirmar tu nota. Intenta de nuevo."
 }
