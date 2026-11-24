@@ -84,6 +84,7 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
         meditoAudioApi = MeditoAudioServiceCallbackApi(flutterEngine.dartExecutor.binaryMessenger)
         WatchPresence.register(flutterEngine.dartExecutor.binaryMessenger, this)
         InstallReferrer.register(flutterEngine.dartExecutor.binaryMessenger, this)
+        TimerDeviceChannel.register(flutterEngine.dartExecutor.binaryMessenger, this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "intronauts/playback_account")
             .setMethodCallHandler { call, result ->
                 try {
@@ -144,6 +145,9 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        // Si la app murió con No molestar aplicado, lo regresa como estaba.
+        DndGuard.restoreIfStale(this, AudioPlayerService.currentRunId)
         
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController?.let { controller ->

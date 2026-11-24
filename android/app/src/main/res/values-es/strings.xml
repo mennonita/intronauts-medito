@@ -1,4 +1,8 @@
 <resources>
     <string name="returns_widget_label">Regresos</string>
     <string name="widget_description">Regresos y calendario de práctica</string>
+    <string name="timer_widget_title">Temporizador</string>
+    <string name="timer_widget_repeat">Repetir</string>
+    <string name="timer_widget_minutes">%1$d min</string>
+    <string name="timer_widget_description">Empieza un temporizador con un toque</string>
 </resources>

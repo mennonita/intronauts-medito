@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/constants.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
+import 'package:medito/models/timer/timer_launch.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/utils/logger.dart';
@@ -35,6 +36,27 @@ extension SanitisePath on String {
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
+TimerLaunch? timerLaunchForRoute(String? type, List<String?> ids) {
+  if (type != TypeConstants.route) return null;
+
+  for (final id in ids.whereType<String>()) {
+    if (!id.startsWith('timer/start')) continue;
+    final launch = TimerLaunch.fromRoutePath(id);
+    if (launch != null) return launch;
+  }
+  return null;
+}
+
+Future<void> openTimerLaunch(TimerLaunch launch, {String? source}) async {
+  await _pushRoute(
+    TimerView(
+      source: source ?? AnalyticsEventConstants.sourceDeeplink,
+      launch: launch,
+    ),
+    null,
+  );
+}
+
 Future<void> handleNavigation(
   String? type,
   List<String?> ids,
@@ -45,6 +67,12 @@ Future<void> handleNavigation(
   // Where a Timer opened from, for timer_opened; deeplink when unset.
   String? timerSource,
 }) async {
+  final timerLaunch = timerLaunchForRoute(type, ids);
+  if (timerLaunch != null) {
+    await openTimerLaunch(timerLaunch, source: timerSource);
+    return;
+  }
+
   ids.removeWhere((element) => element == null);
 
   if (type == null) return;
