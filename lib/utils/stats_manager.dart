@@ -1274,6 +1274,16 @@ class StatsManager {
     );
   }
 
+  /// Sesiones del historial de este teléfono antes de verificar la cuenta.
+  Future<List<LocalAudioCompleted>> preVerificationCompletions() async {
+    await initialize();
+    final raw = _pendingOwners()
+        .where((owner) => owner[_ownerKey] == null)
+        .firstOrNull?['stats'];
+    if (raw is! Map<String, dynamic>) return const [];
+    return LocalAllStats.fromJson(raw).audioCompleted ?? const [];
+  }
+
   /// Adds the listening time of a repeated play-through without recording a
   /// new session. See [AudioCompletionTracker.addRepeatListeningTime].
   Future<void> addRepeatListeningTime(int duration) async {

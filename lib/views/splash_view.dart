@@ -25,6 +25,7 @@ import 'package:medito/services/analytics/meta_sdk_service.dart';
 import 'package:medito/services/analytics/play_install_referrer_service.dart';
 import 'package:medito/services/deep_link_service.dart';
 import 'package:medito/services/network/header_service.dart';
+import 'package:medito/services/timer/startup_timer_route.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/app_globals.dart' show appReadyCompleter;
 import 'package:medito/views/bottom_navigation/bottom_navigation_bar_view.dart';
@@ -337,12 +338,15 @@ class SplashViewState extends ConsumerState<SplashView>
 
           AppLogger.i('SPLASH', 'Navigation to main app...');
           if (!appReadyCompleter.isCompleted) appReadyCompleter.complete();
-          await Navigator.of(context).pushReplacement(
+          final navigator = Navigator.of(context);
+          final firstScreen = navigator.pushReplacement(
             MaterialPageRoute(
               builder: (context) =>
                   const RootPageView(firstChild: BottomNavigationBarView()),
             ),
           );
+          unawaited(StartupTimerRoute.runOnce(navigator));
+          await firstScreen;
         } catch (e) {
           // If services initialization fails (likely due to network issues),
           // navigate to downloads view for offline access
@@ -355,11 +359,14 @@ class SplashViewState extends ConsumerState<SplashView>
           showSnackBar(context, AppLocalizations.of(context)!.offlineMode);
 
           if (!appReadyCompleter.isCompleted) appReadyCompleter.complete();
-          await Navigator.of(context).pushReplacement(
+          final navigator = Navigator.of(context);
+          final firstScreen = navigator.pushReplacement(
             MaterialPageRoute(
               builder: (context) => const DownloadsView(isRoot: true),
             ),
           );
+          unawaited(StartupTimerRoute.runOnce(navigator));
+          await firstScreen;
         }
       } else {
         AppLogger.i('SPLASH', 'No verified user, showing auth buttons');
