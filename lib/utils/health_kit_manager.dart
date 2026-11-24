@@ -45,6 +45,8 @@ class HealthKitManager {
     } catch (_) {}
   }
 
+  /// Si ya hay permiso de ESCRITURA de minutos de atención plena. La app
+  /// solo escribe en Salud; nunca pide ni usa permiso de lectura.
   Future<bool?> isHealthSyncPermitted() async {
     try {
       await _ensureConfigured();
@@ -54,12 +56,16 @@ class HealthKitManager {
       }
       return await health.hasPermissions(
         [HealthDataType.MINDFULNESS],
-        permissions: [HealthDataAccess.READ_WRITE],
+        permissions: [HealthDataAccess.WRITE],
       );
     } catch (e) {
       return false;
     }
   }
+
+  /// `true` solo si hay permiso de escritura confirmado. Nunca muestra la
+  /// ventana del sistema.
+  Future<bool> hasWriteAccess() async => await isHealthSyncPermitted() == true;
 
   /// Whether we've already shown the system permission prompt at least once.
   /// Used to avoid nagging the user every session after they decline.
@@ -70,9 +76,9 @@ class HealthKitManager {
 
   /// Requests authorization only if we've never prompted before. Returns the
   /// resulting permission state (false if we'd already asked and won't re-ask).
-  /// Use this for automatic/background triggers (player open, session sync).
-  /// Explicit user actions (the Settings tile) should call
-  /// [requestAuthorization] directly so they can always re-prompt.
+  /// Solo para acciones explícitas de la persona (nunca desde una escritura en
+  /// segundo plano ni durante la sesión). The Settings switch calls
+  /// [requestAuthorization] directly so it can always re-prompt.
   Future<bool> maybeRequestAuthorization() async {
     if (await hasRequestedAuthorization()) return false;
     return requestAuthorization();
@@ -89,7 +95,7 @@ class HealthKitManager {
       }
       return await health.requestAuthorization(
         [HealthDataType.MINDFULNESS],
-        permissions: [HealthDataAccess.READ_WRITE],
+        permissions: [HealthDataAccess.WRITE],
       );
     } catch (e) {
       return false;
@@ -110,32 +116,29 @@ class HealthKitManager {
     await prefs.setStringList('syncedSessions', syncedSessions);
   }
 
-  Future<bool> writeMindfulnessData(DateTime start, DateTime end) async {
+  /// Escribe una sesión en Salud. Nunca pide permiso: sin permiso de
+  /// escritura devuelve `false` y la cola lo reintenta después. En Android,
+  /// [clientRecordId] hace que un reintento reemplace el registro en vez de
+  /// duplicarlo.
+  Future<bool> writeMindfulnessData(
+    DateTime start,
+    DateTime end, {
+    String clientRecordId = '',
+  }) async {
     try {
       await _ensureConfigured();
 
       if (Platform.isAndroid) {
         if (!await isHealthConnectAvailable()) return false;
-        var hasPermissions = await _androidBridge.hasMindfulnessPermissions();
-        if (!hasPermissions) {
-          hasPermissions = await maybeRequestAuthorization();
-        }
-        if (!hasPermissions) return false;
+        if (!await _androidBridge.hasMindfulnessPermissions()) return false;
         return await _androidBridge.writeMindfulnessSession(
           start.millisecondsSinceEpoch,
           end.millisecondsSinceEpoch,
-          '',
+          clientRecordId,
         );
       }
 
-      var hasPermissions = await isHealthSyncPermitted();
-      if (hasPermissions == null || !hasPermissions) {
-        // Always re-request rather than maybeRequestAuthorization() — iOS
-        // updates can reset HealthKit permissions without clearing our
-        // "already asked" flag, causing silent sync failures.
-        hasPermissions = await requestAuthorization();
-      }
-      if (!hasPermissions) return false;
+      if (!await hasWriteAccess()) return false;
 
       return await health.writeHealthData(
         value: 0,

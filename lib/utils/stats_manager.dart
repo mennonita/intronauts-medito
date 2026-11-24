@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:medito/models/local_audio_completed.dart';
 import 'package:medito/utils/practice_history.dart';
 import 'package:medito/utils/audio_completion_tracker.dart';
+import 'package:medito/utils/calendar_days.dart';
 import 'package:medito/services/home_widget_service.dart';
 import 'package:medito/utils/consistency_score_history.dart';
 import 'package:medito/utils/day_boundary.dart';
@@ -877,8 +878,8 @@ class StatsManager {
     _updateHomeWidget();
   }
 
-  /// Cambio de una sesión terminada; si cruzó la medianoche cuenta en el día
-  /// en que empezó.
+  /// Cambio de una sesión terminada; si cruzó el inicio del día de la persona
+  /// (medianoche más su desfase) cuenta en el día en que empezó.
   StatsChange _completionChange(
     LocalAudioCompleted audioCompleted,
     int duration,
@@ -886,6 +887,7 @@ class StatsManager {
     if (AudioCompletionTracker.checkTrackCrossedMidnight(
       endTimestamp: audioCompleted.timestamp,
       duration: duration,
+      dayBoundaryOffset: _dayBoundaryOffset,
     )) {
       audioCompleted = audioCompleted.copyWith(
         timestamp: audioCompleted.timestamp - duration,
@@ -1501,7 +1503,9 @@ class StatsManager {
 
     allActivityDates.sort();
     var firstSessionDate = allActivityDates.first;
-    var daysSinceFirstSession = today.difference(firstSessionDate).inDays + 1;
+    // Días de calendario: un cambio de horario no quita ni suma un día.
+    var daysSinceFirstSession =
+        calendarDaysBetween(firstSessionDate, today) + 1;
 
     if (daysSinceFirstSession == 1) {
       return allActivityDates.any((date) => date.isAtSameMomentAs(today))
@@ -1519,13 +1523,13 @@ class StatsManager {
     const alpha = 0.1;
     const gracePenalty = 0.5; // value used for a single isolated missed day
 
-    var day29 = firstSessionDate.add(const Duration(days: 28));
+    var day29 = addCalendarDays(firstSessionDate, 28);
     var activeDaysAtDay29 = allActivityDates
         .where((d) => !d.isAfter(day29))
         .length;
     var ema = activeDaysAtDay29 / 29.0;
 
-    var day30 = firstSessionDate.add(const Duration(days: 29));
+    var day30 = addCalendarDays(firstSessionDate, 29);
     var currentDay = day30;
 
     while (!currentDay.isAfter(today)) {
@@ -1540,8 +1544,8 @@ class StatsManager {
       if (hadActivity) {
         dayValue = 1.0;
       } else {
-        var prevDay = currentDay.subtract(const Duration(days: 1));
-        var nextDay = currentDay.add(const Duration(days: 1));
+        var prevDay = addCalendarDays(currentDay, -1);
+        var nextDay = addCalendarDays(currentDay, 1);
         var prevActive = allActivityDates.any(
           (d) =>
               d.year == prevDay.year &&
@@ -1561,7 +1565,7 @@ class StatsManager {
       }
 
       ema = alpha * dayValue + (1 - alpha) * ema;
-      currentDay = currentDay.add(const Duration(days: 1));
+      currentDay = addCalendarDays(currentDay, 1);
     }
 
     return ema.clamp(0.0, 1.0);

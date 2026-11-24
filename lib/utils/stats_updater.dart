@@ -16,6 +16,7 @@ import '../l10n/app_localizations.dart';
 import 'audio_session_tracker.dart';
 import 'completed_tracks_storage.dart';
 import 'health_kit_manager.dart';
+import 'health_sync_queue.dart';
 import 'stats_manager.dart';
 import '../models/local_audio_completed.dart';
 import 'logger.dart';
@@ -126,6 +127,11 @@ Future<void> _rescheduleReminders({
   }
 }
 
+/// Test seam: reemplaza el envío a Salud que sigue a una sesión del
+/// temporizador.
+@visibleForTesting
+Future<void> Function()? healthFlushOverride;
+
 // Completions already recorded by this engine, keyed by track + timestamp.
 // Android persists each completion natively and replays it on resume, so a
 // replay can race the live callback for the same session and record it (stats
@@ -141,6 +147,17 @@ Future<TimerRecordResult> handleTimerRun(
 }) async {
   statsManager ??= StatsManager();
   final result = await statsManager.recordTimerRun(payload);
+  // Salud: la marca quedó en la misma escritura que la sesión. El envío la
+  // pasa a la cola y la quita; también tras un duplicado (un cierre entre
+  // las dos escrituras solo retrasa el envío).
+  if (result != TimerRecordResult.failed) {
+    unawaited(
+      healthFlushOverride?.call() ??
+          HealthSyncQueue.flush().catchError((Object e) {
+            AppLogger.e('STATS', 'Health sync error', e);
+          }),
+    );
+  }
   if (result != TimerRecordResult.accepted) return result;
   try {
     final duration = payload[TypeConstants.durationIdKey] as int;
@@ -169,7 +186,6 @@ Future<TimerRecordResult> handleTimerRun(
   } catch (error) {
     AppLogger.e('STATS', 'Failed to refresh after timer session', error);
   }
-  // Salud: la marca quedó en la misma escritura; W2-HEALTH la exporta.
   return result;
 }
 
@@ -257,9 +273,7 @@ Future<bool> handleStats(
       durationMs: payload[TypeConstants.durationIdKey] as int,
     );
 
-    // Last: the first sync can show the Health permission sheet, and nothing
-    // above (recording and posting the session) should wait for the user to
-    // answer it.
+    // Salud nunca pide permiso aquí: sin permiso guardado no se hace nada.
     await _syncHealthKit(payload).catchError((e) {
       AppLogger.e('STATS', 'HealthKit sync error', e);
     });
@@ -395,30 +409,25 @@ Future<void> storeTrackCompletion(
   await storage.addCompletedTrack(payload);
 }
 
+/// Sesiones guiadas (y repeticiones): con el permiso guardado de la cuenta
+/// actual pasan SIEMPRE por la cola, que es el único que escribe en Salud;
+/// sin permiso no se hace nada. Las del temporizador no pasan por aquí: llegan
+/// por su marca en el historial (R78).
 Future<void> _syncHealthKit(Map<String, dynamic> payload) async {
-  var healthKitManager = HealthKitManager();
-
-  if (!await healthKitManager.isSessionSynced(
-    payload[TypeConstants.timestampIdKey],
-  )) {
-    var success = await _updateHealthKit(payload);
-    if (success) {
-      await healthKitManager.markSessionAsSynced(
-        payload[TypeConstants.timestampIdKey],
-      );
-    }
-  }
-}
-
-Future<bool> _updateHealthKit(Map<String, dynamic> payload) async {
-  final end = DateTime.fromMillisecondsSinceEpoch(
-    payload[TypeConstants.timestampIdKey],
+  final timestamp = payload[TypeConstants.timestampIdKey] as int;
+  final duration = payload[TypeConstants.durationIdKey] as int;
+  if (await HealthKitManager().isSessionSynced(timestamp)) return;
+  final runId = payload[TypeConstants.runIdKey] as String? ?? '';
+  final queued = await HealthSyncQueue.addConsentedSession(
+    key: runId.isNotEmpty
+        ? runId
+        : '${payload[TypeConstants.trackIdKey]}@$timestamp',
+    // La duración meditada termina en la hora de fin, a propósito: las
+    // pausas no son minutos de atención.
+    startMs: timestamp - duration,
+    endMs: timestamp,
   );
-  final start = end.subtract(
-    Duration(milliseconds: payload[TypeConstants.durationIdKey]),
-  );
-
-  return await HealthKitManager().writeMindfulnessData(start, end);
+  if (queued) unawaited(HealthSyncQueue.flush());
 }
 
 /// Checks if a session was manually added (not from a track)
