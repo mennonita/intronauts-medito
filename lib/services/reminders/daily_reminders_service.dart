@@ -44,6 +44,47 @@ DateTime anchorPreferringSavedTime(
   );
 }
 
+/// Pref que marca que los avisos pendientes ya traen los textos y botones
+/// nuevos (migración al actualizar la app).
+const reminderSeriesCopyV2Key = 'reminder_series_copy_v2';
+
+/// Fecha de un aviso: el día del calendario [dayOffset] días después del
+/// ancla, a la hora del ancla. Se arma con día y hora locales, no sumando
+/// bloques de 24 h, para que el cambio de horario no mueva el aviso una hora.
+tz.TZDateTime reminderDateFor(DateTime anchorLocal, int dayOffset) {
+  final location = tz.local;
+  if (location.name != 'UTC') {
+    return tz.TZDateTime(
+      location,
+      anchorLocal.year,
+      anchorLocal.month,
+      anchorLocal.day + dayOffset,
+      anchorLocal.hour,
+      anchorLocal.minute,
+    );
+  }
+  // Sin zona del teléfono (iOS no la da), la hora local del sistema conoce
+  // el cambio de horario; se convierte al mismo instante.
+  return tz.TZDateTime.from(
+    DateTime(
+      anchorLocal.year,
+      anchorLocal.month,
+      anchorLocal.day + dayOffset,
+      anchorLocal.hour,
+      anchorLocal.minute,
+    ),
+    location,
+  );
+}
+
+/// Próxima vez que el reloj marca [hour]:[minute] después de [now].
+DateTime nextOccurrenceOf(int hour, int minute, DateTime now) {
+  final today = DateTime(now.year, now.month, now.day, hour, minute);
+  return today.isAfter(now)
+      ? today
+      : DateTime(now.year, now.month, now.day + 1, hour, minute);
+}
+
 class DailyRemindersService {
   final SharedPreferences prefs;
   final ReminderProvider reminders;
@@ -83,8 +124,9 @@ class DailyRemindersService {
       time.hour,
       time.minute,
     );
+    // Mañana por día del calendario, no +24 h, para conservar la hora.
     final anchor = candidate.isBefore(now)
-        ? candidate.add(const Duration(days: 1))
+        ? DateTime(now.year, now.month, now.day + 1, time.hour, time.minute)
         : candidate;
 
     final scheduler = DailyRemindersScheduler(
@@ -119,16 +161,19 @@ class DailyRemindersScheduler {
 
   DailyRemindersScheduler({required this.prefs, required this.reminders});
 
+  /// Programa la serie desde [anchorLocal]. Con [fromIndex] solo programa
+  /// los avisos de ese índice en adelante (0–14 diarios, 15 el del día 30),
+  /// cada uno en su mismo día de siempre respecto al ancla.
   Future<void> scheduleSeriesFromAnchor(
     DateTime anchorLocal, {
     AppLocalizations? l10n,
+    int fromIndex = 0,
   }) async {
     final localizations = l10n ?? _getFallbackLocalizations();
     final items = <_SeriesItem>[];
 
-    for (var i = 0; i < 15; i++) {
-      final when = anchorLocal.add(Duration(days: i));
-      final tzWhen = tz.TZDateTime.from(when, tz.local);
+    for (var i = fromIndex < 0 ? 0 : fromIndex; i < 15; i++) {
+      final tzWhen = reminderDateFor(anchorLocal, i);
       final copy = _copyForDay(i + 1, l10n: localizations);
       items.add(
         _SeriesItem(
@@ -141,18 +186,19 @@ class DailyRemindersScheduler {
       );
     }
 
-    final day30When = anchorLocal.add(Duration(days: 29));
-    final day30TzWhen = tz.TZDateTime.from(day30When, tz.local);
-    final day30Copy = _copyForDay(30, l10n: localizations);
-    items.add(
-      _SeriesItem(
-        id: reminderSeriesBaseId + 15,
-        when: day30TzWhen,
-        title: day30Copy.$1,
-        body: day30Copy.$2,
-        payload: reminderPayload(30),
-      ),
-    );
+    if (fromIndex <= 15) {
+      final day30TzWhen = reminderDateFor(anchorLocal, 29);
+      final day30Copy = _copyForDay(30, l10n: localizations);
+      items.add(
+        _SeriesItem(
+          id: reminderSeriesBaseId + 15,
+          when: day30TzWhen,
+          title: day30Copy.$1,
+          body: day30Copy.$2,
+          payload: reminderPayload(30),
+        ),
+      );
+    }
 
     AppLogger.d(
       'REMINDER',
@@ -187,6 +233,8 @@ class DailyRemindersScheduler {
             title: e.title,
             body: e.body,
             payload: e.payload,
+            sitLabel: localizations.reminderActionSit3,
+            notTodayLabel: localizations.reminderActionNotToday,
           ),
         )
         .toList();
@@ -222,6 +270,61 @@ class DailyRemindersScheduler {
       prefs.getInt(SharedPreferenceConstants.savedMinutes),
     );
     await scheduleSeriesFromAnchor(anchor, l10n: l10n);
+  }
+
+  /// Migración al actualizar (una vez): los avisos ya programados conservan
+  /// los textos y botones con que se programaron. Reprograma desde el aviso
+  /// pendiente más cercano para que el siguiente suene a la próxima hora
+  /// guardada y los demás conserven su día. La pref se guarda solo si todo
+  /// quedó programado.
+  Future<void> migratePendingSeries({
+    DateTime Function() now = DateTime.now,
+    AppLocalizations? l10n,
+  }) async {
+    if (prefs.getBool(reminderSeriesCopyV2Key) == true) return;
+    if (prefs.getBool(SharedPreferenceConstants.dailyReminderEnabled) != true) {
+      return;
+    }
+    final hour = prefs.getInt(SharedPreferenceConstants.savedHours);
+    final minute = prefs.getInt(SharedPreferenceConstants.savedMinutes);
+    if (hour == null || minute == null) return;
+
+    final pending = await reminders.getPendingNotifications(
+      rethrowErrors: true,
+    );
+    final indexes =
+        pending
+            .map((p) => p.id - reminderSeriesBaseId)
+            .where((i) => i >= 0 && i <= 15)
+            .toList()
+          ..sort();
+    if (indexes.isEmpty) {
+      await prefs.setBool(reminderSeriesCopyV2Key, true);
+      return;
+    }
+
+    final k = indexes.first;
+    final next = nextOccurrenceOf(hour, minute, now());
+    // El ancla queda k días antes, por día del calendario, para que el
+    // aviso k suene en la próxima hora guardada.
+    // Solo queda el del día 30: Android no deja leer su fecha, así que se
+    // pone una semana después de la próxima hora guardada (aproximación).
+    final anchor = k <= 14
+        ? DateTime(next.year, next.month, next.day - k, hour, minute)
+        : DateTime(next.year, next.month, next.day + 7 - 29, hour, minute);
+
+    await scheduleSeriesFromAnchor(anchor, l10n: l10n, fromIndex: k);
+
+    final after = await reminders.getPendingNotifications(rethrowErrors: true);
+    final scheduledIds = after.map((p) => p.id).toSet();
+    final complete = [
+      for (var i = k; i <= 15; i++) reminderSeriesBaseId + i,
+    ].every(scheduledIds.contains);
+    if (!complete) {
+      AppLogger.w('REMINDER', 'Reminder migration incomplete; will retry');
+      return;
+    }
+    await prefs.setBool(reminderSeriesCopyV2Key, true);
   }
 
   (String, String) _copyForDay(int day, {required AppLocalizations l10n}) {

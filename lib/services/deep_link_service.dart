@@ -12,6 +12,7 @@ import 'package:medito/app_globals.dart' show appReadyCompleter;
 import 'package:medito/models/timer/timer_launch.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/routes/routes.dart';
+import 'package:medito/routes/routes.dart' as routes show openTimerLaunch;
 import 'package:medito/services/shop/fourthwall_service.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/widgets/snackbar_widget.dart';
@@ -72,15 +73,30 @@ class DeepLinkService {
 
   // Espera a que termine la inicialización antes de abrir la pantalla.
   Future<void> _navigateWhenReady(Future<void> Function() navigate) async {
+    await _waitUntilAppReady();
+
+    if (!context.mounted) return;
+
+    await navigate();
+  }
+
+  static Future<void> _waitUntilAppReady() async {
     try {
       await appReadyCompleter.future.timeout(const Duration(seconds: 15));
     } on TimeoutException {
       AppLogger.w('DEEPLINK', 'App not ready after 15s, proceeding anyway');
     }
+  }
 
-    if (!context.mounted) return;
-
-    await navigate();
+  /// Abre el temporizador desde fuera de un enlace (botón de un aviso). Espera
+  /// a la app igual que los enlaces y solo abre `TimerView`; la pantalla
+  /// revisa si ya hay una sesión antes de empezar. Nunca reproduce aquí.
+  static Future<void> openTimerLaunch(
+    TimerLaunch launch, {
+    required String source,
+  }) async {
+    await _waitUntilAppReady();
+    await routes.openTimerLaunch(launch, source: source);
   }
 
   void dispose() {
@@ -112,7 +128,9 @@ class DeepLinkService {
 
       final timerLaunch = TimerLaunch.fromUri(uri);
       if (timerLaunch != null) {
-        unawaited(_navigateWhenReady(() => openTimerLaunch(timerLaunch)));
+        unawaited(
+          _navigateWhenReady(() => routes.openTimerLaunch(timerLaunch)),
+        );
         return;
       }
 

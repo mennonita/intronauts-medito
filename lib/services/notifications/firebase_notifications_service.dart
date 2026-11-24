@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:medito/firebase_options.dart';
 import 'package:medito/providers/notification/reminder_provider.dart';
+import 'package:medito/services/reminders/reminder_launch_action.dart';
 import 'package:medito/utils/utils.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -135,31 +136,48 @@ class FirebaseMessagingHandler {
     // Match the Firebase example approach
     const initializationSettingsAndroid = AndroidInitializationSettings('logo');
 
-    // For iOS, initialize with proper settings but disable badges
-    const initializationSettingsIOS = DarwinInitializationSettings(
+    // For iOS, initialize with proper settings but disable badges.
+    // El plugin es uno solo y el último initialize gana: lleva la misma
+    // categoría de botones del aviso diario que el proveedor de avisos.
+    final initializationSettingsIOS = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: false, // Never request badge permission
       requestSoundPermission: true,
+      notificationCategories: currentReminderCategories(),
     );
 
-    const initializationSettings = InitializationSettings(
+    final initializationSettings = InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
 
+    void onBodyTap(NotificationResponse response) {
+      final data = _decodePayload(response.payload);
+      unawaited(_logNotificationOpen(data));
+
+      // Only deep-link when the payload actually asks for one. The daily
+      // reminder series carries no type/path, and routing it through
+      // _navigate would push a second home view on top of the current
+      // screen — the OS opening the app is already the whole intent.
+      if (data != null && data['type'] != null) {
+        _navigate(context, ref, data);
+      }
+    }
+
+    // Si el proveedor de avisos inicializa después, su manejador usa este
+    // para los toques en el cuerpo del aviso.
+    ReminderLaunchAction.bodyTapHandler = onBodyTap;
+
     _flutterLocalNotificationsPlugin.initialize(
       settings: initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        final data = _decodePayload(response.payload);
-        unawaited(_logNotificationOpen(data));
-
-        // Only deep-link when the payload actually asks for one. The daily
-        // reminder series carries no type/path, and routing it through
-        // _navigate would push a second home view on top of the current
-        // screen — the OS opening the app is already the whole intent.
-        if (data != null && data['type'] != null) {
-          _navigate(context, ref, data);
+        // Los botones del aviso diario van al mismo manejador de siempre.
+        final actionId = response.actionId;
+        if (actionId != null && actionId.isNotEmpty) {
+          ReminderLaunchAction.handleResponse(response);
+          return;
         }
+        onBodyTap(response);
       },
     );
 
