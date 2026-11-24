@@ -8,9 +8,11 @@ import 'dart:ui';
 import 'dart:io';
 
 import 'package:medito/constants/constants.dart';
+import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/exceptions/app_error.dart';
 import 'package:medito/models/events/donation/donation_page_model.dart';
 import 'package:medito/models/local_all_stats.dart';
+import 'package:medito/models/timer/timer_house_content.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/models/timer/timer_timeline.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
@@ -23,9 +25,11 @@ import 'package:medito/providers/donation/end_screen_donation_experiment.dart';
 import 'package:medito/providers/stripe/payment_service_provider.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/stats_provider.dart';
+import 'package:medito/providers/timer/timer_content_provider.dart';
 import 'package:medito/providers/timer/timer_preferences_provider.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/services/timer/timer_device_channel.dart';
+import 'package:medito/services/timer/timer_route_tracker.dart';
 import 'package:medito/views/end_screen/end_screen_view.dart';
 import 'package:medito/views/player/session_completion_gate.dart';
 import 'package:medito/views/player/widgets/artist_title_widget.dart';
@@ -36,6 +40,7 @@ import 'package:medito/views/player/widgets/player_buttons/player_buttons_widget
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/views/timer/session/timer_exit_dialogs.dart';
 import 'package:medito/views/timer/session/timer_session_layout.dart';
+import 'package:medito/views/timer/timer_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -770,6 +775,39 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
         // first so the end screen always replaces the player itself.
         final navigator = Navigator.of(context);
         _dismissPlayerOverlays();
+
+        if (elapsed != null &&
+            ref.read(timerPreferencesProvider).skipEndScreen) {
+          _endScreenOpened = true;
+          _timerStopped = true;
+          if (elapsed >= kMinRecordedTimerSession) {
+            final l10n = AppLocalizations.of(context)!;
+            final noun = houseWord(
+              ref.read(timerHouseContentProvider),
+              HouseWord.session,
+              l10n.timerSessionNounDefault,
+            );
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  l10n.timerSavedSessionNoun(noun, elapsed.inMinutes),
+                ),
+              ),
+            );
+          }
+          if (TimerRouteTracker.openTimerViews > 0 && navigator.canPop()) {
+            navigator.pop();
+          } else {
+            navigator.pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => const TimerView(
+                  source: AnalyticsEventConstants.sourceTimerOnly,
+                ),
+              ),
+            );
+          }
+          return;
+        }
 
         navigator.pushReplacement(
           MaterialPageRoute(

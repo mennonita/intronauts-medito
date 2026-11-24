@@ -9,6 +9,7 @@ import 'package:medito/providers/shared_preference/shared_preference_provider.da
 import 'package:medito/providers/timer/timer_preferences_provider.dart';
 import 'package:medito/services/reminders/mindfulness_bells_service.dart'
     show MindfulnessBellsService;
+import 'package:medito/utils/stats_manager.dart';
 import 'package:medito/views/settings/timer_settings_section.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,6 +25,7 @@ void main() {
   late ProviderContainer container;
 
   setUp(() async {
+    StatsManager().resetForTesting();
     SharedPreferences.setMockInitialValues({});
     prefs = await SharedPreferences.getInstance();
     bells = _RecordingBellsService();
@@ -51,11 +53,13 @@ void main() {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
-            body: TimerSettingsSection(
-              isAndroid: isAndroid,
-              buildSectionTitle: (_, title) => Text(title),
-              buildSectionCard: (children) =>
-                  Card(child: Column(children: children)),
+            body: SingleChildScrollView(
+              child: TimerSettingsSection(
+                isAndroid: isAndroid,
+                buildSectionTitle: (_, title) => Text(title),
+                buildSectionCard: (children) =>
+                    Card(child: Column(children: children)),
+              ),
             ),
           ),
         ),
@@ -84,7 +88,7 @@ void main() {
     );
   });
 
-  testWidgets('Spanish Android settings show three switches and save changes', (
+  testWidgets('Spanish Android settings show five switches and save changes', (
     tester,
   ) async {
     messenger.setMockMethodCallHandler(permissions, (call) async {
@@ -94,7 +98,7 @@ void main() {
     await pumpSection(tester, isAndroid: true);
 
     expect(find.text('Temporizador'), findsOneWidget);
-    expect(find.byType(SwitchListTile), findsNWidgets(3));
+    expect(find.byType(SwitchListTile), findsNWidgets(5));
     for (final title in [
       'Música de otras apps',
       'Pantalla encendida',
@@ -121,7 +125,7 @@ void main() {
     expect(find.text('Cada 2 horas'), findsOneWidget);
   });
 
-  testWidgets('iOS shows the two timer switches and hides daytime bells', (
+  testWidgets('iOS shows timer switches and hides daytime bells', (
     tester,
   ) async {
     await prefs.setBool(
@@ -132,8 +136,54 @@ void main() {
 
     expect(switchTile(es.timerMixWithOthersTitle), findsOneWidget);
     expect(switchTile(es.timerKeepScreenOnTitle), findsOneWidget);
+    expect(switchTile(es.settingsTimerOnlyOpen), findsOneWidget);
+    expect(switchTile(es.settingsTimerOnlySkipEnd), findsOneWidget);
     expect(switchTile(es.mindfulnessBellsTitle), findsNothing);
     expect(find.byType(DropdownButton<int>), findsNothing);
+  });
+
+  testWidgets('timer-only switches persist when settings are reopened', (
+    tester,
+  ) async {
+    await pumpSection(tester, isAndroid: false);
+    expect(find.text(es.settingsTimerOnlyTitle), findsOneWidget);
+    for (final title in [
+      es.settingsTimerOnlyOpen,
+      es.settingsTimerOnlySkipEnd,
+    ]) {
+      final tile = switchTile(title);
+      expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+      await tester.ensureVisible(tile);
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+    }
+
+    expect(prefs.getBool(SharedPreferenceConstants.timerOpenOnTimer), isTrue);
+    expect(prefs.getBool(SharedPreferenceConstants.timerSkipEndScreen), isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpSection(tester, isAndroid: false);
+    expect(
+      tester.widget<SwitchListTile>(switchTile(es.settingsTimerOnlyOpen)).value,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<SwitchListTile>(switchTile(es.settingsTimerOnlySkipEnd))
+          .value,
+      isTrue,
+    );
+  });
+
+  testWidgets('export row shows an empty history message', (tester) async {
+    await pumpSection(tester, isAndroid: false);
+    final row = find.widgetWithText(ListTile, es.settingsExportPractice);
+    expect(find.text(es.settingsExportPracticeSubtitle), findsOneWidget);
+    await tester.ensureVisible(row);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    expect(find.text(es.exportEmpty), findsOneWidget);
   });
 
   testWidgets('dropdowns persist the window and keep the end after the start', (
