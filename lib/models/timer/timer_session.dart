@@ -5,6 +5,7 @@ import 'package:medito/models/player/playback_request.dart';
 import '../background_sounds/background_sounds_model.dart';
 import 'bell_sound.dart';
 import 'timer_bell_settings.dart';
+import 'timer_stage.dart';
 
 /// The two ways the home Timer runs: down from a chosen length, or up until
 /// the user ends it.
@@ -73,6 +74,36 @@ extension TimerPlaybackRequest on PlaybackRequest {
       : TimerMode.countdown;
 }
 
+/// Silencio que queda después del cierre para que el último golpe suene
+/// completo antes de que termine el archivo.
+const kTimerEndTailMarginMs = 1500;
+
+/// Duración del archivo silencioso: `[preparación][sesión][cola final]`.
+/// Con tiempo extra el archivo sigue 5 h después de lo previsto; el
+/// cronómetro termina en 5 h y conserva la cola para la campana de cierre.
+Duration timerFileDuration({
+  required TimerMode mode,
+  required Duration planned,
+  required bool extraTime,
+  required TimerBellSettings bells,
+  Duration prep = Duration.zero,
+}) {
+  final safePrep = prep.isNegative ? Duration.zero : prep;
+  final endSound = BellSound.resolve(bells.endSound);
+  final endTail = Duration(
+    milliseconds: bells.end
+        ? (bells.endRepeats - 1) * timerBellRepeatGapMs(endSound) +
+              endSound.durationMs +
+              kTimerEndTailMarginMs
+        : kTimerEndTailMarginMs,
+  );
+  if (mode == TimerMode.stopwatch) {
+    return safePrep + kStopwatchMaxDuration + endTail;
+  }
+  if (extraTime) return safePrep + planned + kStopwatchMaxDuration;
+  return safePrep + planned + endTail;
+}
+
 /// Builds the request the regular player plays for a timer: the silent file
 /// at [filePath] carries the session, bells and any background sound play on
 /// top of it as for a track.
@@ -90,30 +121,57 @@ PlaybackRequest timerPlaybackRequest({
   String? stopLabel,
   bool overrideBackgroundSound = false,
   BackgroundSoundsModel? backgroundSound,
+  int prepMs = 0,
+  List<TimerStage> stages = const [],
+  String Function(int minutesLeft)? spokenText,
 }) {
-  final hasExtraTime = mode == TimerMode.countdown && extraTime;
-  final fileDuration = hasExtraTime ? kStopwatchMaxDuration : duration;
+  final stopwatch = mode == TimerMode.stopwatch;
+  // Por partes: solo en cuenta regresiva; lo previsto es la suma de las partes
+  // y no hay tiempo extra.
+  final multi = !stopwatch && stages.length >= kMinTimerStages;
+  final planned = stopwatch
+      ? kStopwatchMaxDuration
+      : multi
+      ? Duration(minutes: stages.fold(0, (sum, stage) => sum + stage.minutes))
+      : duration;
+  final hasExtraTime = !stopwatch && extraTime && !multi;
+  final prep = max(0, prepMs);
+  final fileDuration = timerFileDuration(
+    mode: mode,
+    planned: planned,
+    extraTime: hasExtraTime,
+    bells: bells,
+    prep: Duration(milliseconds: prep),
+  );
   final sessionSeed = seed ?? DateTime.now().millisecondsSinceEpoch;
   final cues = buildTimerBellCues(
     settings: bells,
     mode: mode,
-    plannedDuration: duration,
+    plannedDuration: planned,
     extraTime: hasExtraTime,
     seed: sessionSeed,
+    prepMs: prep,
+    stages: multi ? stages : const [],
+    spokenText: spokenText,
   );
   return PlaybackRequest(
-    trackId: timerSessionId(fileDuration),
-    fileId: timerFileId(
-      mode,
-      mode == TimerMode.stopwatch ? Duration.zero : duration,
-    ),
+    trackId: timerSessionId(planned),
+    fileId: timerFileId(mode, stopwatch ? Duration.zero : planned),
     title: title,
     description: '',
     coverUrl: coverUrl ?? '',
     remoteUrl: Uri.file(filePath).toString(),
     duration: fileDuration.inMilliseconds,
-    timerPlannedDurationMs: duration.inMilliseconds,
+    timerPlannedDurationMs: planned.inMilliseconds,
+    timerPrepMs: prep,
     timerExtraTime: hasExtraTime,
+    timerStageDurationsMs: multi
+        ? [for (final stage in stages) stage.duration.inMilliseconds]
+        : const [],
+    timerStageKinds: multi
+        ? [for (final stage in stages) stage.kind.name]
+        : const [],
+    timerBellOutput: bells.output.name,
     timerSeed: sessionSeed,
     timerRunId: runId ?? newTimerRunId(),
     timerOwnerId: ownerId,
