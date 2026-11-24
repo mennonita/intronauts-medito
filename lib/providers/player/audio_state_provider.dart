@@ -37,6 +37,7 @@ class AudioStateProvider implements MeditoAudioServiceCallbackApi {
     String message,
     int positionMs,
     int durationMs,
+    String? runId,
   ) {
     CrashlyticsService().recordError(
       Exception('ExoPlayer $errorCode: $message'),

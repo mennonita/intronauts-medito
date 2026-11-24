@@ -717,6 +717,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
                     error.message ?: "unknown",
                     resumePos,
                     duration,
+                    null,
                 ) { /* fire-and-forget */ }
             }
         }
@@ -1441,7 +1442,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     private fun requestSystemTimerStop(): Boolean {
         val seed = timerSeed ?: return false
         val engine = FlutterEngineCache.getInstance().get(MainActivity.ENGINE_ID)
-        val report = stopTimerPlayback(seed, systemStop = true)
+        val report = stopTimerPlaybackInternal(seed, systemStop = true)
         if (report.stopped && engine != null) {
             MeditoTimerStopCallbackApi(engine.dartExecutor.binaryMessenger).timerStopped(seed, report) { result ->
                 result.exceptionOrNull()?.let {
@@ -1452,10 +1453,10 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         return report.stopped
     }
 
-    override fun stopTimerPlayback(sessionSeed: Long): TimerStopReport =
-        stopTimerPlayback(sessionSeed, systemStop = false)
+    override fun stopTimerPlayback(sessionSeed: Long, save: Boolean): TimerStopReport =
+        stopTimerPlaybackInternal(sessionSeed, systemStop = false)
 
-    private fun stopTimerPlayback(sessionSeed: Long, systemStop: Boolean): TimerStopReport {
+    private fun stopTimerPlaybackInternal(sessionSeed: Long, systemStop: Boolean): TimerStopReport {
         if (playbackGeneration != SharedPreferencesManager.currentGeneration()) {
             return TimerStopReport(0L, false, false)
         }

@@ -96,7 +96,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
           if (_usesAndroidAudio &&
               previous?.requested == true &&
               previousTimer?.timerSeed != null)
-            _api.stopTimerPlayback(previousTimer!.timerSeed!),
+            _api.stopTimerPlayback(previousTimer!.timerSeed!, false),
         ]);
       } catch (error, stack) {
         AppLogger.e(
@@ -453,7 +453,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       if (report == null && seed == null) {
         return const TimerCloseResult(Duration.zero, stopped: false);
       }
-      final native = report ?? await _api.stopTimerPlayback(seed!);
+      final native = report ?? await _api.stopTimerPlayback(seed!, true);
       return TimerCloseResult(
         Duration(milliseconds: native.positionMs),
         endCueRang: native.endCueRang,

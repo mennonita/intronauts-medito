@@ -56,7 +56,15 @@ class EndScreenView extends ConsumerStatefulWidget {
   /// Historial anterior a la sesión que acaba de terminar.
   final LocalAllStats? priorStats;
 
-  const EndScreenView({super.key, required this.request, this.priorStats});
+  // Tiempo meditado del temporizador; lo usa W3-END.
+  final Duration? timerElapsed;
+
+  const EndScreenView({
+    super.key,
+    required this.request,
+    this.priorStats,
+    this.timerElapsed,
+  });
 
   @override
   ConsumerState<EndScreenView> createState() => _EndScreenViewState();

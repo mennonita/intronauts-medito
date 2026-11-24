@@ -546,7 +546,11 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     }
   }
 
-  void stopTimerAmbient({required bool transportAlreadyStopped}) {
+  // fade: lo implementa W3-AMBIENT.
+  Future<void> stopTimerAmbient({
+    required bool transportAlreadyStopped,
+    Duration fade = Duration.zero,
+  }) async {
     _timerBellToggle++;
     _stopAmbient(transportAlreadyStopped: transportAlreadyStopped);
   }

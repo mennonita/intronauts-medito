@@ -7,6 +7,7 @@ import 'package:medito/constants/constants.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/models.dart';
+import 'package:medito/models/timer/timer_launch.dart';
 import 'package:medito/models/timer/timer_preset.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/providers.dart';
@@ -32,11 +33,14 @@ import 'widgets/timer_preset_name_dialog.dart';
 /// then sit with the regular player. Works fully offline — the session is a
 /// locally generated silent track, so nothing is fetched.
 class TimerView extends ConsumerStatefulWidget {
-  const TimerView({super.key, required this.source});
+  const TimerView({super.key, required this.source, this.launch});
 
   /// Where the screen was opened from, for timer_opened (see
   /// [AnalyticsEventConstants.timerOpened]).
   final String source;
+
+  // Arranque desde enlace, widget o atajo; lo usa W2-SETUP.
+  final TimerLaunch? launch;
 
   @override
   ConsumerState<TimerView> createState() => _TimerViewState();
