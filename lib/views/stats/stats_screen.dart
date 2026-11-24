@@ -14,6 +14,7 @@ import 'package:medito/widgets/medito_icon.dart';
 import 'package:medito/views/home/widgets/bottom_sheet/row_item_widget.dart';
 import 'package:medito/views/player/widgets/bottom_actions/single_back_action_bar.dart';
 import 'package:medito/widgets/headers/medito_app_bar_small.dart';
+import 'package:medito/utils/stats_manager.dart';
 import 'package:medito/utils/utils.dart';
 import 'package:medito/views/home/widgets/bottom_sheet/stats/meditation_calendar_widget.dart';
 import 'package:medito/views/settings/restore_stats_screen.dart';
@@ -30,6 +31,7 @@ class StatsScreen extends ConsumerStatefulWidget {
 class _StatsScreenState extends ConsumerState<StatsScreen>
     with TickerProviderStateMixin {
   late TabController _tabController;
+  late final _preVerificationSummary = StatsManager().preVerificationSummary();
 
   @override
   void initState() {
@@ -155,6 +157,20 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
                 },
                 data: (stats) {
                   return _statsList(context, stats);
+                },
+              ),
+              FutureBuilder<PreVerificationSummary?>(
+                future: _preVerificationSummary,
+                builder: (context, snapshot) {
+                  final summary = snapshot.data;
+                  if (summary == null) return const SizedBox.shrink();
+                  return Text(
+                    AppLocalizations.of(context)!.statsBeforeSignIn(
+                      summary.sessions,
+                      summary.minutes,
+                    ),
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  );
                 },
               ),
               const SizedBox(height: 16),
