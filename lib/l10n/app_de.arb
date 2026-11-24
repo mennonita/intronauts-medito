@@ -73,8 +73,8 @@
   "yourFeedbackHelpsUs": "Deine Rückmeldung hilft uns, unsere Inhalte zu verbessern, und gibt dir die Gelegenheit, über deine Erfahrung nachzudenken.",
   "didYouKnow": "Schon gewusst?",
   "meditoReliesOnYourDonationsToSurvive": "Medito finanziert sich ausschließlich durch deine Spenden. Wir erstellen kostenlose Inhalte, um Menschen zu helfen.",
-  "reminderNotificationBody": "Zeit für deine tägliche Meditation. Nimm dir einen Moment zum Entspannen und Fokussieren.",
-  "reminderNotificationTitle": "Erinnerung an deine tägliche Meditation",
+  "reminderNotificationBody": "Atme einen Moment und spüre, wie es dir geht.",
+  "reminderNotificationTitle": "Ein Moment für deine Praxis",
   "pickTimeHelpText": "Wähle die Uhrzeit für deine tägliche Erinnerung",
   "reminderNotificationScheduled": "Erinnerung geplant für",
   "dailyReminderTitle": "Tägliche Erinnerung",
@@ -307,11 +307,11 @@
   "@notificationPreviewTimestamp": {
     "description": "Timestamp shown on a fake iOS notification preview, mirroring iOS's 'now' label for a notification that just arrived"
   },
-  "notificationPreviewTitleB": "Hier beginnt mehr innere Ruhe",
+  "notificationPreviewTitleB": "Dein Kissen ist noch da",
   "@notificationPreviewTitleB": {
     "description": "Title of the fake notification shown in the onboarding notifications screen preview"
   },
-  "notificationPreviewBodyB": "Deine tägliche Atempause wartet auf dich. Tippe einfach, um zu beginnen.",
+  "notificationPreviewBodyB": "Eine Minute reicht, wann immer du magst.",
   "@notificationPreviewBodyB": {
     "description": "Body of the fake notification shown in the onboarding notifications screen preview"
   },
@@ -851,103 +851,123 @@
   "@reminderPromptDismissedMessage": {
     "description": "Message shown when user dismisses the reminder prompt on the end screen"
   },
-  "reminderDay3TitleVar1": "Entwickle eine Routine 📆",
+  "reminderDay1TitleVar1": "Dein Kissen ist noch da",
+  "reminderDay1BodyVar1": "Eine Minute reicht, wann immer du magst.",
+  "reminderDay1TitleVar2": "Hol tief Luft",
+  "reminderDay1BodyVar2": "Atme langsam ein und wieder aus.",
+  "reminderDay1TitleVar3": "Ein Moment für dich",
+  "reminderDay1BodyVar3": "Spüre, wie es dir geht, ohne etwas zu ändern.",
+  "reminderDay1TitleVar4": "Mach Raum für Ruhe",
+  "reminderDay1BodyVar4": "Wenn du magst, sitz einen Moment in Stille.",
+  "reminderDay1TitleVar5": "Ein Atemzug nach dem anderen",
+  "reminderDay1BodyVar5": "Beginne mit einem Atemzug, ganz ohne Eile.",
+  "reminderDay2TitleVar1": "Deine Praxis ist für dich da",
+  "reminderDay2BodyVar1": "Zurückkommen ist die Praxis.",
+  "reminderDay2TitleVar2": "Ein Moment Pause",
+  "reminderDay2BodyVar2": "Eine kurze Übung ist da, wann immer dir danach ist.",
+  "reminderDay2TitleVar3": "Folge deinem Atem",
+  "reminderDay2BodyVar3": "Spüre, wie die Luft ein- und ausströmt.",
+  "reminderDay2TitleVar4": "Etwas Zeit mit dir",
+  "reminderDay2BodyVar4": "Ein paar stille Minuten, in deinem Tempo.",
+  "reminderDay2TitleVar5": "Komm, wie du bist",
+  "reminderDay2BodyVar5": "Du brauchst nichts Besonderes, um dich hinzusetzen.",
+  "reminderDay3TitleVar1": "Jeder Ort passt",
   "@reminderDay3TitleVar1": {
     "description": "Smart reminder day 3 title variant 1"
   },
-  "reminderDay3BodyVar1": "Dranbleiben zählt. Du schaffst das.",
+  "reminderDay3BodyVar1": "Ein Stuhl, das Kissen oder die Bettkante: Du entscheidest.",
   "@reminderDay3BodyVar1": {
     "description": "Smart reminder day 3 body variant 1"
   },
-  "reminderDay3TitleVar2": "Drei Tage voller Impulse ✴️",
+  "reminderDay3TitleVar2": "Eine kleine Pause",
   "@reminderDay3TitleVar2": {
     "description": "Smart reminder day 3 title variant 2"
   },
-  "reminderDay3BodyVar2": "Deine Meditationsroutine nimmt Gestalt an.",
+  "reminderDay3BodyVar2": "Halte kurz inne und atme.",
   "@reminderDay3BodyVar2": {
     "description": "Smart reminder day 3 body variant 2"
   },
-  "reminderDay3TitleVar3": "Eine sanfte Erinnerung 🤍",
+  "reminderDay3TitleVar3": "Ohne Eile",
   "@reminderDay3TitleVar3": {
     "description": "Smart reminder day 3 title variant 3"
   },
-  "reminderDay3BodyVar3": "Zwei achtsame Minuten reichen aus.",
+  "reminderDay3BodyVar3": "Fang mit einer Minute an und schau, wie es geht.",
   "@reminderDay3BodyVar3": {
     "description": "Smart reminder day 3 body variant 3"
   },
-  "reminderDay3TitleVar4": "Du wirst stärker 🌿",
+  "reminderDay3TitleVar4": "Lass die Schultern sinken",
   "@reminderDay3TitleVar4": {
     "description": "Smart reminder day 3 title variant 4"
   },
-  "reminderDay3BodyVar4": "Mit jedem Tag, an dem du meditierst, baust du etwas Wertvolles auf.",
+  "reminderDay3BodyVar4": "Spüre das Gewicht deines Körpers und atme ruhig.",
   "@reminderDay3BodyVar4": {
     "description": "Smart reminder day 3 body variant 4"
   },
-  "reminderDay3TitleVar5": "Finde deine Ruhe 🕊️",
+  "reminderDay3TitleVar5": "Hier und jetzt",
   "@reminderDay3TitleVar5": {
     "description": "Smart reminder day 3 title variant 5"
   },
-  "reminderDay3BodyVar5": "Eine kurze Pause kann deinem ganzen Tag eine neue Richtung geben.",
+  "reminderDay3BodyVar5": "Nimm wahr, was gerade da ist, ohne zu urteilen.",
   "@reminderDay3BodyVar5": {
     "description": "Smart reminder day 3 body variant 5"
   },
-  "reminderDay4Title": "Kleine Schritte 🪴",
+  "reminderDay4Title": "Kleine Schritte",
   "@reminderDay4Title": {
     "description": "Smart reminder day 4 title"
   },
-  "reminderDay4Body": "Deine letzte Meditation ist 4 Tage her. Steige mit einer kurzen Sitzung wieder ein.",
+  "reminderDay4Body": "Eine kurze Übung ist auch Praxis.",
   "@reminderDay4Body": {
     "description": "Smart reminder day 4 body"
   },
-  "reminderDay5Title": "Zeit, wieder bei dir anzukommen 💪",
+  "reminderDay5Title": "Ein Moment zum Zurückkommen",
   "@reminderDay5Title": {
     "description": "Smart reminder day 5 title"
   },
-  "reminderDay5Body": "Es sind 5 Tage vergangen. Eine ruhige Pause kann dir helfen, wieder einzusteigen.",
+  "reminderDay5Body": "Setz dich, wann du magst, und schau, was da ist.",
   "@reminderDay5Body": {
     "description": "Smart reminder day 5 body"
   },
-  "reminderDay6Title": "Fast eine Woche ⏰",
+  "reminderDay6Title": "Die Tür steht offen",
   "@reminderDay6Title": {
     "description": "Smart reminder day 6 title"
   },
-  "reminderDay6Body": "Deine letzte Meditation ist fast eine Woche her. Finde mit einem achtsamen Moment zurück.",
+  "reminderDay6Body": "Komm zurück, wann du magst. Nichts nachzuholen.",
   "@reminderDay6Body": {
     "description": "Smart reminder day 6 body"
   },
-  "reminderDay7Title": "Eine Erinnerung nach einer Woche 📅",
+  "reminderDay7Title": "Atme durch",
   "@reminderDay7Title": {
     "description": "Smart reminder day 7 title"
   },
-  "reminderDay7Body": "Deine letzte Meditation ist eine Woche her. Nimm dir jetzt einen Moment für dich.",
+  "reminderDay7Body": "Ein stiller Moment ganz für dich allein.",
   "@reminderDay7Body": {
     "description": "Smart reminder day 7 body"
   },
-  "reminderDay8Title": "Ein neuer Anfang 🌤️",
+  "reminderDay8Title": "Fang dort an, wo du bist",
   "@reminderDay8Title": {
     "description": "Smart reminder day 8 title"
   },
-  "reminderDay8Body": "Es ist über eine Woche vergangen. Starte mit nur wenigen achtsamen Minuten neu.",
+  "reminderDay8Body": "Ein achtsamer Atemzug ist ein guter Anfang.",
   "@reminderDay8Body": {
     "description": "Smart reminder day 8 body"
   },
-  "reminderDay9Title": "Finde deine Mitte 🎯",
+  "reminderDay9Title": "Finde deine Mitte",
   "@reminderDay9Title": {
     "description": "Smart reminder day 9 title"
   },
-  "reminderDay9Body": "Eine kurze Sitzung kann deinem Tag eine neue Richtung geben.",
+  "reminderDay9Body": "Richte deine Aufmerksamkeit einen Moment auf den Atem.",
   "@reminderDay9Body": {
     "description": "Smart reminder day 9 body"
   },
-  "reminderDay10Title": "Schon zehn Tage 🔟",
+  "reminderDay10Title": "Lausche der Stille",
   "@reminderDay10Title": {
     "description": "Smart reminder day 10 title"
   },
-  "reminderDay10Body": "Deine letzte Meditation ist 10 Tage her. Mach dort weiter, wo du aufgehört hast.",
+  "reminderDay10Body": "Schließ die Augen und nimm die Geräusche um dich wahr.",
   "@reminderDay10Body": {
     "description": "Smart reminder day 10 body"
   },
-  "reminderDay11Title": "Eine sanfte Erinnerung 🤍",
+  "reminderDay11Title": "Eine freundliche Pause",
   "@reminderDay11Title": {
     "description": "Smart reminder day 11 title"
   },
@@ -955,43 +975,43 @@
   "@reminderDay11Body": {
     "description": "Smart reminder day 11 body"
   },
-  "reminderDay12Title": "Bleib dran 🧭",
+  "reminderDay12Title": "Ein ruhiger Moment",
   "@reminderDay12Title": {
     "description": "Smart reminder day 12 title"
   },
-  "reminderDay12Body": "Ein ruhiger Moment wartet auf dich.",
+  "reminderDay12Body": "Etwas stille Zeit wartet auf dich, wann immer du magst.",
   "@reminderDay12Body": {
     "description": "Smart reminder day 12 body"
   },
-  "reminderDay13Title": "Bald zwei Wochen ⏳",
+  "reminderDay13Title": "Ganz sanft",
   "@reminderDay13Title": {
     "description": "Smart reminder day 13 title"
   },
-  "reminderDay13Body": "Deine letzte Meditation ist fast zwei Wochen her. Versuche einen Neustart mit zwei Minuten.",
+  "reminderDay13Body": "Sitz ein paar Minuten und lass deinen Körper ruhen.",
   "@reminderDay13Body": {
     "description": "Smart reminder day 13 body"
   },
-  "reminderDay14Title": "Eine Erinnerung nach zwei Wochen 🔔",
+  "reminderDay14Title": "Dein Raum ist noch da",
   "@reminderDay14Title": {
     "description": "Smart reminder day 14 title"
   },
-  "reminderDay14Body": "Deine letzte Meditation ist 14 Tage her. Steige jetzt ganz behutsam wieder ein.",
+  "reminderDay14Body": "Deine Praxis läuft dir nicht davon.",
   "@reminderDay14Body": {
     "description": "Smart reminder day 14 body"
   },
-  "reminderDay15Title": "Wir pausieren die Erinnerungen 🌿",
+  "reminderDay15Title": "Wir pausieren die Erinnerungen",
   "@reminderDay15Title": {
     "description": "Smart reminder day 15 title"
   },
-  "reminderDay15Body": "Wir pausieren die Erinnerungen vorerst. Wir sind für dich da, wann immer du bereit bist.",
+  "reminderDay15Body": "Vorerst kommen keine weiteren Erinnerungen. Deine Praxis bleibt da.",
   "@reminderDay15Body": {
     "description": "Smart reminder day 15 body"
   },
-  "reminderDay30Title": "Eine sanfte Erinnerung 🤗",
+  "reminderDay30Title": "Eine leise Einladung",
   "@reminderDay30Title": {
     "description": "Smart reminder day 30 title"
   },
-  "reminderDay30Body": "Es ist schon einen Monat her, seit du das letzte Mal meditiert hast. Schon zwei Minuten können dir helfen, dich besser zu fühlen. Wir sind für dich da, wenn du bereit bist.",
+  "reminderDay30Body": "Wenn dir nach einem Moment Stille ist: Wir sind da.",
   "@reminderDay30Body": {
     "description": "Smart reminder day 30 body"
   },
@@ -1782,5 +1802,40 @@
   "mindfulnessBellNotificationBody": "Halte inne und atme.",
   "mindfulnessBellsPermissionNeeded": "Aktiviere Benachrichtigungen, um die Glocken zu erhalten.",
   "timerShortcutMinutes": "{minutes}-Min.-Timer",
-  "timerShortcutLast": "Letzten Timer wiederholen"
+  "timerShortcutLast": "Letzten Timer wiederholen",
+  "timerHousePracticesTitle": "Praktiken des Hauses",
+  "mantraCounterTitle": "Mantra-Zähler",
+  "mantraCounterHint": "Tippe irgendwo auf den Bildschirm, um zu zählen.",
+  "mantraCounterBeads": "{count} von {total}",
+  "mantraCounterRounds": "{rounds, plural, =0{Noch keine Runde} =1{1 Runde} other{{rounds} Runden}}",
+  "mantraCounterTapAction": "Zählen",
+  "mantraCounterMenu": "Zähler-Optionen",
+  "mantraCounterReset": "Neu beginnen",
+  "mantraCounterResetConfirm": "Zählung neu beginnen? Deine Gesamtzahl bleibt gleich.",
+  "mantraTotalSwitch": "Meine Gesamtzahl führen",
+  "mantraTotalValue": "Gesamt: {total}",
+  "mantraTotalAdd": "Zählungen hinzufügen",
+  "mantraTotalAddHint": "Außerhalb der App gezählt",
+  "mantraTotalAddConfirm": "Hinzufügen",
+  "mantraTotalClear": "Meine Gesamtzahl löschen",
+  "mantraTotalClearConfirm": "Gesamtzahl löschen? Das lässt sich nicht rückgängig machen.",
+  "mantraPrivacyNote": "Deine Zählungen werden nur auf diesem Telefon gespeichert.",
+  "reminderActionSit3": "3 Min. sitzen",
+  "reminderActionNotToday": "Heute nicht",
+  "timerSessionNounDefault": "Sitzung",
+  "timerSavedSessionNoun": "Gespeichert: {noun}, {minutes} Min.",
+  "settingsTimerOnlyTitle": "Nur der Timer",
+  "settingsTimerOnlyOpen": "App im Timer öffnen",
+  "settingsTimerOnlySkipEnd": "Abschlussbildschirm überspringen",
+  "settingsExportPractice": "Meine Praxis exportieren",
+  "settingsExportPracticeSubtitle": "CSV-Datei mit den auf diesem Telefon gespeicherten Sitzungen.",
+  "exportCsvHeader": "datum,uhrzeit,art,minuten,inhalt,herkunft",
+  "exportKindTimer": "Timer",
+  "exportKindGuided": "geführt",
+  "exportKindManual": "manuell",
+  "exportSourceAccount": "Konto",
+  "exportSourceDevice": "dieses Telefon",
+  "exportEmpty": "Noch keine Sitzungen zum Exportieren.",
+  "exportFailed": "Die Datei konnte nicht erstellt werden. Bitte versuche es erneut.",
+  "exportShareSubject": "Meine Praxis"
 }

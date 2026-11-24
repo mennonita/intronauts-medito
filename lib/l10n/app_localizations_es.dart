@@ -953,12 +953,10 @@ class AppLocalizationsEs extends AppLocalizations {
   String get notificationPreviewTimestamp => 'ahora';
 
   @override
-  String get notificationPreviewTitleB =>
-      'Una mente más tranquila empieza aquí';
+  String get notificationPreviewTitleB => 'El cojín sigue aquí';
 
   @override
-  String get notificationPreviewBodyB =>
-      'Tu respiración diaria te espera. Solo toca para empezar.';
+  String get notificationPreviewBodyB => 'Un minuto basta, cuando quieras.';
 
   @override
   String onboardingStepIndicator(int current, int total) {
@@ -1736,11 +1734,11 @@ class AppLocalizationsEs extends AppLocalizations {
       'Ocurrió un error desconocido. O tenemos problemas o estás sin conexión.';
 
   @override
-  String get reminderNotificationTitle => 'Recordatorio de Meditación Diaria';
+  String get reminderNotificationTitle => 'Un momento para tu práctica';
 
   @override
   String get reminderNotificationBody =>
-      'Es hora de tu meditación diaria. Tómate un momento para relajarte y concentrarte.';
+      'Respira un momento y nota cómo estás.';
 
   @override
   String get helpLegalSection => 'Ayuda';
@@ -1876,42 +1874,41 @@ class AppLocalizationsEs extends AppLocalizations {
       'Puedes activar o desactivar los recordatorios en Configuración';
 
   @override
-  String get reminderDay1TitleVar1 => 'Tu práctica te espera';
+  String get reminderDay1TitleVar1 => 'El cojín sigue aquí';
 
   @override
-  String get reminderDay1BodyVar1 => 'Volver es la práctica.';
+  String get reminderDay1BodyVar1 => 'Un minuto basta, cuando quieras.';
 
   @override
   String get reminderDay1TitleVar2 => 'Toma aire';
 
   @override
-  String get reminderDay1BodyVar2 => 'Date un momento para respirar.';
+  String get reminderDay1BodyVar2 => 'Inhala despacio y suelta el aire.';
 
   @override
   String get reminderDay1TitleVar3 => 'Un momento para ti';
 
   @override
-  String get reminderDay1BodyVar3 =>
-      'Date unos minutos para notar cómo te sientes.';
+  String get reminderDay1BodyVar3 => 'Nota cómo te sientes, sin cambiar nada.';
 
   @override
   String get reminderDay1TitleVar4 => 'Haz espacio para la calma';
 
   @override
   String get reminderDay1BodyVar4 =>
-      'Date un momento para sentarte en silencio.';
+      'Si quieres, siéntate un momento en silencio.';
 
   @override
   String get reminderDay1TitleVar5 => 'Una respiración a la vez';
 
   @override
-  String get reminderDay1BodyVar5 => 'Empieza con una respiración.';
+  String get reminderDay1BodyVar5 => 'Empieza con una respiración, sin prisa.';
 
   @override
-  String get reminderDay2TitleVar1 => 'De vuelta a tu práctica';
+  String get reminderDay2TitleVar1 => 'Tu práctica te espera';
 
   @override
-  String get reminderDay2BodyVar1 => 'Tómate unos minutos para reconectar.';
+  String get reminderDay2BodyVar1 => 'Volver es la práctica.';
 
   @override
   String get reminderDay2TitleVar2 => 'Un momento de pausa';
@@ -1924,140 +1921,140 @@ class AppLocalizationsEs extends AppLocalizations {
   String get reminderDay2TitleVar3 => 'Sigue tu respiración';
 
   @override
-  String get reminderDay2BodyVar3 => 'Nota cómo se siente cada respiración.';
+  String get reminderDay2BodyVar3 => 'Nota cómo entra y cómo sale el aire.';
 
   @override
-  String get reminderDay2TitleVar4 => 'Un momento de calma';
+  String get reminderDay2TitleVar4 => 'Un rato contigo';
 
   @override
-  String get reminderDay2BodyVar4 => 'Date unos minutos para estar contigo.';
+  String get reminderDay2BodyVar4 => 'Unos minutos de silencio, a tu ritmo.';
 
   @override
   String get reminderDay2TitleVar5 => 'Llega como estás';
 
   @override
   String get reminderDay2BodyVar5 =>
-      'Date un momento para escuchar cómo te sientes.';
+      'No necesitas nada especial para sentarte.';
 
   @override
-  String get reminderDay3TitleVar1 => 'Construye el hábito 📆';
+  String get reminderDay3TitleVar1 => 'Cualquier lugar sirve';
 
   @override
-  String get reminderDay3BodyVar1 => 'El impulso importa. Tú puedes.';
+  String get reminderDay3BodyVar1 =>
+      'Una silla, el cojín o la orilla de la cama: tú eliges.';
 
   @override
-  String get reminderDay3TitleVar2 => ' Chispa de tres días ✴️';
+  String get reminderDay3TitleVar2 => 'Una pausa pequeña';
 
   @override
-  String get reminderDay3BodyVar2 => 'Tu práctica está tomando forma.';
+  String get reminderDay3BodyVar2 => 'Haz una pausa breve y respira.';
 
   @override
-  String get reminderDay3TitleVar3 => 'Un suave empujón 🤍';
+  String get reminderDay3TitleVar3 => 'Sin prisa';
 
   @override
-  String get reminderDay3BodyVar3 => 'Dos minutos conscientes son suficientes.';
+  String get reminderDay3BodyVar3 =>
+      'Puedes empezar con un minuto y ver cómo va.';
 
   @override
-  String get reminderDay3TitleVar4 => 'Creciendo más fuerte 🌿';
+  String get reminderDay3TitleVar4 => 'Suelta los hombros';
 
   @override
   String get reminderDay3BodyVar4 =>
-      'Cada día que practicas, construyes algo significativo.';
+      'Siente el peso de tu cuerpo y respira con calma.';
 
   @override
-  String get reminderDay3TitleVar5 => 'Encuentra tu calma 🕊️';
+  String get reminderDay3TitleVar5 => 'Aquí y ahora';
 
   @override
   String get reminderDay3BodyVar5 =>
-      'Una breve pausa puede resetear todo tu día.';
+      'Nota lo que hay en este momento, sin juzgar.';
 
   @override
-  String get reminderDay4Title => 'Pasos pequeños 🪴';
+  String get reminderDay4Title => 'Pasos pequeños';
 
   @override
-  String get reminderDay4Body =>
-      'Han pasado 4 días. Reinicia tu práctica con una sesión corta.';
+  String get reminderDay4Body => 'Una práctica corta también es práctica.';
 
   @override
-  String get reminderDay5Title => 'Tiempo de reconectar 💪';
+  String get reminderDay5Title => 'Un momento para volver';
 
   @override
-  String get reminderDay5Body =>
-      'Han pasado 5 días. Una pausa calmada ahora puede ayudarte a volver al camino.';
+  String get reminderDay5Body => 'Siéntate cuando quieras y mira qué hay.';
 
   @override
-  String get reminderDay6Title => 'Casi una semana ⏰';
+  String get reminderDay6Title => 'La puerta está abierta';
 
   @override
   String get reminderDay6Body =>
-      'Han pasado casi una semana desde que meditaste. Cierra el ciclo con un momento consciente.';
+      'Puedes volver cuando quieras, sin pendientes.';
 
   @override
-  String get reminderDay7Title => 'Revisión semanal 📅';
+  String get reminderDay7Title => 'Toma un respiro';
 
   @override
-  String get reminderDay7Body =>
-      'Ha pasado una semana desde que meditaste. ¿Listo para regresar?';
+  String get reminderDay7Body => 'Un momento a solas, en silencio, para ti.';
 
   @override
-  String get reminderDay8Title => 'Nuevo comienzo 🌤️';
+  String get reminderDay8Title => 'Empieza donde estás';
 
   @override
   String get reminderDay8Body =>
-      'Han pasado más de una semana. Un nuevo comienzo con solo unos minutos conscientes.';
+      'Una respiración consciente es un buen comienzo.';
 
   @override
-  String get reminderDay9Title => 'Encuentra tu centro 🎯';
+  String get reminderDay9Title => 'Encuentra tu centro';
 
   @override
-  String get reminderDay9Body => 'Una sesión corta puede resetear tu día.';
+  String get reminderDay9Body =>
+      'Pon atención a tu respiración por un momento.';
 
   @override
-  String get reminderDay10Title => 'Dos dígitos 🔟';
+  String get reminderDay10Title => 'Escucha el silencio';
 
   @override
   String get reminderDay10Body =>
-      'Han pasado 10 días. Continúa donde lo dejaste.';
+      'Cierra los ojos y nota los sonidos a tu alrededor.';
 
   @override
-  String get reminderDay11Title => 'Suave empujón 🤍';
+  String get reminderDay11Title => 'Una pausa amable';
 
   @override
   String get reminderDay11Body => 'Detente, respira y nota cómo te sientes.';
 
   @override
-  String get reminderDay12Title => 'Mantén la estabilidad 🧭';
+  String get reminderDay12Title => 'Un momento de calma';
 
   @override
-  String get reminderDay12Body => 'Un momento calmado te espera.';
+  String get reminderDay12Body =>
+      'Un rato en silencio te espera, cuando quieras.';
 
   @override
-  String get reminderDay13Title => 'Acercándose a dos semanas ⏳';
+  String get reminderDay13Title => 'Con suavidad';
 
   @override
   String get reminderDay13Body =>
-      'Han pasado casi dos semanas desde que meditaste. Intenta un reinicio de dos minutos.';
+      'Siéntate unos minutos y deja que el cuerpo descanse.';
 
   @override
-  String get reminderDay14Title => 'Revisión de dos semanas 🔔';
+  String get reminderDay14Title => 'Aquí sigue tu espacio';
 
   @override
-  String get reminderDay14Body =>
-      'Han pasado 14 días. Comienza de nuevo ahora, gentilmente.';
+  String get reminderDay14Body => 'Tu práctica no se va a ningún lado.';
 
   @override
-  String get reminderDay15Title => 'Pausaremos los recordatorios 🌿';
+  String get reminderDay15Title => 'Pausamos los avisos';
 
   @override
   String get reminderDay15Body =>
-      'Estamos pausando los recordatorios por ahora. Estamos aquí cuando estés listo.';
+      'Por ahora no te mandaremos más avisos. Tu práctica sigue aquí.';
 
   @override
-  String get reminderDay30Title => 'Un suave empujón 🤗';
+  String get reminderDay30Title => 'Una invitación tranquila';
 
   @override
   String get reminderDay30Body =>
-      'Ha pasado un mes desde que meditaste. Solo 2 minutos pueden ayudarte a sentirte mejor. Estamos aquí cuando estés listo.';
+      'Si te nace sentarte un momento, aquí estamos.';
 
   @override
   String get repeatModeNormal => 'Normal';
@@ -3519,4 +3516,129 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get timerShortcutLast => 'Repetir último temporizador';
+
+  @override
+  String get timerHousePracticesTitle => 'Prácticas de la casa';
+
+  @override
+  String get mantraCounterTitle => 'Contador de mantras';
+
+  @override
+  String get mantraCounterHint =>
+      'Toca en cualquier parte de la pantalla para contar.';
+
+  @override
+  String mantraCounterBeads(int count, int total) {
+    return '$count de $total';
+  }
+
+  @override
+  String mantraCounterRounds(int rounds) {
+    String _temp0 = intl.Intl.pluralLogic(
+      rounds,
+      locale: localeName,
+      other: '$rounds vueltas',
+      one: '1 vuelta',
+      zero: 'Aún sin vueltas',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get mantraCounterTapAction => 'Contar';
+
+  @override
+  String get mantraCounterMenu => 'Opciones del contador';
+
+  @override
+  String get mantraCounterReset => 'Empezar de cero';
+
+  @override
+  String get mantraCounterResetConfirm =>
+      '¿Empezar la cuenta de cero? Tu total no cambia.';
+
+  @override
+  String get mantraTotalSwitch => 'Llevar mi total';
+
+  @override
+  String mantraTotalValue(int total) {
+    return 'Total: $total';
+  }
+
+  @override
+  String get mantraTotalAdd => 'Sumar cuentas';
+
+  @override
+  String get mantraTotalAddHint => 'Cuentas hechas fuera de la app';
+
+  @override
+  String get mantraTotalAddConfirm => 'Sumar';
+
+  @override
+  String get mantraTotalClear => 'Borrar mi total';
+
+  @override
+  String get mantraTotalClearConfirm =>
+      '¿Borrar tu total? No se puede deshacer.';
+
+  @override
+  String get mantraPrivacyNote =>
+      'Tus cuentas se guardan solo en este teléfono.';
+
+  @override
+  String get reminderActionSit3 => 'Sentarme 3 min';
+
+  @override
+  String get reminderActionNotToday => 'Hoy no';
+
+  @override
+  String get timerSessionNounDefault => 'sesión';
+
+  @override
+  String timerSavedSessionNoun(String noun, int minutes) {
+    return 'Guardamos tu $noun de $minutes min.';
+  }
+
+  @override
+  String get settingsTimerOnlyTitle => 'Solo el temporizador';
+
+  @override
+  String get settingsTimerOnlyOpen => 'Abrir la app en el temporizador';
+
+  @override
+  String get settingsTimerOnlySkipEnd => 'Saltar la pantalla final';
+
+  @override
+  String get settingsExportPractice => 'Exportar mi práctica';
+
+  @override
+  String get settingsExportPracticeSubtitle =>
+      'Archivo CSV con las sesiones guardadas en este teléfono.';
+
+  @override
+  String get exportCsvHeader => 'fecha,hora,tipo,minutos,contenido,origen';
+
+  @override
+  String get exportKindTimer => 'temporizador';
+
+  @override
+  String get exportKindGuided => 'guiada';
+
+  @override
+  String get exportKindManual => 'manual';
+
+  @override
+  String get exportSourceAccount => 'cuenta';
+
+  @override
+  String get exportSourceDevice => 'este teléfono';
+
+  @override
+  String get exportEmpty => 'Aún no hay sesiones para exportar.';
+
+  @override
+  String get exportFailed => 'No se pudo crear el archivo. Inténtalo de nuevo.';
+
+  @override
+  String get exportShareSubject => 'Mi práctica';
 }
