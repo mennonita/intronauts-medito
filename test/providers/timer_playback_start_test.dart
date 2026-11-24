@@ -7,7 +7,6 @@ import 'package:medito/providers/player/audio_state_provider.dart';
 import 'package:medito/providers/player/ios_audio_handler.dart';
 import 'package:medito/providers/player/player_provider.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
-import 'package:medito/services/audio/ios_session_bells.dart';
 import 'package:medito/services/audio/session_bell_preview.dart';
 import 'package:medito/src/audio_pigeon.g.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
