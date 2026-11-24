@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,27 +10,51 @@ class HealthKitManager {
   static const _authRequestedKey = 'healthAuthRequested';
 
   static final HealthKitManager _instance = HealthKitManager._internal();
-  final Health health = Health();
-  final MeditoHealthConnectManager _androidBridge =
-      MeditoHealthConnectManager();
+  final Health health;
+  final MeditoHealthConnectManager _androidBridge;
+  final bool _isAndroid;
+  final bool _isIOS;
   bool _configured = false;
+
+  // Sube con [invalidatePendingWrites]: una escritura que todavía espera al
+  // puente (configuración, disponibilidad o permisos) ya no sale (TMR-01).
+  int _writeEpoch = 0;
 
   factory HealthKitManager() {
     return _instance;
   }
 
-  HealthKitManager._internal();
+  HealthKitManager._internal()
+    : health = Health(),
+      _androidBridge = MeditoHealthConnectManager(),
+      _isAndroid = Platform.isAndroid,
+      _isIOS = Platform.isIOS;
+
+  /// Gestor con puente y plataforma falsos, para las pruebas.
+  @visibleForTesting
+  HealthKitManager.forTesting({
+    required MeditoHealthConnectManager androidBridge,
+    Health? health,
+    bool isAndroid = true,
+  }) : health = health ?? Health(),
+       _androidBridge = androidBridge,
+       _isAndroid = isAndroid,
+       _isIOS = !isAndroid;
+
+  /// Ninguna escritura que ya empezó y aún no llega a Salud se envía. Se
+  /// llama al apagar Salud y al cambiar o borrar la cuenta.
+  void invalidatePendingWrites() => _writeEpoch++;
 
   Future<void> _ensureConfigured() async {
     if (_configured) return;
-    if (Platform.isIOS) {
+    if (_isIOS) {
       await health.configure();
     }
     _configured = true;
   }
 
   Future<bool> isHealthConnectAvailable() async {
-    if (!Platform.isAndroid) return true;
+    if (!_isAndroid) return true;
     try {
       final status = await _androidBridge.getStatus();
       return status == HealthConnectStatus.available;
@@ -39,7 +64,7 @@ class HealthKitManager {
   }
 
   Future<void> installHealthConnect() async {
-    if (!Platform.isAndroid) return;
+    if (!_isAndroid) return;
     try {
       await _androidBridge.openHealthConnectInstall();
     } catch (_) {}
@@ -50,7 +75,7 @@ class HealthKitManager {
   Future<bool?> isHealthSyncPermitted() async {
     try {
       await _ensureConfigured();
-      if (Platform.isAndroid) {
+      if (_isAndroid) {
         if (!await isHealthConnectAvailable()) return false;
         return await _androidBridge.hasMindfulnessPermissions();
       }
@@ -89,7 +114,7 @@ class HealthKitManager {
       await _ensureConfigured();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_authRequestedKey, true);
-      if (Platform.isAndroid) {
+      if (_isAndroid) {
         if (!await isHealthConnectAvailable()) return false;
         return await _androidBridge.requestMindfulnessPermissions();
       }
@@ -120,17 +145,31 @@ class HealthKitManager {
   /// escritura devuelve `false` y la cola lo reintenta después. En Android,
   /// [clientRecordId] hace que un reintento reemplace el registro en vez de
   /// duplicarlo.
+  ///
+  /// [stillAllowed] lo da la cola: dice si la sesión sigue siendo de la
+  /// cuenta actual, con su permiso y en la misma generación. Se revisa
+  /// después de cada consulta al sistema y justo antes de enviar; si ya no
+  /// vale, o si [invalidatePendingWrites] llegó mientras tanto, no se envía
+  /// nada y devuelve `false` (TMR-01).
   Future<bool> writeMindfulnessData(
     DateTime start,
     DateTime end, {
     String clientRecordId = '',
+    bool Function()? stillAllowed,
   }) async {
+    final epoch = _writeEpoch;
+    bool allowed() => epoch == _writeEpoch && (stillAllowed?.call() ?? true);
     try {
+      if (!allowed()) return false;
       await _ensureConfigured();
+      if (!allowed()) return false;
 
-      if (Platform.isAndroid) {
+      if (_isAndroid) {
         if (!await isHealthConnectAvailable()) return false;
+        if (!allowed()) return false;
         if (!await _androidBridge.hasMindfulnessPermissions()) return false;
+        // Sin ninguna espera entre esta revisión y el envío.
+        if (!allowed()) return false;
         return await _androidBridge.writeMindfulnessSession(
           start.millisecondsSinceEpoch,
           end.millisecondsSinceEpoch,
@@ -139,6 +178,8 @@ class HealthKitManager {
       }
 
       if (!await hasWriteAccess()) return false;
+      // Sin ninguna espera entre esta revisión y el envío.
+      if (!allowed()) return false;
 
       return await health.writeHealthData(
         value: 0,

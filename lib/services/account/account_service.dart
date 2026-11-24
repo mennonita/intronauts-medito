@@ -11,6 +11,7 @@ import 'package:medito/repositories/auth/auth_repository.dart';
 import 'package:medito/services/network/http_api_service.dart';
 import 'package:medito/services/secure_storage_service.dart';
 import 'package:medito/services/stats_backup_service.dart';
+import 'package:medito/services/timer/mantra_counter_store.dart';
 import 'package:medito/utils/completed_tracks_storage.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/practice_history.dart';
@@ -89,6 +90,7 @@ class AccountService {
   final StatsManager _statsManager;
   final Future<void> Function() _clearPlayback;
   final Future<void> Function()? _clearFavorites;
+  final Future<void> Function() _clearMantraCounter;
 
   /// Base delay between DELETE retries (multiplied by the attempt number).
   final Duration retryDelay;
@@ -100,13 +102,16 @@ class AccountService {
     required StatsManager statsManager,
     Future<void> Function() clearPlayback = PlaybackAccount.clear,
     Future<void> Function()? clearFavorites,
+    Future<void> Function() clearMantraCounter =
+        MantraCounterStore.clearForAccountChange,
     this.retryDelay = const Duration(seconds: 1),
   }) : _httpApiService = httpApiService,
        _authRepository = authRepository,
        _preferences = preferences,
        _statsManager = statsManager,
        _clearPlayback = clearPlayback,
-       _clearFavorites = clearFavorites;
+       _clearFavorites = clearFavorites,
+       _clearMantraCounter = clearMantraCounter;
 
   bool get needsReplacement =>
       _preferences.getBool(_deletionRequestedKey) == true ||
@@ -135,6 +140,22 @@ class AccountService {
     if (_preferences.getBool(_replacementPendingKey) == true) {
       await _setAccountFlag(_replacementPendingKey, false);
     }
+  }
+
+  /// Cierra la sesión y borra lo que no debe pasar a la siguiente cuenta de
+  /// este teléfono.
+  ///
+  /// Al cerrar sesión la identidad del teléfono no cambia, así que el dueño
+  /// guardado del contador de mantras no basta: se borra aquí. Va primero y
+  /// debe confirmarse; si falla, la sesión sigue abierta y quien llama avisa
+  /// del error (MANTRA-01).
+  Future<void> signOut() async {
+    await _clearMantraCounter();
+    await _authRepository.signOut();
+    await _statsManager.clearAllStats();
+    // Si no, la siguiente cuenta que entre en este teléfono mezclaría (y
+    // subiría) los favoritos de esta.
+    await _clearFavorites?.call();
   }
 
   /// Guarda la solicitud antes de borrar la cuenta y limpiar los datos locales.

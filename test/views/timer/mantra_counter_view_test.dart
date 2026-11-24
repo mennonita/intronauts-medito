@@ -230,6 +230,8 @@ void main() {
       content: TimerHouseContent.fromJson({'beadsPerRound': 21}),
       saved: {
         SharedPreferenceConstants.mantraCounter: jsonEncode({
+          // Sin identidad guardada el dueño es '' (MANTRA-01).
+          'owner': '',
           'count': 60,
           'rounds': 4,
           'totalEnabled': false,
@@ -329,6 +331,8 @@ void main() {
       tester,
       saved: {
         SharedPreferenceConstants.mantraCounter: jsonEncode({
+          // Sin identidad guardada el dueño es '' (MANTRA-01).
+          'owner': '',
           'count': 3,
           'rounds': 0,
           'totalEnabled': true,

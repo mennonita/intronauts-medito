@@ -635,4 +635,78 @@ void main() {
       expect(await _queue(), isEmpty);
     });
   });
+
+  group('la revisión viaja con la escritura a Salud (TMR-01)', () {
+    late Completer<void> gate;
+    late Completer<void> waiting;
+    late List<bool> sent;
+    late int invalidations;
+
+    void useGuarded() {
+      gate = Completer<void>();
+      waiting = Completer<void>();
+      sent = [];
+      invalidations = 0;
+      HealthSyncQueue.dependencies = HealthSyncDependencies(
+        ready: () async {},
+        currentAccountId: (_) => env.account,
+        isIOS: false,
+        healthAvailable: () async => true,
+        pendingRuns: () async => const [],
+        clearPending: (_) async => true,
+        guardedWrite: (entry, stillAllowed) async {
+          // Como el gestor de Salud: espera los permisos del sistema y
+          // revisa otra vez justo antes de enviar.
+          if (!waiting.isCompleted) waiting.complete();
+          await gate.future;
+          final ok = stillAllowed();
+          sent.add(ok);
+          return ok;
+        },
+        invalidateWrites: () => invalidations++,
+        markSynced: (_) async {},
+      );
+    }
+
+    Future<void> raceDuringWrite(Future<void> Function() during) async {
+      await _giveConsent();
+      useGuarded();
+      await HealthSyncQueue.add(_entry('a'));
+      final flushing = HealthSyncQueue.flush();
+      await waiting.future;
+      final acting = during();
+      gate.complete();
+      await flushing;
+      await acting;
+    }
+
+    test('sin cambios, la escritura sigue valiendo y sale', () async {
+      await raceDuringWrite(() async {});
+      expect(sent, [true]);
+      expect(await _queue(), isEmpty);
+      expect(invalidations, 0);
+    });
+
+    test('apagar Salud mientras se esperan los permisos no envía', () async {
+      await raceDuringWrite(() => HealthSyncQueue.setConsent(false));
+      expect(sent, [false]);
+      expect(invalidations, 1);
+      expect(await _queue(), isEmpty);
+    });
+
+    test(
+      'cambiar de cuenta mientras se esperan los permisos no envía',
+      () async {
+        await raceDuringWrite(() async => env.account = _other);
+        expect(sent, [false]);
+      },
+    );
+
+    test('invalidar la cola suelta también la escritura del puente', () async {
+      await raceDuringWrite(HealthSyncQueue.invalidate);
+      expect(sent, [false]);
+      expect(invalidations, 1);
+      expect(await _queue(), isEmpty);
+    });
+  });
 }

@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/icons/medito_icons.dart';
 import 'package:medito/l10n/app_localizations.dart';
-import 'package:medito/providers/favorites/favorites_provider.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/repositories/auth/auth_repository.dart';
+import 'package:medito/services/account/account_service.dart';
 import 'package:medito/views/home/widgets/bottom_sheet/row_item_widget.dart';
 import 'package:medito/views/splash_view.dart';
 import 'package:medito/views/settings/delete_account_screen.dart';
@@ -46,8 +46,6 @@ class AccountSectionWidget extends ConsumerWidget {
     WidgetRef ref,
     String email,
   ) {
-    final authRepository = ref.watch(authRepositorySyncProvider);
-
     return Padding(
       padding: inCard
           ? EdgeInsets.zero
@@ -80,11 +78,9 @@ class AccountSectionWidget extends ConsumerWidget {
             hasUnderline: true,
             onTap: () async {
               try {
-                await authRepository.signOut();
-                await ref.read(statsManagerProvider).clearAllStats();
-                // Otherwise the next account to sign in on this device
-                // merges (and uploads) this account's favourites.
-                await ref.read(favoritesNotifierProvider.notifier).clearLocal();
+                // Cierra la sesión y borra contador de mantras, historial y
+                // favoritos de esta cuenta (MANTRA-01).
+                await ref.read(accountServiceProvider).signOut();
                 ref.read(meRefreshProvider)();
                 ref.read(statsProvider.notifier).refresh();
                 ref.invalidate(packProvider);
