@@ -17,6 +17,7 @@ import 'package:medito/providers/timer/timer_preferences_provider.dart';
 import 'package:medito/services/account/playback_account.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/services/audio/session_bell_preview.dart';
+import 'package:medito/services/review_service.dart';
 import 'package:medito/services/timer/ios_timer_run_store.dart';
 import 'package:medito/services/timer/timer_device_channel.dart';
 import 'package:medito/services/timer/timer_end_backup.dart';
@@ -47,12 +48,20 @@ final playerProvider = NotifierProvider<PlayerProvider, PlaybackRequest?>(() {
 
 class PlayerProvider extends Notifier<PlaybackRequest?>
     implements pigeon.MeditoTimerStopCallbackApi {
-  PlayerProvider({bool? useAndroidAudio, Duration? startConfirmTimeout})
-    : _usesAndroidAudio = useAndroidAudio ?? Platform.isAndroid,
-      _startConfirmTimeout = startConfirmTimeout ?? const Duration(seconds: 10);
+  PlayerProvider({
+    bool? useAndroidAudio,
+    Duration? startConfirmTimeout,
+    Duration Function()? sitClock,
+  }) : _usesAndroidAudio = useAndroidAudio ?? Platform.isAndroid,
+       _sitClock = sitClock,
+       _startConfirmTimeout =
+           startConfirmTimeout ?? const Duration(seconds: 10);
 
   final bool _usesAndroidAudio;
   final Duration _startConfirmTimeout;
+  final Duration Function()? _sitClock;
+  final _sitStopwatch = Stopwatch()..start();
+  SitOutcome? _sitOutcome;
   _PlaybackStart? _start;
   final _timerCloses = StreamController<TimerRunCloseResult>.broadcast();
   PlaybackRequest? _activeTimer;
@@ -73,6 +82,15 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       _start?.isCurrent == true ? _activeTimer : null;
 
   Stream<TimerRunCloseResult> get timerCloses => _timerCloses.stream;
+
+  SitOutcome? takeSitOutcome() {
+    final outcome = _sitOutcome;
+    _sitOutcome = null;
+    final start = _start;
+    return start != null && PlaybackAccount.isCurrent(start.accountGeneration)
+        ? outcome
+        : null;
+  }
 
   /// Verdadero mientras una sesión (temporizador o guiada) está reservada,
   /// empezando, sonando o en pausa, y no se ha cerrado.
@@ -145,6 +163,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     pigeon.PlaybackState? previous,
     pigeon.PlaybackState next,
   ) {
+    _trackSitState(next);
     final watch = _startWatch;
     final request = _activeTimer;
     if (watch != null && !watch.failed && next.runId == watch.runId) {
@@ -177,6 +196,65 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
         unawaited(_endBackup.cancel());
       }
     }
+  }
+
+  Duration get _sitNow => _sitClock?.call() ?? _sitStopwatch.elapsed;
+
+  void _trackSitState(pigeon.PlaybackState audio) {
+    final start = _start;
+    if (start == null ||
+        !start.requested ||
+        start.sitClosed ||
+        !PlaybackAccount.isCurrent(start.accountGeneration) ||
+        (start.cancelled && !(_timerCloser?.isClosing ?? false))) {
+      return;
+    }
+    final request = start.request;
+    if (audio.track.fileId != request.fileId ||
+        audio.runId != (request.isTimer ? request.timerRunId : null)) {
+      return;
+    }
+
+    if (request.isTimer) {
+      start.sitEndCueRang |= _usesAndroidAudio
+          ? audio.endCueRang == true
+          : iosAudioHandler.timerRunId == request.timerRunId &&
+                iosAudioHandler.sessionBells.endCueStarted;
+    }
+    if (audio.isCompleted) {
+      if (!start.cancelled) _finishSit(start, naturalEnd: true);
+      return;
+    }
+    if (audio.isPlaying) {
+      start.sitPlayed |= audio.position > 0;
+      start.endSitPause(_sitNow);
+    } else if (start.sitPlayed &&
+        (audio.waitingForFocus == true ||
+            (!audio.isBuffering && !audio.isSeeking))) {
+      // La espera al final del archivo deja sonar las campanas pendientes.
+      final waitingForBells =
+          request.isTimer &&
+          (_usesAndroidAudio
+              ? audio.duration > 0 && audio.position >= audio.duration
+              : iosAudioHandler.isComplete);
+      if (waitingForBells) {
+        start.endSitPause(_sitNow);
+      } else {
+        start.sitPauseStart ??= _sitNow;
+      }
+    }
+  }
+
+  void _finishSit(_PlaybackStart start, {required bool naturalEnd}) {
+    if (start.sitClosed) return;
+    start.sitClosed = true;
+    start.endSitPause(_sitNow);
+    _sitOutcome = SitOutcome(
+      isTimer: start.request.isTimer,
+      naturalEnd: naturalEnd,
+      endCueRang: start.sitEndCueRang,
+      pausedMs: start.sitPaused.inMilliseconds,
+    );
   }
 
   TimerEndBackup get _endBackup => TimerEndBackup.instance;
@@ -315,6 +393,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     _startWatch?.cancel();
     _startWatch = null;
     _backupPlaying = null;
+    _sitOutcome = null;
 
     // The audio state outlives sessions; drop the previous track's (possibly
     // completed, full-position) values so nothing reads them as this one's.
@@ -322,7 +401,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     final previous = _start;
     final previousTimer = activeTimerRequest;
     previous?.cancelled = true;
-    final start = _PlaybackStart();
+    final start = _PlaybackStart(request);
     _start = start;
     _sessionOpen = true;
     _sessionAccount = start.accountGeneration;
@@ -452,6 +531,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
   /// duration on the same track still updates the pending file.
   void prepare(PlaybackRequest request) {
     if (state == request) return;
+    _sitOutcome = null;
     state = request;
   }
 
@@ -835,6 +915,11 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       ),
       isCurrent: isCurrent,
       onStopped: (result) {
+        if (result.saved) {
+          _finishSit(start, naturalEnd: false);
+        } else {
+          start.sitClosed = true;
+        }
         final sound = ref.read(backgroundSoundsNotifierProvider);
         final soundNotifier = ref.read(
           backgroundSoundsNotifierProvider.notifier,
@@ -951,6 +1036,11 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
       }
       // El servicio nativo guarda o descarta la sesión según [save].
       final native = report ?? await _api.stopTimerPlayback(seed!, save);
+      if (native.stopped &&
+          native.endCueRang &&
+          (native.runId == null || native.runId == request.timerRunId)) {
+        start.sitEndCueRang = true;
+      }
       return TimerCloseResult(
         // Solo cuenta el tiempo meditado: la preparación no suma (§4.1).
         Duration(milliseconds: timeline.elapsedMs(native.positionMs)),
@@ -984,6 +1074,7 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
     if (identical(_start, start) &&
         iosAudioHandler.timerRunId == request.timerRunId) {
       start.endCueRang |= iosAudioHandler.sessionBells.stopBellsAndReportEnd();
+      start.sitEndCueRang |= start.endCueRang;
     }
     await iosAudioHandler.stopRun(request.timerRunId, full: false);
     return TimerCloseResult(elapsed, endCueRang: start.endCueRang, saved: save);
@@ -1030,6 +1121,9 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
 
   void stop() {
     final start = _start;
+    if (start != null && start.isCurrent && !start.request.isTimer) {
+      _finishSit(start, naturalEnd: false);
+    }
     start?.cancelled = true;
     if (_timerCloser?.isClosing ?? false) return;
     // Analytics: closing the player ends the session. No-op if it already
@@ -1110,10 +1204,25 @@ class PlayerProvider extends Notifier<PlaybackRequest?>
 }
 
 class _PlaybackStart {
+  _PlaybackStart(this.request);
+
+  final PlaybackRequest request;
   final int accountGeneration = PlaybackAccount.generation;
   bool cancelled = false;
   bool requested = false;
   bool endCueRang = false;
+  bool sitPlayed = false;
+  bool sitClosed = false;
+  bool sitEndCueRang = false;
+  Duration? sitPauseStart;
+  Duration sitPaused = Duration.zero;
+
+  void endSitPause(Duration now) {
+    final pausedAt = sitPauseStart;
+    if (pausedAt == null) return;
+    sitPaused += now - pausedAt;
+    sitPauseStart = null;
+  }
 
   bool get isCurrent =>
       !cancelled && PlaybackAccount.isCurrent(accountGeneration);

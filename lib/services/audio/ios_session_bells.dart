@@ -77,6 +77,7 @@ class IosSessionBells {
   Future<void>? _trackLoading;
 
   bool get enabled => _enabled;
+  bool get endCueStarted => _endStarted;
 
   Future<void> setBellCues({
     required List<TimerBellCue>? cues,

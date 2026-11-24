@@ -3,9 +3,33 @@ import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/stats_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class SitOutcome {
+  const SitOutcome({
+    required this.isTimer,
+    required this.naturalEnd,
+    required this.endCueRang,
+    required this.pausedMs,
+  });
+
+  final bool isTimer;
+  final bool naturalEnd;
+  final bool endCueRang;
+  final int pausedMs;
+
+  bool get isClean => pausedMs <= 120000 && (isTimer ? endCueRang : naturalEnd);
+}
+
+// Conserva el contrato de los dobles de prueba que usan el método anterior.
+extension SitReview on ReviewService {
+  Future<void> maybeRequestAfterSit(SitOutcome? outcome) async {
+    if (outcome?.isClean != true) return;
+    await checkAndRequestReview();
+  }
+}
+
 class ReviewService {
   static const _reviewRequestKey = 'last_review_request_timestamp';
-  static const _minimumDaysBetweenRequests = 90; // 3 months
+  static const _minimumDaysBetweenRequests = 90;
   static const _minimumReturnsForReview = 10;
 
   final InAppReview _inAppReview = InAppReview.instance;
@@ -20,14 +44,12 @@ class ReviewService {
         return;
       }
 
-      // 3. Check if we can request a review
       if (!await _canRequestReview()) {
         return;
       }
 
       await _inAppReview.requestReview();
 
-      // 5. Save the timestamp of this request
       await _saveReviewRequestTimestamp();
     } catch (e) {
       AppLogger.e('REVIEW', 'Error checking for app review: $e');
@@ -36,17 +58,14 @@ class ReviewService {
 
   Future<bool> _canRequestReview() async {
     try {
-      // Check if in-app review is available on this device
       if (!await _inAppReview.isAvailable()) {
         return false;
       }
 
-      // Check if enough time has passed since last request
       final prefs = await SharedPreferences.getInstance();
       final lastRequestTimestamp = prefs.getInt(_reviewRequestKey) ?? 0;
 
       if (lastRequestTimestamp == 0) {
-        // First time, can request
         return true;
       }
 
