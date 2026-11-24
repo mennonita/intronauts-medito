@@ -359,14 +359,7 @@ class SplashViewState extends ConsumerState<SplashView>
           showSnackBar(context, AppLocalizations.of(context)!.offlineMode);
 
           if (!appReadyCompleter.isCompleted) appReadyCompleter.complete();
-          final navigator = Navigator.of(context);
-          final firstScreen = navigator.pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => const DownloadsView(isRoot: true),
-            ),
-          );
-          unawaited(StartupTimerRoute.runOnce(navigator));
-          await firstScreen;
+          await _openDownloads(isRoot: true, replace: true);
         }
       } else {
         AppLogger.i('SPLASH', 'No verified user, showing auth buttons');
@@ -398,11 +391,7 @@ class SplashViewState extends ConsumerState<SplashView>
 
       showSnackBar(context, AppLocalizations.of(context)!.offlineMode);
 
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => const DownloadsView(isRoot: false),
-        ),
-      );
+      await _openDownloads(isRoot: false, replace: false);
       if (!appReadyCompleter.isCompleted) appReadyCompleter.complete();
     }
   }
@@ -505,11 +494,24 @@ class SplashViewState extends ConsumerState<SplashView>
 
   Future<void> _showOfflineDownloads() async {
     showSnackBar(context, AppLocalizations.of(context)!.offlineMode);
-    await Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => const DownloadsView(isRoot: true),
-      ),
+    await _openDownloads(isRoot: true, replace: true);
+  }
+
+  /// Toda salida a Descargas pasa por la misma decisión de inicio que la
+  /// pantalla principal: botón del aviso y «Abrir la app en el temporizador».
+  Future<void> _openDownloads({
+    required bool isRoot,
+    required bool replace,
+  }) async {
+    final navigator = Navigator.of(context);
+    final route = MaterialPageRoute<void>(
+      builder: (context) => DownloadsView(isRoot: isRoot),
     );
+    final screen = replace
+        ? navigator.pushReplacement(route)
+        : navigator.push(route);
+    unawaited(StartupTimerRoute.runOnce(navigator));
+    await screen;
   }
 
   Future<void> _initializeServices() async {

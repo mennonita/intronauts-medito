@@ -48,6 +48,34 @@ DateTime anchorPreferringSavedTime(
 /// nuevos (migración al actualizar la app).
 const reminderSeriesCopyV2Key = 'reminder_series_copy_v2';
 
+/// Ancla de la migración, guardada antes de tocar los avisos para que un
+/// reintento use la misma fecha (hora local, sin zona).
+const reminderSeriesMigrationAnchorKey = 'reminder_series_copy_v2_anchor';
+
+/// Primer índice de la serie que reprograma la migración guardada.
+const reminderSeriesMigrationFromKey = 'reminder_series_copy_v2_from';
+
+/// Regla única de «avisos encendidos» para Ajustes, la migración y la
+/// reprogramación tras una sesión. Si nunca se guardó el interruptor, cuenta
+/// como encendido cuando hay una hora guardada (instalaciones antiguas).
+bool remindersActive(SharedPreferences prefs) {
+  final enabled = prefs.getBool(SharedPreferenceConstants.dailyReminderEnabled);
+  if (enabled != null) return enabled;
+  return prefs.getInt(SharedPreferenceConstants.savedHours) != null &&
+      prefs.getInt(SharedPreferenceConstants.savedMinutes) != null;
+}
+
+Future<void> _reminderChangesTail = Future<void>.value();
+
+/// Corre los cambios de avisos de uno en uno: migración, Ajustes y
+/// reprogramación tras una sesión. Cada cambio vuelve a leer las preferencias
+/// ya dentro de su turno.
+Future<T> serializeReminderChange<T>(Future<T> Function() change) {
+  final result = _reminderChangesTail.then((_) => change());
+  _reminderChangesTail = result.then<void>((_) {}, onError: (_) {});
+  return result;
+}
+
 /// Fecha de un aviso: el día del calendario [dayOffset] días después del
 /// ancla, a la hora del ancla. Se arma con día y hora locales, no sumando
 /// bloques de 24 h, para que el cambio de horario no mueva el aviso una hora.
@@ -103,16 +131,20 @@ class DailyRemindersService {
   /// permission repair on Home). Keeps the hour the user chose earlier
   /// (onboarding chips or Settings); only when none was ever saved does it
   /// fall back to "same time tomorrow". Returns the hour used.
-  Future<TimeOfDay> enable({AppLocalizations? l10n}) async {
-    final time = getSavedTime() ?? _computeDefaultTimeFromNow();
-    await enableAt(time, l10n: l10n);
-    return time;
-  }
+  Future<TimeOfDay> enable({AppLocalizations? l10n}) =>
+      serializeReminderChange(() async {
+        final time = getSavedTime() ?? _computeDefaultTimeFromNow();
+        await _enableAt(time, l10n: l10n);
+        return time;
+      });
 
   /// Turn reminders on at a time the user chose (Settings bottom sheet /
   /// onboarding chips), instead of the silent "same time tomorrow" default of
   /// [enable]. The series is anchored to the next occurrence of [time].
-  Future<DateTime> enableAt(TimeOfDay time, {AppLocalizations? l10n}) async {
+  Future<DateTime> enableAt(TimeOfDay time, {AppLocalizations? l10n}) =>
+      serializeReminderChange(() => _enableAt(time, l10n: l10n));
+
+  Future<DateTime> _enableAt(TimeOfDay time, {AppLocalizations? l10n}) async {
     await prefs.setBool(SharedPreferenceConstants.dailyReminderEnabled, true);
     await _saveTime(time);
 
@@ -133,16 +165,18 @@ class DailyRemindersService {
       prefs: prefs,
       reminders: reminders,
     );
-    await scheduler.scheduleSeriesFromAnchor(anchor, l10n: l10n);
+    await scheduler._scheduleFullSeries(anchor, l10n: l10n);
 
     return anchor;
   }
 
-  Future<void> disable() async {
+  Future<void> disable() => serializeReminderChange(() async {
     await prefs.setBool(SharedPreferenceConstants.dailyReminderEnabled, false);
+    // Sin avisos no hay nada que migrar; un ancla vieja ya no sirve.
+    await _clearMigrationAnchor(prefs);
     await reminders.cancelDailyNotification();
     await reminders.cancelReminderSeries();
-  }
+  });
 
   TimeOfDay _computeDefaultTimeFromNow() {
     final nowPlus24 = DateTime.now().add(const Duration(days: 1));
@@ -163,11 +197,45 @@ class DailyRemindersScheduler {
 
   /// Programa la serie desde [anchorLocal]. Con [fromIndex] solo programa
   /// los avisos de ese índice en adelante (0–14 diarios, 15 el del día 30),
-  /// cada uno en su mismo día de siempre respecto al ancla.
+  /// cada uno en su mismo día de siempre respecto al ancla. Cada aviso
+  /// reemplaza al de su mismo identificador; si uno falla, el anterior sigue.
   Future<void> scheduleSeriesFromAnchor(
     DateTime anchorLocal, {
     AppLocalizations? l10n,
     int fromIndex = 0,
+  }) => serializeReminderChange(() async {
+    if (fromIndex <= 0) {
+      await _scheduleFullSeries(anchorLocal, l10n: l10n);
+    } else {
+      await _scheduleSeries(anchorLocal, l10n: l10n, fromIndex: fromIndex);
+    }
+  });
+
+  /// La serie completa (índices 0–15). Si la migración sigue pendiente, guarda
+  /// antes el ancla para que un arranque posterior reintente los que fallen;
+  /// si todos quedaron, ya no queda ningún aviso viejo y la migración termina.
+  Future<void> _scheduleFullSeries(
+    DateTime anchorLocal, {
+    AppLocalizations? l10n,
+  }) async {
+    final migrating = prefs.getBool(reminderSeriesCopyV2Key) != true;
+    if (migrating) await _saveMigrationAnchor(prefs, anchorLocal, 0);
+    final result = await _scheduleSeries(anchorLocal, l10n: l10n);
+    if (migrating && result.failed.isEmpty && result.ids.isNotEmpty) {
+      await prefs.setBool(reminderSeriesCopyV2Key, true);
+      await _clearMigrationAnchor(prefs);
+    }
+  }
+
+  /// Programa cada aviso sobre su mismo identificador, sin cancelar antes la
+  /// serie: un aviso que falla conserva el que ya estaba. Con [notBefore]
+  /// omite los que ya pasaron. Devuelve los identificadores intentados y los
+  /// que fallaron.
+  Future<({List<int> ids, Set<int> failed})> _scheduleSeries(
+    DateTime anchorLocal, {
+    AppLocalizations? l10n,
+    int fromIndex = 0,
+    DateTime? notBefore,
   }) async {
     final localizations = l10n ?? _getFallbackLocalizations();
     final items = <_SeriesItem>[];
@@ -200,20 +268,14 @@ class DailyRemindersScheduler {
       );
     }
 
+    if (notBefore != null) {
+      items.removeWhere((e) => !e.when.isAfter(notBefore));
+    }
+
     AppLogger.d(
       'REMINDER',
       'Scheduling daily reminder series from anchor: $anchorLocal',
     );
-
-    try {
-      await reminders.cancelReminderSeries();
-    } catch (e, s) {
-      AppLogger.e(
-        'REMINDER',
-        'Error cancelling daily reminder series before rescheduling: $e',
-        s,
-      );
-    }
 
     try {
       await reminders.cancelDailyNotification();
@@ -238,27 +300,38 @@ class DailyRemindersScheduler {
           ),
         )
         .toList();
+    final ids = [for (final e in items) e.id];
 
+    Set<int> failed;
     try {
-      await reminders.scheduleReminderSeries(scheduledReminders);
+      failed = await reminders.scheduleReminderSeries(scheduledReminders);
       AppLogger.d(
         'REMINDER',
-        'Successfully scheduled ${items.length} daily reminders',
+        'Scheduled ${items.length - failed.length} of ${items.length} '
+            'daily reminders',
       );
     } catch (e, s) {
       AppLogger.e('REMINDER', 'Error scheduling daily reminder series: $e', s);
+      failed = ids.toSet();
     }
 
     final first = TimeOfDay(hour: anchorLocal.hour, minute: anchorLocal.minute);
     await prefs.setInt(SharedPreferenceConstants.savedHours, first.hour);
     await prefs.setInt(SharedPreferenceConstants.savedMinutes, first.minute);
+    return (ids: ids, failed: failed);
   }
 
+  /// Mueve la serie tras una sesión. Revisa dentro de su turno que los avisos
+  /// sigan encendidos: Ajustes pudo apagarlos mientras esperaba.
   Future<void> rescheduleAfterSession({
     required int endMs,
     required int durationMs,
     AppLocalizations? l10n,
-  }) async {
+  }) => serializeReminderChange(() async {
+    if (!remindersActive(prefs)) {
+      AppLogger.d('REMINDER', 'Reminders off; not rescheduling after session');
+      return;
+    }
     final end = DateTime.fromMillisecondsSinceEpoch(endMs);
     final start = end.subtract(Duration(milliseconds: durationMs));
     final sessionAnchor = start
@@ -269,62 +342,89 @@ class DailyRemindersScheduler {
       prefs.getInt(SharedPreferenceConstants.savedHours),
       prefs.getInt(SharedPreferenceConstants.savedMinutes),
     );
-    await scheduleSeriesFromAnchor(anchor, l10n: l10n);
-  }
+    await _scheduleFullSeries(anchor, l10n: l10n);
+  });
 
   /// Migración al actualizar (una vez): los avisos ya programados conservan
   /// los textos y botones con que se programaron. Reprograma desde el aviso
   /// pendiente más cercano para que el siguiente suene a la próxima hora
-  /// guardada y los demás conserven su día. La pref se guarda solo si todo
-  /// quedó programado.
+  /// guardada y los demás conserven su día.
+  ///
+  /// Guarda el ancla antes de tocar avisos y reemplaza cada uno por su
+  /// identificador, así que un fallo deja el aviso viejo y el siguiente
+  /// arranque reintenta con la misma ancla. La pref se guarda solo si cada
+  /// aviso programado quedó pendiente, nunca con cero avisos programados.
   Future<void> migratePendingSeries({
     DateTime Function() now = DateTime.now,
     AppLocalizations? l10n,
-  }) async {
+  }) => serializeReminderChange(() => _migrate(now(), l10n));
+
+  Future<void> _migrate(DateTime now, AppLocalizations? l10n) async {
     if (prefs.getBool(reminderSeriesCopyV2Key) == true) return;
-    if (prefs.getBool(SharedPreferenceConstants.dailyReminderEnabled) != true) {
-      return;
-    }
+    if (!remindersActive(prefs)) return;
     final hour = prefs.getInt(SharedPreferenceConstants.savedHours);
     final minute = prefs.getInt(SharedPreferenceConstants.savedMinutes);
     if (hour == null || minute == null) return;
 
-    final pending = await reminders.getPendingNotifications(
-      rethrowErrors: true,
+    DateTime anchor;
+    int k;
+    final saved = _savedMigrationAnchor(prefs);
+    if (saved != null) {
+      (anchor, k) = saved;
+    } else {
+      final pending = await reminders.getPendingNotifications(
+        rethrowErrors: true,
+      );
+      final indexes =
+          pending
+              .map((p) => p.id - reminderSeriesBaseId)
+              .where((i) => i >= 0 && i <= 15)
+              .toList()
+            ..sort();
+      if (indexes.isEmpty) {
+        // Nada viejo que cambiar. No se marca: la próxima serie completa
+        // (Ajustes o una sesión) la termina.
+        AppLogger.d('REMINDER', 'No pending reminders to migrate');
+        return;
+      }
+
+      k = indexes.first;
+      final next = nextOccurrenceOf(hour, minute, now);
+      // El ancla queda k días antes, por día del calendario, para que el
+      // aviso k suene en la próxima hora guardada.
+      // Solo queda el del día 30: Android no deja leer su fecha, así que se
+      // pone una semana después de la próxima hora guardada (aproximación).
+      anchor = k <= 14
+          ? DateTime(next.year, next.month, next.day - k, hour, minute)
+          : DateTime(next.year, next.month, next.day + 7 - 29, hour, minute);
+      await _saveMigrationAnchor(prefs, anchor, k);
+    }
+
+    final result = await _scheduleSeries(
+      anchor,
+      l10n: l10n,
+      fromIndex: k,
+      notBefore: now,
     );
-    final indexes =
-        pending
-            .map((p) => p.id - reminderSeriesBaseId)
-            .where((i) => i >= 0 && i <= 15)
-            .toList()
-          ..sort();
-    if (indexes.isEmpty) {
-      await prefs.setBool(reminderSeriesCopyV2Key, true);
+    if (result.ids.isEmpty) {
+      // Todas las fechas del ancla guardada ya pasaron: se vuelve a leer lo
+      // pendiente en el siguiente arranque.
+      await _clearMigrationAnchor(prefs);
+      return;
+    }
+    if (result.failed.isNotEmpty) {
+      AppLogger.w('REMINDER', 'Reminder migration incomplete; will retry');
       return;
     }
 
-    final k = indexes.first;
-    final next = nextOccurrenceOf(hour, minute, now());
-    // El ancla queda k días antes, por día del calendario, para que el
-    // aviso k suene en la próxima hora guardada.
-    // Solo queda el del día 30: Android no deja leer su fecha, así que se
-    // pone una semana después de la próxima hora guardada (aproximación).
-    final anchor = k <= 14
-        ? DateTime(next.year, next.month, next.day - k, hour, minute)
-        : DateTime(next.year, next.month, next.day + 7 - 29, hour, minute);
-
-    await scheduleSeriesFromAnchor(anchor, l10n: l10n, fromIndex: k);
-
     final after = await reminders.getPendingNotifications(rethrowErrors: true);
     final scheduledIds = after.map((p) => p.id).toSet();
-    final complete = [
-      for (var i = k; i <= 15; i++) reminderSeriesBaseId + i,
-    ].every(scheduledIds.contains);
-    if (!complete) {
+    if (!result.ids.every(scheduledIds.contains)) {
       AppLogger.w('REMINDER', 'Reminder migration incomplete; will retry');
       return;
     }
     await prefs.setBool(reminderSeriesCopyV2Key, true);
+    await _clearMigrationAnchor(prefs);
   }
 
   (String, String) _copyForDay(int day, {required AppLocalizations l10n}) {
@@ -413,4 +513,38 @@ class _SeriesItem {
     required this.body,
     required this.payload,
   });
+}
+
+Future<void> _saveMigrationAnchor(
+  SharedPreferences prefs,
+  DateTime anchorLocal,
+  int fromIndex,
+) async {
+  // Componentes locales sin zona: al leerla vuelve a la misma hora local.
+  final local = DateTime(
+    anchorLocal.year,
+    anchorLocal.month,
+    anchorLocal.day,
+    anchorLocal.hour,
+    anchorLocal.minute,
+  );
+  await prefs.setString(
+    reminderSeriesMigrationAnchorKey,
+    local.toIso8601String(),
+  );
+  await prefs.setInt(reminderSeriesMigrationFromKey, fromIndex);
+}
+
+(DateTime, int)? _savedMigrationAnchor(SharedPreferences prefs) {
+  final raw = prefs.getString(reminderSeriesMigrationAnchorKey);
+  final from = prefs.getInt(reminderSeriesMigrationFromKey);
+  if (raw == null || from == null) return null;
+  final anchor = DateTime.tryParse(raw);
+  if (anchor == null || anchor.isUtc || from < 0 || from > 15) return null;
+  return (anchor, from);
+}
+
+Future<void> _clearMigrationAnchor(SharedPreferences prefs) async {
+  await prefs.remove(reminderSeriesMigrationAnchorKey);
+  await prefs.remove(reminderSeriesMigrationFromKey);
 }
