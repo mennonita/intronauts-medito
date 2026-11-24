@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -10,6 +11,7 @@ import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/exceptions/app_error.dart';
 import 'package:medito/models/background_sounds/background_sounds_model.dart';
 import 'package:medito/models/player/playback_request.dart';
+import 'package:medito/models/track/track.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/providers/player/ios_audio_handler.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
@@ -17,6 +19,7 @@ import 'package:medito/repositories/background_sounds/background_sounds_reposito
 import 'package:medito/repositories/downloader/downloader_repository.dart';
 import 'package:medito/services/audio/ios_session_bells.dart';
 import 'package:medito/services/network/http_api_service.dart';
+import 'package:medito/src/audio_pigeon.g.dart' show MeditoAudioServiceApi;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -110,6 +113,9 @@ void main() {
   Future<void> open({
     List<BackgroundSoundsModel>? catalog,
     List<BackgroundSoundsModel> savedCatalog = const [],
+    List<BackgroundSoundsModel> legacyDownloads = const [],
+    List<Track> guidedDownloads = const [],
+    bool useAndroidAudio = false,
   }) async {
     const oldSwitch = SharedPreferenceConstants.timerSessionBellsEnabled;
     SharedPreferences.setMockInitialValues({
@@ -118,6 +124,11 @@ void main() {
       SharedPreferenceConstants.bgSoundCatalog: jsonEncode(
         savedCatalog.map((sound) => sound.toJson()).toList(),
       ),
+      SharedPreferenceConstants.listBgSound: [
+        for (final sound in legacyDownloads)
+          jsonEncode(sound.toJson()..remove('version')),
+      ],
+      SharedPreferenceConstants.downloads: jsonEncode(guidedDownloads),
       oldSwitch: false,
     });
     prefs = await SharedPreferences.getInstance();
@@ -147,12 +158,29 @@ void main() {
           () => BackgroundSoundsNotifier(
             ambientPlayer: ambient,
             audioHandler: () => handler,
+            useAndroidAudio: useAndroidAudio,
           ),
         ),
       ],
     );
     addTearDown(container.dispose);
     notifier = container.read(backgroundSoundsNotifierProvider.notifier);
+  }
+
+  void audioHost(
+    String method,
+    FutureOr<Object?> Function(Object? message) handle,
+  ) {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final channel = BasicMessageChannel<Object?>(
+      'dev.flutter.pigeon.medito.MeditoAudioServiceApi.$method',
+      MeditoAudioServiceApi.pigeonChannelCodec,
+    );
+    messenger.setMockDecodedMessageHandler(channel, (message) async {
+      return [await handle(message)];
+    });
+    addTearDown(() => messenger.setMockDecodedMessageHandler(channel, null));
   }
 
   Future<void> settled() {
@@ -329,7 +357,10 @@ void main() {
   );
 
   test('the old files stay until their replacement exists', () async {
-    await open(catalog: [_updated.copyWith(title: _old.title)]);
+    await open(
+      catalog: [_updated.copyWith(title: _old.title)],
+      legacyDownloads: [_old],
+    );
     cacheOldVersion();
     final legacy = file('Rain.mp3')..writeAsStringSync('legado');
     final started = Completer<void>();
@@ -367,6 +398,117 @@ void main() {
     );
   });
 
+  for (final prepared in [true, false]) {
+    test(
+      prepared
+          ? 'Android keeps the old files until the new version is prepared'
+          : 'Android falls back when it cannot prepare the new download',
+      () async {
+        await open(
+          catalog: [_updated],
+          legacyDownloads: [_old],
+          useAndroidAudio: true,
+        );
+        cacheOldVersion();
+        final legacy = file('Rain.mp3')..writeAsStringSync('legado');
+        final preparing = Completer<void>();
+        final preparation = Completer<bool>();
+        String? selectedPath;
+        audioHost('setBackgroundSound', (message) {
+          final uri = (message as List<Object?>).single as String?;
+          selectedPath = uri == null ? null : Uri.parse(uri).toFilePath();
+          return null;
+        });
+        audioHost('stopBackgroundSound', (_) => null);
+        audioHost('setBackgroundSoundVolume', (_) => null);
+        audioHost('playBackgroundSound', (_) {
+          loaded.add(selectedPath!);
+          if (selectedPath != cached(_updated).path) return true;
+          preparing.complete();
+          return preparation.future;
+        });
+
+        final done = settled();
+        notifier.restoreTimerBackgroundSound(_timer);
+        await preparing.future.timeout(const Duration(seconds: 5));
+        expect(cached(_updated).existsSync(), isTrue);
+        expect(cached(_old).existsSync(), isTrue);
+        expect(legacy.existsSync(), isTrue);
+        expect(mappedFiles(), {_old.id: backgroundSoundFileName(_old)});
+
+        preparation.complete(prepared);
+        await done;
+        expect(loaded, [
+          cached(_updated).path,
+          if (!prepared) cached(_old).path,
+        ]);
+        expect(cached(_old).existsSync(), !prepared);
+        expect(legacy.existsSync(), !prepared);
+        expect(mappedFiles(), {
+          _old.id: backgroundSoundFileName(prepared ? _updated : _old),
+        });
+        expect(
+          container.read(backgroundSoundsNotifierProvider).failedBgSound,
+          isNull,
+        );
+      },
+    );
+  }
+
+  test('a new ambient title cannot delete a guided download', () async {
+    final renamed = _updated.copyWith(title: 'track-file');
+    await open(catalog: [renamed], legacyDownloads: [_old]);
+    final legacy = file('Rain.mp3')..writeAsStringSync('legado');
+    final guided = file('track-file.mp3')..writeAsStringSync('meditación');
+    final done = settled();
+    notifier.handleOnChangeSound(renamed);
+    await done;
+    expect(legacy.existsSync(), isFalse);
+    expect(guided.readAsStringSync(), 'meditación');
+    expect(
+      prefs.getBool(SharedPreferenceConstants.backgroundSoundCacheV2Migrated),
+      isTrue,
+    );
+  });
+
+  test(
+    'a guided download stays even if an old ambient title matches',
+    () async {
+      final oldTitle = _old.copyWith(title: 'track-file');
+      await open(
+        catalog: [_updated],
+        legacyDownloads: [oldTitle],
+        guidedDownloads: [
+          const Track(
+            id: 'track',
+            title: 'Meditación',
+            description: '',
+            coverUrl: '',
+            isPublished: true,
+            hasBackgroundSound: false,
+            voices: [
+              TrackVoice(
+                audioFiles: [
+                  TrackAudioFile(
+                    id: 'file',
+                    path: 'https://example.com/file.mp3',
+                    duration: 60,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+      final guided = file('track-file.mp3')..writeAsStringSync('meditación');
+      final done = settled();
+      notifier.restoreTimerBackgroundSound(_timer);
+      await done;
+      expect(loaded, [cached(_updated).path]);
+      expect(guided.readAsStringSync(), 'meditación');
+    },
+  );
+
   test(
     'unsafe legacy names cannot remove files using a slash or backslash',
     () async {
@@ -375,7 +517,7 @@ void main() {
         _updated.copyWith(id: 'nested', title: 'a/b'),
         _updated.copyWith(id: 'backslash', title: r'c\d'),
       ];
-      await open(catalog: unsafe);
+      await open(catalog: unsafe, legacyDownloads: unsafe);
       final outside = File('${root.path}/x.mp3')..writeAsStringSync('afuera');
       final nestedDir = Directory('${cache.path}/a')..createSync();
       final nested = File('${nestedDir.path}/b.mp3')..writeAsStringSync('otro');

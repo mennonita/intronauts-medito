@@ -16,12 +16,15 @@ import '../../models/background_sounds/background_sounds_model.dart';
 import '../../models/player/playback_request.dart';
 import '../../models/timer/bell_sound.dart';
 import '../../models/timer/timer_session.dart';
+import '../../models/track/track.dart';
 import '../../repositories/background_sounds/background_sounds_repository.dart';
 import '../../repositories/downloader/downloader_repository.dart';
+import '../../repositories/track/track_repository.dart';
 import '../../services/account/playback_account.dart';
 import '../../services/audio/session_bell_preview.dart';
-import '../../src/audio_pigeon.g.dart';
+import '../../src/audio_pigeon.g.dart' show MeditoAudioServiceApi;
 import '../../utils/logger.dart';
+import '../../utils/utils.dart' show getAudioFileExtension;
 import '../player/ios_audio_handler.dart';
 import '../player/player_provider.dart';
 import '../shared_preference/shared_preference_provider.dart';
@@ -55,17 +58,62 @@ final _backgroundSoundCacheProvider = Provider<_BackgroundSoundCache>(
   (ref) => _BackgroundSoundCache(
     ref.watch(sharedPreferencesProvider),
     ref.watch(backgroundSoundCacheDirectoryProvider),
+    ref.watch(trackRepositoryProvider).fetchTrackFromPreference,
   ),
 );
 
 class _BackgroundSoundCache {
-  _BackgroundSoundCache(this._prefs, this._getDirectory);
+  _BackgroundSoundCache(this._prefs, this._getDirectory, this._guidedDownloads);
 
   final SharedPreferences _prefs;
   final Future<Directory> Function() _getDirectory;
+  final Future<List<Track>> Function() _guidedDownloads;
   final _downloads = <String, Future<String?>>{};
   List<BackgroundSoundsModel>? _fetchedCatalog;
   static final _cacheName = RegExp(r'^bg-[0-9a-f]{32}\.mp3$');
+  static const _legacyDownloadsKey = 'background_sound_legacy_downloads';
+  late final Future<List<BackgroundSoundsModel>> legacyDownloads =
+      _saveLegacyDownloads();
+
+  Future<List<BackgroundSoundsModel>> _saveLegacyDownloads() async {
+    final snapshot = _prefs.getStringList(_legacyDownloadsKey);
+    final entries =
+        snapshot ??
+        _prefs.getStringList(SharedPreferenceConstants.listBgSound) ??
+        const [];
+    final records = <String>[];
+    final sounds = <BackgroundSoundsModel>[];
+    for (final entry in entries) {
+      try {
+        final json = jsonDecode(entry);
+        // La lista anterior a la caché por versión no guardaba este campo.
+        if (json is! Map<String, dynamic> || json.containsKey('version')) {
+          continue;
+        }
+        final sound = BackgroundSoundsModel.fromJson(json);
+        if (_isAmbient(sound)) {
+          records.add(entry);
+          sounds.add(sound);
+        }
+      } on FormatException {
+        continue;
+      } on TypeError {
+        continue;
+      }
+    }
+    // Conserva la lista anterior antes de agregar nuevas selecciones.
+    if (snapshot == null) {
+      try {
+        if (!await _prefs.setStringList(_legacyDownloadsKey, records)) {
+          return const [];
+        }
+      } on Exception catch (error) {
+        AppLogger.w('BG_SOUND', 'No se pudo guardar la lista anterior: $error');
+        return const [];
+      }
+    }
+    return sounds;
+  }
 
   Map<String, String> _mappedFiles() {
     final encoded = _prefs.get(
@@ -152,8 +200,7 @@ class _BackgroundSoundCache {
   }
 
   Future<void> remember(
-    BackgroundSoundsModel sound,
-    Set<String> legacyTitles, {
+    BackgroundSoundsModel sound, {
     required bool Function() isCurrent,
   }) async {
     final dir = await _getDirectory();
@@ -173,7 +220,9 @@ class _BackgroundSoundCache {
     }
 
     final latest = _mappedFiles();
-    if (latest[sound.id] != name || !replacement.existsSync()) return;
+    if (!isCurrent() || latest[sound.id] != name || !replacement.existsSync()) {
+      return;
+    }
     final belongsToAnotherSound = _fetchedCatalog?.any(
       (other) =>
           other.id != sound.id && backgroundSoundFileName(other) == previous,
@@ -183,18 +232,34 @@ class _BackgroundSoundCache {
         belongsToAnotherSound != true) {
       _delete(File(p.join(dir.path, previous)));
     }
-    for (final title in legacyTitles) {
-      final file = _legacyFile(dir, title);
-      if (file == null) continue;
-      final shared = _fetchedCatalog?.any(
-        (other) =>
-            other.id != sound.id &&
-            other.title == title &&
-            !File(
-              p.join(dir.path, backgroundSoundFileName(other)),
-            ).existsSync(),
-      );
-      if (shared != true) _delete(file);
+    final legacy = await legacyDownloads;
+    final titles = {
+      for (final item in legacy)
+        if (item.id == sound.id) item.title,
+    };
+    if (titles.isNotEmpty && isCurrent()) {
+      final guided = await _guidedDownloads();
+      if (!isCurrent()) return;
+      final guidedNames = {
+        for (final track in guided)
+          for (final voice in track.voices)
+            for (final file in voice.audioFiles)
+              '${track.id}-${file.id}${getAudioFileExtension(file.path)}',
+      };
+      final current = _mappedFiles();
+      for (final title in titles) {
+        final file = _legacyFile(dir, title);
+        if (file == null || guidedNames.contains(p.basename(file.path))) {
+          continue;
+        }
+        final shared = legacy.any((other) {
+          if (other.id == sound.id || other.title != title) return false;
+          final mappedName = current[other.id];
+          return mappedName == null ||
+              !File(p.join(dir.path, mappedName)).existsSync();
+        });
+        if (!shared) _delete(file);
+      }
     }
     await _checkLegacyMigration();
   }
@@ -223,8 +288,7 @@ class _BackgroundSoundCache {
     }
     try {
       final dir = await _getDirectory();
-      for (final sound in catalog) {
-        if (!_isAmbient(sound)) continue;
+      for (final sound in await legacyDownloads) {
         final file = _legacyFile(dir, sound.title);
         if (file != null && await file.exists()) return;
       }
@@ -416,11 +480,14 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   BackgroundSoundsNotifier({
     AudioPlayer? ambientPlayer,
     IosAudioHandler Function()? audioHandler,
+    bool? useAndroidAudio,
   }) : _playerOverride = ambientPlayer,
-       _audioHandler = audioHandler ?? (() => iosAudioHandler);
+       _audioHandler = audioHandler ?? (() => iosAudioHandler),
+       _useAndroidAudio = useAndroidAudio ?? Platform.isAndroid;
 
   final AudioPlayer? _playerOverride;
   final IosAudioHandler Function() _audioHandler;
+  final bool _useAndroidAudio;
   AudioPlayer get _ambientPlayer => _playerOverride ?? iosBackgroundPlayer;
 
   StreamSubscription<Duration>? _fadeSubscription;
@@ -435,7 +502,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   void setTimerScope(bool isTimer) {
     _timerScope = isTimer;
     if (_manualFade != null) unawaited(_stopAmbient());
-    if (Platform.isIOS || _playerOverride != null) {
+    if (!_useAndroidAudio && (Platform.isIOS || _playerOverride != null)) {
       final previousSession = _iosSession;
       _bindIosSession();
       if (previousSession != _iosSession && iosAmbientActive) {
@@ -468,10 +535,10 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
 
     final scaledVol = scaledVolume(vol);
     state = state.copyWith(volume: vol);
-    if (!Platform.isAndroid) _audioHandler().sessionBells.setVolume(scaledVol);
+    if (!_useAndroidAudio) _audioHandler().sessionBells.setVolume(scaledVol);
     AppLogger.d('BG_SOUND', 'Scaled volume: $scaledVol');
 
-    if (Platform.isAndroid) {
+    if (_useAndroidAudio) {
       AppLogger.d('BG_SOUND', 'Setting Android background sound volume');
       _api.setBackgroundSoundVolume(scaledVol);
     } else {
@@ -510,7 +577,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
       final previous = repo.getSelectedBgSoundFromSharedPreferences();
       if (previous?.id == sound.id) previousTitle = previous?.title;
       repo.saveSelectedBgSoundToSharedPreferences(sound);
-      _updateItemsInSavedBgSoundList(sound);
+      unawaited(_updateItemsInSavedBgSoundList(sound));
     }
 
     final stopped = _stopAmbient();
@@ -551,7 +618,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     final account = PlaybackAccount.generation;
     try {
       final volume = scaledVolume(state.volume);
-      if (Platform.isAndroid) {
+      if (_useAndroidAudio) {
         await _api.setSessionBells(enabled);
       } else if (enabled) {
         await _audioHandler().sessionBells.enable(volume);
@@ -638,7 +705,9 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
         )) {
           if (!isCurrent()) return false;
           if (await _play(path, isCurrent)) {
-            if (isCurrent()) _updateItemsInSavedBgSoundList(stored);
+            if (isCurrent()) {
+              unawaited(_updateItemsInSavedBgSoundList(stored));
+            }
             return true;
           }
         }
@@ -647,9 +716,9 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
 
       Future<void> keepCurrentFile() async {
         if (!isCurrent()) return;
-        _updateItemsInSavedBgSoundList(sound);
+        unawaited(_updateItemsInSavedBgSoundList(sound));
         try {
-          await cache.remember(sound, titles, isCurrent: isCurrent);
+          await cache.remember(sound, isCurrent: isCurrent);
         } on Exception catch (error) {
           AppLogger.w(
             'BG_SOUND',
@@ -712,11 +781,11 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   Future<bool> _play(String path, bool Function() isCurrent) async {
     getVolumeFromPref();
     try {
-      if (Platform.isAndroid) {
+      if (_useAndroidAudio) {
         await _api.setBackgroundSound(Uri.file(path).toString());
         if (!isCurrent()) return false;
-        await _api.playBackgroundSound();
-        if (!isCurrent()) return false;
+        final prepared = await _api.playBackgroundSound();
+        if (!prepared || !isCurrent()) return false;
         await _api.setBackgroundSoundVolume(scaledVolume(state.volume));
       } else {
         _bindIosSession();
@@ -729,7 +798,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
         if (_audioHandler().playing) unawaited(_ambientPlayer.play());
         _handleFadeAtEndForIos();
       }
-      return true;
+      return isCurrent();
     } catch (error, stack) {
       AppLogger.e('BG_SOUND', 'No se pudo reproducir $path', error, stack);
       if (isCurrent()) iosAmbientActive = false;
@@ -738,7 +807,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   }
 
   void togglePlayPause(bool isPlaying) {
-    if (Platform.isAndroid) {
+    if (_useAndroidAudio) {
       if (isPlaying) {
         unawaited(_api.pauseBackgroundSound());
       } else {
@@ -760,7 +829,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     Duration fade = Duration.zero,
   }) {
     if (transportAlreadyStopped ||
-        Platform.isAndroid ||
+        _useAndroidAudio ||
         fade <= Duration.zero ||
         !iosAmbientActive) {
       return _stopAmbient(transportAlreadyStopped: transportAlreadyStopped);
@@ -821,7 +890,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   /// Detiene el sonido de fondo y las campanas al cerrar la sesión.
   void stopBackgroundSound() {
     unawaited(_stopAmbient());
-    if (Platform.isAndroid) {
+    if (_useAndroidAudio) {
       unawaited(_api.setSessionBells(false));
     } else {
       unawaited(_audioHandler().sessionBells.disable());
@@ -841,7 +910,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   Future<void> _stopAmbient({bool transportAlreadyStopped = false}) async {
     _endAmbientPlayback();
     if (transportAlreadyStopped) return;
-    if (Platform.isAndroid) {
+    if (_useAndroidAudio) {
       await _api.setBackgroundSound(null);
       await _api.stopBackgroundSound();
     } else if (Platform.isIOS || _playerOverride != null) {
@@ -862,9 +931,13 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     }
   }
 
-  void _updateItemsInSavedBgSoundList(BackgroundSoundsModel sound) {
+  Future<void> _updateItemsInSavedBgSoundList(
+    BackgroundSoundsModel sound,
+  ) async {
     final provider = ref.read(backgroundSoundsRepositoryProvider);
-    provider.updateItemsInSavedBgSoundList(sound);
+    final cache = ref.read(_backgroundSoundCacheProvider);
+    await cache.legacyDownloads;
+    if (ref.mounted) await provider.updateItemsInSavedBgSoundList(sound);
   }
 
   void restoreTimerBackgroundSound(PlaybackRequest request) {

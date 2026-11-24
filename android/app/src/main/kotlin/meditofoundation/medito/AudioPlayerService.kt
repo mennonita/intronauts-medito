@@ -1505,50 +1505,87 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
         return PendingIntent.getService(this, keyCode, intent, flags)
     }
 
-    override fun playBackgroundSound() {
-        if (backgroundSoundUri == SessionBellPlayer.URI) return
-        if (backgroundSoundUri == null) {
-            Log.d(TAG, "🔊 No background sound URI set - skipping playback")
+    private var backgroundPreparationAttempt = 0L
+
+    override fun playBackgroundSound(callback: (Result<Boolean>) -> Unit) {
+        if (!playBackgroundSound()) {
+            callback(Result.success(false))
+            return
+        }
+        val player = backgroundMusicPlayer
+        if (player.playbackState == Player.STATE_READY) {
+            callback(Result.success(true))
+            return
+        }
+        if (player.playbackState != Player.STATE_BUFFERING) {
+            callback(Result.success(false))
             return
         }
 
-        try {
-            Log.d(TAG, "🔊 Setting up background sound: $backgroundSoundUri")
+        val attempt = backgroundPreparationAttempt
+        val listener = object : Player.Listener {
+            private var finished = false
+            val timeout: Runnable = Runnable {
+                if (attempt == backgroundPreparationAttempt && isActive &&
+                    player.playbackState == Player.STATE_BUFFERING
+                ) player.stop()
+                finish(false)
+            }
+
+            private fun finish(prepared: Boolean) {
+                if (finished) return
+                finished = true
+                handler.removeCallbacks(timeout)
+                player.removeListener(this)
+                callback(Result.success(prepared))
+            }
+
+            override fun onEvents(player: Player, events: Player.Events) {
+                when {
+                    attempt != backgroundPreparationAttempt || !isActive ||
+                        player.playerError != null -> finish(false)
+                    player.playbackState == Player.STATE_READY -> {
+                        if (timerBackgroundShouldWait()) player.pause()
+                        finish(true)
+                    }
+                    player.playbackState != Player.STATE_BUFFERING -> finish(false)
+                }
+            }
+        }
+        player.addListener(listener)
+        handler.postDelayed(listener.timeout, 10_000L)
+    }
+
+    private fun timerBackgroundShouldWait(): Boolean =
+        timerSeed != null && ::primaryPlayer.isInitialized && !primaryPlayer.playWhenReady
+
+    private fun playBackgroundSound(): Boolean {
+        val uri = backgroundSoundUri ?: return false
+        if (uri == SessionBellPlayer.URI || !isActive || !::backgroundMusicPlayer.isInitialized) return false
+
+        return try {
             backgroundFadeJob?.cancel()
             backgroundFadeJob = null
-
-            // First ensure we've stopped any existing playback
-            resetBackgroundQueue()
-            Log.d(TAG, "🔊 Cleared existing background playback")
-
-            val backgroundMediaItem = MediaItem.Builder()
-                .setUri(backgroundSoundUri)
-                .build()
-
-            // Set up the background player
-            backgroundMusicPlayer.repeatMode = Player.REPEAT_MODE_ONE
-            backgroundMusicPlayer.setMediaItem(backgroundMediaItem)
-            backgroundMusicPlayer.prepare()
-
-            // Ensure volume is set before playing
-            if (backgroundMusicVolume > 0.0F) {
-                backgroundMusicPlayer.volume = backgroundMusicVolume * duckFactor
+            val player = backgroundMusicPlayer
+            val mediaUri = Uri.parse(uri)
+            // Al reanudar, conserva la preparación que ya está en curso.
+            if (player.currentMediaItem?.localConfiguration?.uri != mediaUri ||
+                (player.playbackState != Player.STATE_READY && player.playbackState != Player.STATE_BUFFERING)
+            ) {
+                backgroundPreparationAttempt++
+                resetBackgroundQueue()
+                player.repeatMode = Player.REPEAT_MODE_ONE
+                player.setMediaItem(MediaItem.fromUri(mediaUri))
+                player.prepare()
             }
 
-            // Temporizador en pausa (p. ej. terminó una descarga): se prepara sin sonar;
-            // al reanudar, onPlayWhenReadyChanged lo arranca (R106).
-            if (timerSeed != null && ::primaryPlayer.isInitialized && !primaryPlayer.playWhenReady) {
-                Log.d(TAG, "🔊 Temporizador en pausa: el fondo espera")
-                return
-            }
-
-            // Start playing once prepared
-            backgroundMusicPlayer.play()
-
-            Log.d(TAG, "🔊 Started background playback")
+            player.volume = backgroundMusicVolume * duckFactor
+            // Un temporizador en pausa prepara el fondo y lo reanuda con el reloj.
+            player.playWhenReady = !timerBackgroundShouldWait()
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error playing background sound: ${e.message}")
-            e.printStackTrace()
+            Log.e(TAG, "No se pudo preparar el sonido de fondo", e)
+            false
         }
     }
 
@@ -1558,6 +1595,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
 
     override fun setBackgroundSound(uri: String?) {
         Log.d(TAG, "🔊 setBackgroundSound called with URI: $uri")
+        backgroundPreparationAttempt++
 
         // Always stop the current background sound first
         try {
@@ -1582,6 +1620,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     override fun stopBackgroundSound() {
+        backgroundPreparationAttempt++
         try {
             Log.d(TAG, "🔊 Stopping background sound")
             backgroundFadeJob?.cancel()
