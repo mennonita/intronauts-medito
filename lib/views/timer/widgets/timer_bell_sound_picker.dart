@@ -82,22 +82,12 @@ Future<void> showTimerBellSoundPicker(
                           ),
                           const SizedBox(width: padding12),
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  name,
-                                  style: theme.textTheme.bodyLarge?.copyWith(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                if (sound.premium)
-                                  Text(
-                                    l10n.bellSoundPremium,
-                                    style: theme.textTheme.bodySmall,
-                                  ),
-                              ],
+                            child: Text(
+                              name,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                           IconButton(
