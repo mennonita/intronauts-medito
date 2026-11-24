@@ -23,26 +23,31 @@ class _Prefs extends Fake implements SharedPreferences {
   // Como SharedPreferences: la caché cambia aunque el disco falle.
   bool cacheThenFail = false;
   Completer<void>? gate;
+  String? gateKey;
   // Falla después de esperar la compuerta: la escritura queda pendiente y
   // luego no se guarda.
   bool failAfterGate = false;
   // Decide por clave si esta escritura falla (simula que el proceso muere).
   bool Function(String key)? failWhen;
+  void Function(String key)? onWrite;
   final statsWrites = <String>[];
 
   @override
   Future<bool> setString(String key, String value) async {
+    onWrite?.call(key);
+    if (failWhen?.call(key) ?? false) return false;
     if (key == SharedPreferenceConstants.localAllStatsKey ||
         key == 'stats_pending_owner') {
       if (failStats) return false;
-      if (failWhen?.call(key) ?? false) return false;
       if (cacheThenFail) {
         await real.setString(key, value);
         return false;
       }
-      final waiting = gate;
-      if (waiting != null) await waiting.future;
-      if (failAfterGate) return false;
+      if (gateKey == null || key == gateKey) {
+        final waiting = gate;
+        if (waiting != null) await waiting.future;
+        if (failAfterGate) return false;
+      }
       if (key == SharedPreferenceConstants.localAllStatsKey) {
         statsWrites.add(value);
       }
@@ -530,7 +535,153 @@ void main() {
     },
   );
 
+  group('el historial se publica después de guardarlo (REV-09)', () {
+    const statsKey = SharedPreferenceConstants.localAllStatsKey;
+    final remote = LocalAllStats.empty().copyWith(
+      audioCompleted: [LocalAudioCompleted(id: 'remote', timestamp: 100)],
+      totalTracksCompleted: 1,
+    );
+
+    Future<void> expectFailedWriteWithOldHistory(
+      Future<void> Function() operation, {
+      String? owner = _account,
+    }) async {
+      final before = await stats.localAllStats;
+      final started = Completer<void>();
+      final gate = Completer<void>();
+      prefs.gate = gate;
+      prefs.gateKey = statsKey;
+      prefs.failAfterGate = true;
+      prefs.onWrite = (key) {
+        if (key == statsKey && !started.isCompleted) started.complete();
+      };
+
+      final finished = expectLater(operation(), throwsStateError);
+      await started.future;
+      try {
+        expect(await stats.localAllStats, same(before));
+        expect(stats.verifiedUserId, owner);
+      } finally {
+        gate.complete();
+        await finished;
+      }
+      expect(await stats.localAllStats, same(before));
+      expect(stats.verifiedUserId, owner);
+      prefs.gate = null;
+      prefs.gateKey = null;
+      prefs.failAfterGate = false;
+      prefs.onWrite = null;
+    }
+
+    test('una descarga fallida conserva el historial para lecturas', () async {
+      await stats.localAllStats;
+      when(
+        () => service.fetchAllStats(),
+      ).thenAnswer((_) async => (stats: remote, clientSeq: 12));
+      await expectFailedWriteWithOldHistory(() => stats.sync(force: true));
+      await stats.sync(force: true);
+      expect(record()['stats_local_seq'], 12);
+      expect((await stats.localAllStats).audioCompleted!.single.id, 'remote');
+    });
+
+    test(
+      'una rebase fallida deja los cambios pendientes para reintentar',
+      () async {
+        await prefs.real.setString(
+          statsKey,
+          jsonEncode({
+            ...LocalAllStats.empty().toJson(),
+            'user_id': _account,
+            'stats_pending_sync': true,
+            'stats_local_seq': 1,
+            'stats_changes': [
+              {'type': 'repeat', 'duration': 300},
+            ],
+          }),
+        );
+        await open(verified: false);
+        when(
+          () => service.fetchAllStats(),
+        ).thenAnswer((_) async => (stats: remote, clientSeq: 12));
+        await expectFailedWriteWithOldHistory(stats.flushPendingPost);
+        await stats.flushPendingPost();
+        expect(record()['stats_local_seq'], 13);
+        final saved = await stats.localAllStats;
+        expect(saved.audioCompleted!.single.id, 'remote');
+        expect(saved.totalTimeListened, 300);
+        verify(() => service.postStats(any(), clientSeq: 13)).called(1);
+      },
+    );
+
+    test('la cuenta anterior sigue visible si falla el cambio', () async {
+      await open(verified: false);
+      expect(
+        await stats.recordTimerRun(_run('local', ownerId: '')),
+        TimerRecordResult.accepted,
+      );
+      await expectFailedWriteWithOldHistory(
+        () => stats.acceptServerUser(_account),
+        owner: null,
+      );
+      await stats.acceptServerUser(_account);
+      expect(stats.verifiedUserId, _account);
+      expect((await stats.preVerificationSummary())?.sessions, 1);
+    });
+
+    test('un fallo al guardar el dueño deja la cuenta anterior', () async {
+      await stats.localAllStats;
+      prefs.failWhen = (key) => key == SharedPreferenceConstants.serverUserId;
+      await expectLater(stats.acceptServerUser(_other), throwsStateError);
+      expect(stats.verifiedUserId, _account);
+      prefs.failWhen = null;
+      await stats.acceptServerUser(_other);
+      expect(stats.verifiedUserId, _other);
+    });
+  });
+
   group('el historial confirma la sesión guardada (END-01)', () {
+    test('cambiar de cuenta termina la espera pendiente (REV-10)', () async {
+      final confirming = stats.confirmTimerRun(
+        'pendiente',
+        timeout: const Duration(seconds: 1),
+      );
+      expect(stats.hasTimerRunConfirmationListeners, isTrue);
+      await stats.acceptServerUser(_other);
+      expect(
+        await confirming.timeout(const Duration(milliseconds: 100)),
+        isFalse,
+      );
+      expect(stats.hasTimerRunConfirmationListeners, isFalse);
+    });
+
+    test('cerrar la cuenta termina la espera pendiente (REV-10)', () async {
+      final gate = Completer<void>();
+      final started = Completer<void>();
+      prefs.gate = gate;
+      prefs.onWrite = (_) => started.complete();
+      final confirming = stats.confirmTimerRun(
+        'pendiente',
+        timeout: const Duration(seconds: 1),
+      );
+      final clearing = stats.clearAllStats(preservePending: false);
+      await started.future;
+      try {
+        expect(
+          await confirming.timeout(const Duration(milliseconds: 100)),
+          isFalse,
+        );
+        final whileClearing = stats.confirmTimerRun(
+          'otra',
+          timeout: const Duration(seconds: 1),
+        );
+        expect(stats.hasTimerRunConfirmationListeners, isFalse);
+        expect(await whileClearing, isFalse);
+      } finally {
+        gate.complete();
+        await clearing;
+      }
+    });
+
     test('confirma una sesión ya guardada sin esperar', () async {
       expect(await stats.recordTimerRun(_run('a')), TimerRecordResult.accepted);
       expect(
@@ -546,6 +697,7 @@ void main() {
       );
       expect(await stats.recordTimerRun(_run('b')), TimerRecordResult.accepted);
       expect(await confirming, isTrue);
+      expect(stats.hasTimerRunConfirmationListeners, isFalse);
     });
 
     test('un guardado fallido no se confirma', () async {
@@ -556,6 +708,7 @@ void main() {
       );
       expect(await stats.recordTimerRun(_run('c')), TimerRecordResult.failed);
       expect(await confirming, isFalse);
+      expect(stats.hasTimerRunConfirmationListeners, isFalse);
     });
 
     test('la sesión de otra cuenta no se confirma', () async {
