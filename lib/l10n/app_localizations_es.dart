@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -2776,7 +2777,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get timerStopwatchCaption =>
-      'El tiempo cuenta desde cero. Pulsa detener cuando termines y la sesión se guarda.';
+      'El reloj cuenta desde cero, hasta 5 horas. Toca «Terminar» cuando acabes y se guarda tu sesión.';
 
   @override
   String get timerStart => 'Empezar';
@@ -2903,21 +2904,27 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String timerBellEvery(int minutes) {
-    return 'Cada $minutes min';
+    return 'Cada $minutes minutos';
   }
 
   @override
-  String get timerBellInterval => 'Intervalo';
+  String get timerBellInterval => 'Campana cada…';
 
   @override
-  String get timerBellsOff => 'Apagado';
+  String get timerBellsOff => 'Ninguna';
 
   @override
-  String get timerRandomBells => 'Al azar';
+  String get timerRandomBells => 'Campanas al azar';
 
   @override
   String timerRandomBellCount(int count) {
-    return '$count al azar';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count campanas',
+      one: '1 campana',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -2925,7 +2932,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get timerExtraTimeDescription =>
-      'Al terminar, sigue contando hasta que pares.';
+      'Cuando acabe el tiempo, el reloj sigue contando. Toca «Terminar» para acabar.';
 
   @override
   String timerExtraTimeElapsed(String time) {
@@ -2933,19 +2940,19 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get timerBackgroundTitle => 'Fondo';
+  String get timerBackgroundTitle => 'Pantalla';
 
   @override
   String get timerBackgroundAnimation => 'Animación';
 
   @override
-  String get timerBackgroundImage => 'Imagen';
+  String get timerBackgroundImage => 'Degradados';
 
   @override
-  String get timerBackgroundColor => 'Color';
+  String get timerBackgroundColor => 'Colores';
 
   @override
-  String get timerBackgroundNone => 'Sin fondo';
+  String get timerBackgroundNone => 'Negro';
 
   @override
   String get timerBackgroundBreathing => 'Respiración';
@@ -2995,10 +3002,10 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get timerSavedPresets => 'Tus temporizadores';
+  String get timerSavedPresets => 'Tus temporizadores guardados';
 
   @override
-  String get timerSavePreset => 'Guardar este temporizador';
+  String get timerSavePreset => 'Guardar estos ajustes';
 
   @override
   String get timerPresetName => 'Nombre';
@@ -3037,7 +3044,7 @@ class AppLocalizationsEs extends AppLocalizations {
       'No se pudo detener el temporizador. Intenta de nuevo.';
 
   @override
-  String get bellSoundActual => 'Campana actual';
+  String get bellSoundActual => 'Campana clásica';
 
   @override
   String get bellSoundTibetanBowl => 'Cuenco tibetano';
@@ -3099,4 +3106,424 @@ class AppLocalizationsEs extends AppLocalizations {
   String bellSoundPreview(String name) {
     return 'Escucha una muestra de $name';
   }
+
+  @override
+  String get timerExit => 'Salir';
+
+  @override
+  String get timerEndConfirmTitle => '¿Terminar la sesión?';
+
+  @override
+  String timerEndConfirmBody(int minutes) {
+    return 'Llevas $minutes min.';
+  }
+
+  @override
+  String get timerShortSessionWarning =>
+      'Llevas menos de un minuto. Las sesiones de menos de un minuto no se guardan.';
+
+  @override
+  String get timerEndConfirmAction => 'Terminar';
+
+  @override
+  String get timerKeepMeditating => 'Seguir meditando';
+
+  @override
+  String get timerExitConfirmTitle => '¿Salir de la sesión?';
+
+  @override
+  String timerExitConfirmBody(int minutes) {
+    return 'Llevas $minutes min. ¿Quieres guardarlos?';
+  }
+
+  @override
+  String get timerSaveAndExit => 'Guardar y salir';
+
+  @override
+  String get timerExitWithoutSaving => 'Salir sin guardar';
+
+  @override
+  String get timerPaused => 'En pausa';
+
+  @override
+  String get timerPrepLabel => 'Prepárate';
+
+  @override
+  String timerTimeLeftSemantics(String time) {
+    return 'Quedan $time';
+  }
+
+  @override
+  String timerTimeElapsedSemantics(String time) {
+    return 'Llevas $time';
+  }
+
+  @override
+  String timerSpokenHours(int hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      hours,
+      locale: localeName,
+      other: '$hours horas',
+      one: '1 hora',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String timerSpokenMinutes(int minutes) {
+    String _temp0 = intl.Intl.pluralLogic(
+      minutes,
+      locale: localeName,
+      other: '$minutes minutos',
+      one: '1 minuto',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String timerSpokenSeconds(int seconds) {
+    String _temp0 = intl.Intl.pluralLogic(
+      seconds,
+      locale: localeName,
+      other: '$seconds segundos',
+      one: '1 segundo',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String timerSpokenTimeLeft(int minutes) {
+    String _temp0 = intl.Intl.pluralLogic(
+      minutes,
+      locale: localeName,
+      other: 'Quedan $minutes minutos',
+      one: 'Queda 1 minuto',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String timerStageLabel(String stage, int index, int total) {
+    return '$stage · parte $index de $total';
+  }
+
+  @override
+  String get timerDone => 'Listo';
+
+  @override
+  String get timerHeadphonesPaused =>
+      'Sesión en pausa: se desconectaron los audífonos';
+
+  @override
+  String get timerOtherAudioPaused =>
+      'Sesión en pausa: otra app empezó a sonar';
+
+  @override
+  String get timerAlertsChannel => 'Avisos del temporizador';
+
+  @override
+  String get timerEndBackupChannel => 'Fin del temporizador';
+
+  @override
+  String get timerEndBackupTitle => 'Terminó tu meditación';
+
+  @override
+  String timerEndBackupBody(int minutes) {
+    return 'Se cumplieron tus $minutes min.';
+  }
+
+  @override
+  String get timerEndBackupSilentChannel =>
+      'Fin del temporizador (solo vibración)';
+
+  @override
+  String get timerLaunchBusy =>
+      'Ya tienes una sesión en curso. Termínala para empezar otra.';
+
+  @override
+  String get timerDndRuleName => 'Temporizador de meditación';
+
+  @override
+  String timerRecoveredSession(int minutes) {
+    return 'Guardamos tu sesión de $minutes min.';
+  }
+
+  @override
+  String get timerPrepTitle => 'Antes de empezar';
+
+  @override
+  String get timerPrepDescription =>
+      'Una cuenta regresiva para acomodarte. No cuenta como tiempo meditado.';
+
+  @override
+  String get timerPrepOff => 'Sin espera';
+
+  @override
+  String timerPrepSecondsOption(int seconds) {
+    return '$seconds s';
+  }
+
+  @override
+  String timerPrepMinutesOption(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get timerZeroHint => 'Elige al menos 1 minuto para empezar.';
+
+  @override
+  String get timerStartError =>
+      'No se pudo iniciar el temporizador. Inténtalo de nuevo.';
+
+  @override
+  String statsBeforeSignIn(int sessions, int minutes) {
+    String _temp0 = intl.Intl.pluralLogic(
+      sessions,
+      locale: localeName,
+      other: '$sessions sesiones',
+      one: '1 sesión',
+    );
+    return 'En este teléfono, antes de entrar a tu cuenta: $_temp0, $minutes min.';
+  }
+
+  @override
+  String get timerExitFailed => 'No se pudo salir. Inténtalo de nuevo.';
+
+  @override
+  String get timerVolumeZeroTitle => 'El volumen está en cero';
+
+  @override
+  String get timerVolumeZeroBody =>
+      'No vas a oír las campanas. Sube el volumen de multimedia.';
+
+  @override
+  String get timerStartAnyway => 'Empezar así';
+
+  @override
+  String get timerExtraTimeBellHint =>
+      'Prende la campana al terminar para saber cuándo acaba el tiempo.';
+
+  @override
+  String timerPresetAutoName(String duration, String bell) {
+    return '$duration · $bell';
+  }
+
+  @override
+  String get timerManagePresets => 'Editar guardados';
+
+  @override
+  String get timerPresetRename => 'Cambiar nombre';
+
+  @override
+  String get timerPresetUpdate => 'Guardar ajustes actuales';
+
+  @override
+  String get timerPresetUpdated => 'Se guardaron los cambios';
+
+  @override
+  String get timerPresetMoveUp => 'Subir';
+
+  @override
+  String get timerPresetMoveDown => 'Bajar';
+
+  @override
+  String timerPresetLoaded(String name) {
+    return 'Listo: «$name». Toca Empezar cuando quieras.';
+  }
+
+  @override
+  String timerPresetOptions(String name) {
+    return 'Opciones de «$name»';
+  }
+
+  @override
+  String get timerBellsSummaryNone => 'Sin campanas';
+
+  @override
+  String get timerSummaryStart => 'al empezar';
+
+  @override
+  String get timerSummaryEnd => 'al terminar';
+
+  @override
+  String timerSummaryInterval(int minutes) {
+    return 'cada $minutes min';
+  }
+
+  @override
+  String timerSummaryRandom(int count) {
+    return '$count al azar';
+  }
+
+  @override
+  String get timerSummaryVibration => 'vibración';
+
+  @override
+  String get timerBellOutputTitle => 'Cómo te avisan';
+
+  @override
+  String get timerBellOutputSound => 'Sonido';
+
+  @override
+  String get timerBellOutputVibration => 'Solo vibración';
+
+  @override
+  String get timerBellOutputBoth => 'Sonido y vibración';
+
+  @override
+  String get timerBellOutputVibrationHint =>
+      'Útil si meditas junto a otras personas. Algunos teléfonos no vibran con la pantalla bloqueada.';
+
+  @override
+  String get timerSpokenCues => 'Decir el tiempo que queda';
+
+  @override
+  String get timerSpokenCuesDescription =>
+      'Una voz avisa cuando quedan 10, 5 y 1 minutos.';
+
+  @override
+  String get timerStagesTitle => 'Sesión por partes';
+
+  @override
+  String get timerStagesDescription =>
+      'Por ejemplo: sentado, caminando, sentado. Cada parte empieza con su campana.';
+
+  @override
+  String get timerStageSit => 'Sentado';
+
+  @override
+  String get timerStageWalk => 'Caminando';
+
+  @override
+  String get timerStageRest => 'Descanso';
+
+  @override
+  String get timerStageAdd => 'Agregar parte';
+
+  @override
+  String get timerStageRemove => 'Quitar parte';
+
+  @override
+  String timerStagesTotal(String duration) {
+    return 'Total: $duration';
+  }
+
+  @override
+  String get timerStageLimit => 'Puedes tener hasta 6 partes.';
+
+  @override
+  String get timerStageMinus => 'Un minuto menos';
+
+  @override
+  String get timerStagePlus => 'Un minuto más';
+
+  @override
+  String timerHoursWheelLabel(int value) {
+    return 'Horas: $value';
+  }
+
+  @override
+  String timerMinutesWheelLabel(int value) {
+    return 'Minutos: $value';
+  }
+
+  @override
+  String timerCompletedTitle(String duration) {
+    return 'Meditaste $duration';
+  }
+
+  @override
+  String get timerSaveNote => 'Guardar nota';
+
+  @override
+  String get timerRepeat => 'Repetir';
+
+  @override
+  String get timerNoteHint => '¿Qué notaste en tu práctica?';
+
+  @override
+  String get timerNoteSaved => 'Nota guardada';
+
+  @override
+  String get timerNoteError =>
+      'No se pudo guardar tu nota. Inténtalo de nuevo.';
+
+  @override
+  String get timerClosingFallback => 'Gracias por darte este tiempo.';
+
+  @override
+  String get timerHealthCardTitle => 'Guarda tus minutos en Salud';
+
+  @override
+  String get timerHealthCardBody =>
+      'Tus sesiones se guardan como minutos de atención plena. Solo escribimos; nunca leemos tus datos.';
+
+  @override
+  String get timerHealthCardEnable => 'Activar';
+
+  @override
+  String get timerHealthCardLater => 'Ahora no';
+
+  @override
+  String get timerSettingsSection => 'Temporizador';
+
+  @override
+  String get timerMixWithOthersTitle => 'Música de otras apps';
+
+  @override
+  String get timerMixWithOthersSubtitle =>
+      'Deja sonar la música de otras apps mientras usas el temporizador.';
+
+  @override
+  String get timerKeepScreenOnTitle => 'Pantalla encendida';
+
+  @override
+  String get timerKeepScreenOnSubtitle =>
+      'La pantalla no se apaga mientras usas el temporizador.';
+
+  @override
+  String get mindfulnessBellsTitle => 'Campanas durante el día';
+
+  @override
+  String get mindfulnessBellsSubtitle =>
+      'Un aviso suave para hacer una pausa y respirar.';
+
+  @override
+  String mindfulnessBellsFrom(String time) {
+    return 'Desde las $time';
+  }
+
+  @override
+  String mindfulnessBellsUntil(String time) {
+    return 'Hasta las $time';
+  }
+
+  @override
+  String mindfulnessBellsEvery(int hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      hours,
+      locale: localeName,
+      other: 'Cada $hours horas',
+      one: 'Cada hora',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get mindfulnessBellNotificationTitle => 'Campana de atención';
+
+  @override
+  String get mindfulnessBellNotificationBody => 'Haz una pausa y respira.';
+
+  @override
+  String get mindfulnessBellsPermissionNeeded =>
+      'Activa las notificaciones para recibir las campanas.';
+
+  @override
+  String timerShortcutMinutes(int minutes) {
+    return 'Temporizador de $minutes min';
+  }
+
+  @override
+  String get timerShortcutLast => 'Repetir último temporizador';
 }
