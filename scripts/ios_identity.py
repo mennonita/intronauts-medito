@@ -1,16 +1,20 @@
 """Revisa o aplica los identificadores de Identity.xcconfig."""
 
 import argparse
+import plistlib
 import re
 import stat
 import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from xml.parsers.expat import ExpatError
 
 
 CONFIG = "ios/Flutter/Identity.xcconfig"
 PROJECT = "ios/Runner.xcodeproj/project.pbxproj"
+EXPORT_OPTIONS = "ios/exportOptions.plist"
 TEAM_ROLE = "DEVELOPMENT_TEAM_ID"
+SIGNING_PLACEHOLDER = re.compile(r"\$[({]|<[^>]*>|\b(?:TODO|TBD|CHANGEME|PLACEHOLDER)\b", re.IGNORECASE)
 KEYCHAIN_PREFIX = "$(AppIdentifierPrefix)"
 TARGET_ROLES = {
     "Runner": "APP_BUNDLE_ID",
@@ -153,6 +157,54 @@ def replace_file(path, source):
             temporary.unlink(missing_ok=True)
 
 
+def check_export_options(root, identity):
+    try:
+        options = plistlib.loads((root / EXPORT_OPTIONS).read_bytes())
+    except (plistlib.InvalidFileException, ExpatError) as error:
+        raise ValueError(f"{EXPORT_OPTIONS}: el plist no es válido.") from error
+    if not isinstance(options, dict):
+        raise ValueError(f"{EXPORT_OPTIONS}: se esperaba un diccionario.")
+
+    expected_team = identity[TEAM_ROLE]
+    team = options.get("teamID")
+    certificate = options.get("signingCertificate")
+    profiles = options.get("provisioningProfiles")
+    errors = []
+
+    print(f"{EXPORT_OPTIONS}:teamID {TEAM_ROLE} {team}")
+    if team != expected_team:
+        errors.append(f"teamID debe coincidir con {TEAM_ROLE} ({expected_team}).")
+
+    print(f"{EXPORT_OPTIONS}:signingCertificate SIGNING_CERTIFICATE {certificate}")
+    if (
+        not isinstance(certificate, str)
+        or not re.fullmatch(rf"(?:Apple|iPhone) Distribution: \S.* \({expected_team}\)", certificate)
+        or SIGNING_PLACEHOLDER.search(certificate)
+    ):
+        errors.append(f"signingCertificate debe indicar un certificado de distribución del equipo {expected_team}.")
+
+    expected_bundles = {identity["APP_BUNDLE_ID"], identity["WIDGET_BUNDLE_ID"]}
+    if not isinstance(profiles, dict):
+        errors.append("provisioningProfiles debe ser un diccionario de perfiles.")
+        profiles = {}
+    if profiles.keys() != expected_bundles:
+        errors.append(f"provisioningProfiles debe contener los perfiles de {', '.join(sorted(expected_bundles))}.")
+    for bundle, profile in sorted(profiles.items()):
+        print(f"{EXPORT_OPTIONS}:provisioningProfiles.{bundle} PROVISIONING_PROFILE {profile}")
+        if (
+            not isinstance(profile, str)
+            or not profile.strip()
+            or SIGNING_PLACEHOLDER.search(profile)
+        ):
+            errors.append(f"provisioningProfiles.{bundle} debe indicar el nombre o UUID del perfil.")
+        elif profile.startswith("match AppStore ") and profile != f"match AppStore {bundle}":
+            errors.append(f"provisioningProfiles.{bundle} apunta a otro identificador de app.")
+
+    for error in errors:
+        print(f"{EXPORT_OPTIONS}: {error}", file=sys.stderr)
+    return bool(errors)
+
+
 def sync_identity(root, apply):
     identity = read_identity(root)
     updates = {}
@@ -182,7 +234,8 @@ def sync_identity(root, apply):
             replace_file(root / path, source)
         print(f"Apariciones actualizadas: {changed}. Archivos modificados: {len(updates)}.")
         return 0
-    return int(changed != 0)
+    export_mismatch = check_export_options(root, identity)
+    return int(changed != 0 or export_mismatch)
 
 
 class SpanishParser(argparse.ArgumentParser):

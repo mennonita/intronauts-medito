@@ -5,9 +5,12 @@ import SwiftUI
 private let appGroupId = "group.org.medito.widget"
 
 /// Devuelve el inicio del día de práctica según la hora elegida en la app.
-func logicalDayStart(_ date: Date, offsetHours: Int) -> Date {
-    let shifted = date.addingTimeInterval(-Double(offsetHours) * 3600)
-    return Calendar.current.startOfDay(for: shifted)
+func logicalDayStart(_ date: Date, offsetHours: Int, calendar: Calendar = .current) -> Date {
+    // Como en Kotlin, resta el desfase al reloj local y conserva solo el día.
+    let hour = calendar.component(.hour, from: date) - offsetHours
+    let dayShift = hour / 24 - (hour % 24 < 0 ? 1 : 0)
+    let shiftedDay = calendar.date(byAdding: .day, value: dayShift, to: calendar.startOfDay(for: date))!
+    return calendar.startOfDay(for: shiftedDay)
 }
 
 struct WidgetData {
@@ -32,9 +35,17 @@ struct WidgetData {
     }
 
     /// Actualiza la tira cuando empieza el siguiente día de práctica.
-    func timelineDates(from now: Date) -> [Date] {
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today(at: now))!
-        return [now, tomorrow.addingTimeInterval(Double(dayBoundaryOffsetHours) * 3600)]
+    func timelineDates(from now: Date, calendar: Calendar = .current) -> [Date] {
+        let today = logicalDayStart(now, offsetHours: dayBoundaryOffsetHours, calendar: calendar)
+        let hour = (dayBoundaryOffsetHours % 24 + 24) % 24
+        let dayShift = (dayBoundaryOffsetHours - hour) / 24
+        let boundaryDay = calendar.date(byAdding: .day, value: 1 + dayShift, to: today)!
+        let dayStart = calendar.startOfDay(for: boundaryDay)
+        let boundary = hour == 0 ? dayStart : calendar.date(
+            bySettingHour: hour, minute: 0, second: 0, of: dayStart,
+            matchingPolicy: .nextTime, repeatedTimePolicy: .first
+        )!
+        return [now, boundary]
     }
 
     /// Muestra días de práctica de ejemplo.
