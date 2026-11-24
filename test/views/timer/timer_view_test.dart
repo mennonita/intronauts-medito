@@ -11,18 +11,23 @@ import 'package:medito/models/background_sounds/background_sounds_model.dart';
 import 'package:medito/models/player/playback_request.dart';
 import 'package:medito/models/timer/last_timer_store.dart';
 import 'package:medito/models/timer/timer_bell_settings.dart';
+import 'package:medito/models/timer/timer_house_content.dart';
 import 'package:medito/models/timer/timer_launch.dart';
 import 'package:medito/models/timer/timer_preset.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/providers.dart';
+import 'package:medito/providers/timer/timer_content_provider.dart';
 import 'package:medito/providers/timer/timer_presets_provider.dart';
 import 'package:medito/providers/timer/timer_settings_provider.dart';
 import 'package:medito/repositories/background_sounds/background_sounds_repository.dart';
 import 'package:medito/repositories/track/track_repository.dart';
 import 'package:medito/services/timer/timer_device_channel.dart';
+import 'package:medito/services/timer/timer_route_tracker.dart';
 import 'package:medito/views/previews/preview_support.dart';
+import 'package:medito/views/timer/mantra/mantra_counter_view.dart';
 import 'package:medito/views/timer/timer_view.dart';
 import 'package:medito/views/timer/widgets/timer_preset_name_dialog.dart';
+import 'package:medito/widgets/inputs/medito_segmented_tabs.dart';
 
 import '../../helpers/firebase_analytics_test_helper.dart';
 import '../../helpers/firebase_test_helper.dart';
@@ -145,6 +150,18 @@ class _FakePlayerPageState extends ConsumerState<_FakePlayerPage> {
       const Scaffold(body: Text('pantalla-del-reproductor'));
 }
 
+/// Contenido de la casa fijo: nunca toca la red.
+class _FakeHouse extends TimerHouseContentNotifier {
+  _FakeHouse(this.initial);
+
+  final TimerHouseContent initial;
+
+  @override
+  TimerHouseContent build() => initial;
+
+  void emit(TimerHouseContent content) => state = content;
+}
+
 String _settingsJson(TimerSettings settings) =>
     jsonEncode(settings.toSnapshotJson());
 
@@ -154,6 +171,7 @@ String _presetsJson(List<TimerPreset> presets) =>
 const _home = Key('inicio');
 
 late _FakePlayer _player;
+late _FakeHouse _house;
 late List<Duration> _fileDurations;
 
 Future<ProviderContainer> _pump(
@@ -163,7 +181,9 @@ Future<ProviderContainer> _pump(
   BackgroundSoundsModel? selected,
   List<BackgroundSoundsModel> catalog = const [],
   double textScale = 1,
+  TimerHouseContent house = const TimerHouseContent.empty(),
 }) async {
+  _house = _FakeHouse(house);
   await tester.pumpWidget(
     PreviewShell(
       locale: const Locale('es'),
@@ -174,6 +194,7 @@ Future<ProviderContainer> _pump(
           _FakeSounds(selected: selected, catalog: catalog),
         ),
         trackRepositoryProvider.overrideWithValue(_FakeTracks()),
+        timerHouseContentProvider.overrideWith(() => _house),
       ],
       child: MediaQuery.withClampedTextScaling(
         minScaleFactor: textScale,
@@ -223,6 +244,7 @@ void main() {
 
   tearDown(() {
     TimerView.prepareTimerFile = (duration) async => '';
+    TimerView.clock = DateTime.now;
     TimerDeviceChannel.debugIsAndroid = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -1000,6 +1022,391 @@ void main() {
       await _pumpUntilSettled(tester);
       expect(_player.played.single.plannedDurationMs, 5 * 60 * 1000);
       expect(container.read(timerSettingsProvider).minutes, 20);
+    });
+  });
+
+  group('contenido de la casa', () {
+    TimerHouseContent houseWith({
+      List<Map<String, Object?>> practices = const [],
+      Map<String, String> words = const {},
+      String? openingText,
+      List<Map<String, String>> practiceDays = const [],
+    }) => TimerHouseContent.fromJson({
+      'closingText': null,
+      'openingText': openingText,
+      'words': words,
+      'practiceDays': practiceDays,
+      'practices': practices,
+      'beadsPerRound': 108,
+    });
+
+    const zazen = {
+      'id': 'zazen',
+      'name': 'Zazen de la mañana',
+      'description': 'Sentarse en silencio, con la espalda derecha.',
+      'mode': 'countdown',
+      'minutes': 25,
+      'prepSeconds': 30,
+      'soundId': 'olas',
+    };
+    const walk = {
+      'id': 'kinhin',
+      'name': 'Sentada y caminata',
+      'mode': 'countdown',
+      'prepSeconds': 10,
+      'stages': [
+        {'kind': 'sit', 'minutes': 10},
+        {'kind': 'walk', 'minutes': 5},
+      ],
+      'soundId': 'ya-no-existe',
+    };
+
+    Future<void> tapCard(WidgetTester tester, String name) async {
+      await tester.ensureVisible(find.text(name));
+      await tester.tap(find.text(name));
+      await _pumpUntilSettled(tester);
+    }
+
+    testWidgets('las prácticas salen arriba de los guardados', (tester) async {
+      await _pump(
+        tester,
+        house: houseWith(practices: [zazen, walk]),
+        prefs: {
+          SharedPreferenceConstants.timerPresets: _presetsJson([morning]),
+        },
+      );
+      expect(find.text(l10n.timerHousePracticesTitle), findsOneWidget);
+      expect(find.text('Zazen de la mañana'), findsOneWidget);
+      expect(find.text('Sentada y caminata'), findsOneWidget);
+      expect(find.text('25 min'), findsNWidgets(2));
+      expect(find.text('15 min'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text(l10n.timerHousePracticesTitle)).dy,
+        lessThan(tester.getTopLeft(find.text(l10n.timerSavedPresets)).dy),
+      );
+    });
+
+    testWidgets('sin prácticas no hay sección', (tester) async {
+      await _pump(tester);
+      expect(find.text(l10n.timerHousePracticesTitle), findsNothing);
+    });
+
+    testWidgets('tocar una práctica la carga con su sonido y no empieza', (
+      tester,
+    ) async {
+      final container = await _pump(
+        tester,
+        house: houseWith(practices: [zazen]),
+        catalog: const [_rain, _waves],
+      );
+      await tapCard(tester, 'Zazen de la mañana');
+
+      expect(
+        find.text(l10n.timerPresetLoaded('Zazen de la mañana')),
+        findsOneWidget,
+      );
+      final settings = container.read(timerSettingsProvider);
+      expect(settings.minutes, 25);
+      expect(settings.prepSeconds, 30);
+      expect(settings.stages, isEmpty);
+      expect(_player.reservedIds, isEmpty);
+      expect(_player.prepared, isEmpty);
+      expect(find.text('pantalla-del-reproductor'), findsNothing);
+
+      await _tapStart(tester);
+      final request = _player.played.single;
+      expect(request.plannedDurationMs, 25 * 60 * 1000);
+      expect(request.timerPrepMs, 30000);
+      expect(request.overrideBackgroundSound, isTrue);
+      expect(request.backgroundSound, _waves);
+    });
+
+    testWidgets('una práctica por partes carga sus partes; sonido '
+        'desconocido = sin sonido de fondo', (tester) async {
+      final container = await _pump(
+        tester,
+        house: houseWith(practices: [walk]),
+        selected: _rain,
+        catalog: const [_rain],
+      );
+      await tapCard(tester, 'Sentada y caminata');
+
+      final settings = container.read(timerSettingsProvider);
+      expect(settings.isMultiStage, isTrue);
+      expect(settings.stages.map((stage) => stage.minutes), [10, 5]);
+      expect(settings.prepSeconds, 10);
+      expect(_player.reservedIds, isEmpty);
+
+      await _tapStart(tester);
+      final request = _player.played.single;
+      expect(request.timerStageDurationsMs, [10 * 60 * 1000, 5 * 60 * 1000]);
+      expect(request.overrideBackgroundSound, isTrue);
+      expect(request.backgroundSound, isNull);
+    });
+
+    testWidgets('las palabras de la casa reemplazan título y modos', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        house: houseWith(
+          words: {
+            'timer': 'Sentada',
+            'stopwatch': 'Sin tiempo',
+            'counter': 'Cuentas',
+          },
+        ),
+      );
+      final tabs = find.byType(MeditoSegmentedTabs);
+      expect(
+        find.descendant(of: tabs, matching: find.text('Sentada')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: tabs, matching: find.text('Sin tiempo')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.timerTitle), findsNothing);
+      expect(find.text(l10n.timerModeStopwatch), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Cuentas'), findsOneWidget);
+      expect(find.text(l10n.mantraCounterTitle), findsNothing);
+
+      // El reproductor lleva la misma palabra como título.
+      await _tapStart(tester);
+      expect(_player.played.single.title, 'Sentada');
+    });
+
+    testWidgets('sin palabras de la casa quedan las de la app', (tester) async {
+      await _pump(tester);
+      final tabs = find.byType(MeditoSegmentedTabs);
+      expect(
+        find.descendant(of: tabs, matching: find.text(l10n.timerTitle)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: tabs, matching: find.text(l10n.timerModeStopwatch)),
+        findsOneWidget,
+      );
+      expect(
+        find.widgetWithText(TextButton, l10n.mantraCounterTitle),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('el texto de apertura va justo arriba de «Empezar»', (
+      tester,
+    ) async {
+      const opening = 'Llegamos al cojín tal como estamos.';
+      await _pump(tester, house: houseWith(openingText: opening));
+      expect(find.text(opening), findsOneWidget);
+      final start = find.widgetWithText(ElevatedButton, l10n.timerStart);
+      expect(
+        tester.getBottomLeft(find.text(opening)).dy,
+        lessThanOrEqualTo(tester.getTopLeft(start).dy),
+      );
+    });
+
+    testWidgets('sin texto de apertura ni día no se muestra nada', (
+      tester,
+    ) async {
+      TimerView.clock = () => DateTime(2026, 11, 24, 10);
+      await _pump(
+        tester,
+        house: houseWith(
+          practiceDays: [
+            {'date': '2026-11-25', 'text': 'Mañana es día de práctica.'},
+          ],
+        ),
+      );
+      expect(find.text('Mañana es día de práctica.'), findsNothing);
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+    });
+
+    testWidgets('el día de práctica sale solo en su fecha', (tester) async {
+      TimerView.clock = () => DateTime(2026, 11, 24, 10);
+      await _pump(
+        tester,
+        house: houseWith(
+          practiceDays: [
+            {'date': '2026-11-24', 'text': 'Hoy es luna llena.'},
+          ],
+        ),
+      );
+      expect(find.text('Hoy es luna llena.'), findsOneWidget);
+    });
+
+    testWidgets('el día de práctica cambia a medianoche con la pantalla '
+        'abierta (R95)', (tester) async {
+      var now = DateTime(2026, 11, 24, 23, 59, 30);
+      TimerView.clock = () => now;
+      await _pump(
+        tester,
+        house: houseWith(
+          practiceDays: [
+            {'date': '2026-11-24', 'text': 'Hoy es luna llena.'},
+            {'date': '2026-11-25', 'text': 'Hoy se medita en grupo.'},
+          ],
+        ),
+      );
+      expect(find.text('Hoy es luna llena.'), findsOneWidget);
+
+      now = DateTime(2026, 11, 25, 0, 0, 2);
+      await tester.pump(const Duration(seconds: 32));
+      expect(find.text('Hoy es luna llena.'), findsNothing);
+      expect(find.text('Hoy se medita en grupo.'), findsOneWidget);
+
+      // Se vuelve a programar: la noche siguiente también cambia.
+      now = DateTime(2026, 11, 26, 0, 0, 2);
+      await tester.pump(const Duration(days: 1));
+      expect(find.text('Hoy se medita en grupo.'), findsNothing);
+    });
+
+    testWidgets('el día de práctica se revisa al volver a la app (R95)', (
+      tester,
+    ) async {
+      var now = DateTime(2026, 11, 24, 10);
+      TimerView.clock = () => now;
+      await _pump(
+        tester,
+        house: houseWith(
+          practiceDays: [
+            {'date': '2026-11-25', 'text': 'Hoy se medita en grupo.'},
+          ],
+        ),
+      );
+      expect(find.text('Hoy se medita en grupo.'), findsNothing);
+
+      // El teléfono estuvo dormido: el reloj saltó sin que corriera nada.
+      now = DateTime(2026, 11, 25, 9);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(find.text('Hoy se medita en grupo.'), findsOneWidget);
+    });
+
+    testWidgets('el contenido nuevo del servidor se ve sin reabrir', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.text(l10n.timerHousePracticesTitle), findsNothing);
+      _house.emit(houseWith(practices: [zazen]));
+      await tester.pump();
+      expect(find.text('Zazen de la mañana'), findsOneWidget);
+    });
+
+    testWidgets('el botón del contador abre el contador de mantras', (
+      tester,
+    ) async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('intronauts/timer_device'),
+            (_) async => null,
+          );
+      await _pump(tester);
+      await tester.tap(
+        find.widgetWithText(TextButton, l10n.mantraCounterTitle),
+      );
+      await _pumpUntilSettled(tester);
+      expect(find.byType(MantraCounterView), findsOneWidget);
+      expect(_player.reservedIds, isEmpty);
+    });
+
+    testWidgets('cuenta sus pantallas abiertas', (tester) async {
+      final before = TimerRouteTracker.openTimerViews;
+      await _pump(tester);
+      expect(TimerRouteTracker.openTimerViews, before + 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(TimerRouteTracker.openTimerViews, before);
+    });
+  });
+
+  group('preparación mínima del arranque', () {
+    testWidgets('con preparación guardada 0 empieza con 10 s y no la guarda', (
+      tester,
+    ) async {
+      final container = await _pump(
+        tester,
+        launch: const TimerLaunch(minutes: 3, minPrepSeconds: 10),
+        prefs: {
+          kTimerSettingsSnapshotKey: _settingsJson(
+            const TimerSettings(mode: TimerMode.countdown, minutes: 20),
+          ),
+        },
+      );
+      await _pumpUntilSettled(tester);
+      final request = _player.played.single;
+      expect(request.plannedDurationMs, 3 * 60 * 1000);
+      expect(request.timerPrepMs, 10000);
+      expect(container.read(timerSettingsProvider).prepSeconds, 0);
+      expect(
+        container
+            .read(sharedPreferencesProvider)
+            .getString(kTimerSettingsSnapshotKey),
+        _settingsJson(
+          const TimerSettings(mode: TimerMode.countdown, minutes: 20),
+        ),
+      );
+    });
+
+    testWidgets('una preparación guardada más larga se respeta', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        launch: const TimerLaunch(minutes: 3, minPrepSeconds: 10),
+        prefs: {
+          kTimerSettingsSnapshotKey: _settingsJson(
+            const TimerSettings(
+              mode: TimerMode.countdown,
+              minutes: 20,
+              prepSeconds: 30,
+            ),
+          ),
+        },
+      );
+      await _pumpUntilSettled(tester);
+      expect(_player.played.single.timerPrepMs, 30000);
+    });
+
+    testWidgets('«Sentarme 3 min» con ajustes por partes y tiempo extra es '
+        'una cuenta regresiva simple de 3 min (R91)', (tester) async {
+      const saved = TimerSettings(
+        mode: TimerMode.countdown,
+        minutes: 20,
+        extraTime: true,
+        bells: TimerBellSettings(endSound: 'cuenco_tibetano'),
+        stages: [
+          TimerStage(kind: TimerStageKind.sit, minutes: 15),
+          TimerStage(kind: TimerStageKind.walk, minutes: 5),
+        ],
+      );
+      final container = await _pump(
+        tester,
+        launch: const TimerLaunch(minutes: 3, minPrepSeconds: 10),
+        prefs: {kTimerSettingsSnapshotKey: _settingsJson(saved)},
+        selected: _rain,
+      );
+      await _pumpUntilSettled(tester);
+      final request = _player.played.single;
+      expect(request.plannedDurationMs, 3 * 60 * 1000);
+      expect(request.timerStageDurationsMs, isEmpty);
+      expect(request.timerExtraTime, isFalse);
+      expect(request.timerPrepMs, 10000);
+      // Campanas y sonido de fondo son los guardados.
+      expect(request.timerEndSound, 'cuenco_tibetano');
+      expect(request.overrideBackgroundSound, isFalse);
+      final stored = container.read(timerSettingsProvider);
+      expect(stored.bells.endSound, 'cuenco_tibetano');
+      expect(stored.minutes, 20);
+      expect(stored.extraTime, isTrue);
+      expect(stored.prepSeconds, 0);
+      expect(stored.stages, hasLength(2));
+      expect(
+        container
+            .read(sharedPreferencesProvider)
+            .getString(kTimerSettingsSnapshotKey),
+        _settingsJson(saved),
+      );
     });
   });
 }
