@@ -30,6 +30,7 @@ import 'package:medito/views/player/widgets/duration_indicator_widget.dart';
 import 'package:medito/views/player/widgets/stopwatch_elapsed_widget.dart';
 import 'package:medito/views/player/widgets/player_buttons/player_buttons_widget.dart';
 import 'package:medito/l10n/app_localizations.dart';
+import 'package:medito/views/timer/session/timer_session_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -274,6 +275,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     // Rebuild on completion; the gate decides whether it is this session's.
     ref.watch(audioStateProvider.select((s) => s.isCompleted));
     if (!_timerStopped &&
+        !_isClosing &&
         _completionGate.isSessionComplete(ref.read(audioStateProvider))) {
       _openEndScreen();
     }
@@ -338,24 +340,35 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
         !audioState.isCompleted &&
         (!_playbackStarted || audioState.isBuffering);
 
+    final isBackgroundSoundSelected = _isBackgroundSoundSelected();
     return PopScope<void>(
       onPopInvokedWithResult: (didPop, result) {
-        if (didPop) {
+        if (didPop && !(_isClosing && currentlyPlayingTrack.isTimer)) {
           _resetState();
           _stopAudio();
         }
       },
-      child: PlayerScreenLayout(
-        currentlyPlayingTrack: currentlyPlayingTrack,
-        isPlaying: isPlaying,
-        isAudioLoading: isAudioLoading,
-        isBackgroundSoundSelected: _isBackgroundSoundSelected(),
-        onPlayPausePressed: onPlayPausePressed,
-        onSpeedChanged: (speed) =>
-            ref.read(playerProvider.notifier).setSpeed(speed),
-        onClosePressed: () => _handleClose(),
-        onEndSession: _endTimerSession,
-      ),
+      child: currentlyPlayingTrack.isTimer
+          ? TimerSessionLayout(
+              request: currentlyPlayingTrack,
+              isPlaying: isPlaying,
+              isAudioLoading: isAudioLoading,
+              isBackgroundSoundSelected: isBackgroundSoundSelected,
+              onPlayPausePressed: onPlayPausePressed,
+              onClosePressed: _handleClose,
+              onEndSession: _endTimerSession,
+              isClosing: () => _isClosing,
+            )
+          : PlayerScreenLayout(
+              currentlyPlayingTrack: currentlyPlayingTrack,
+              isPlaying: isPlaying,
+              isAudioLoading: isAudioLoading,
+              isBackgroundSoundSelected: isBackgroundSoundSelected,
+              onPlayPausePressed: onPlayPausePressed,
+              onSpeedChanged: (speed) =>
+                  ref.read(playerProvider.notifier).setSpeed(speed),
+              onClosePressed: _handleClose,
+            ),
     );
   }
 
@@ -417,30 +430,50 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     if (_isClosing) {
       return;
     }
-    _isClosing = true;
     final isTimer = ref.read(playerProvider)?.isTimer ?? false;
-    if (isTimer) _stopAudio();
+    if (isTimer) {
+      setState(() => _isClosing = true);
+      _dismissPlayerOverlays();
+      _stopAudio();
+    } else {
+      _isClosing = true;
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       _resetState();
       if (!isTimer) _stopAudio();
 
       await ref.read(dndProvider.notifier).setDndMode(false);
+      if (!mounted) return;
       _endScreenOpened = false;
 
-      if (mounted && shouldPop && Navigator.canPop(context)) {
-        if (_timerStopped) {
-          final route = ModalRoute.of(context);
-          if (route != null && route.isActive) {
-            Navigator.of(context).popUntil((current) => current == route);
-          }
+      if (shouldPop) {
+        final navigator = Navigator.of(context);
+        if (isTimer) {
+          _dismissPlayerOverlays();
         }
-        Navigator.pop(context);
+        if ((!isTimer || ModalRoute.of(context)?.isCurrent == true) &&
+            navigator.canPop()) {
+          navigator.pop();
+          return;
+        }
       }
 
-      _isClosing = false;
+      if (isTimer) {
+        setState(() => _isClosing = false);
+      } else {
+        _isClosing = false;
+      }
     });
     if (_timerStopped) WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _dismissPlayerOverlays() {
+    final route = ModalRoute.of(context);
+    if (route != null && route.isActive && !route.isCurrent) {
+      Navigator.of(context).popUntil((current) => current == route);
+    }
   }
 
   void _stopAudio() {
@@ -457,7 +490,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
 
   void _openEndScreen() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_endScreenOpened && mounted) {
+      if (!_endScreenOpened && mounted && !_isClosing) {
         _resetState();
         _stopAudio();
         final currentlyPlayingTrack = ref.read(playerProvider);
@@ -471,10 +504,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
         // end screen returned to the player. Close anything above the player
         // first so the end screen always replaces the player itself.
         final navigator = Navigator.of(context);
-        final playerRoute = ModalRoute.of(context);
-        if (playerRoute != null && playerRoute.isActive) {
-          navigator.popUntil((route) => route == playerRoute);
-        }
+        _dismissPlayerOverlays();
 
         navigator.pushReplacement(
           MaterialPageRoute(

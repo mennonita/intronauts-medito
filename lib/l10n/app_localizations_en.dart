@@ -2894,6 +2894,68 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get timerBackgroundTitle => 'Background';
+
+  @override
+  String get timerBackgroundAnimation => 'Animation';
+
+  @override
+  String get timerBackgroundImage => 'Image';
+
+  @override
+  String get timerBackgroundColor => 'Color';
+
+  @override
+  String get timerBackgroundNone => 'No background';
+
+  @override
+  String get timerBackgroundBreathing => 'Breathing';
+
+  @override
+  String get timerBackgroundWaves => 'Waves';
+
+  @override
+  String get timerBackgroundParticles => 'Particles';
+
+  @override
+  String get timerBackgroundSunrise => 'Sunrise';
+
+  @override
+  String get timerBackgroundMist => 'Mist';
+
+  @override
+  String get timerBackgroundNight => 'Night';
+
+  @override
+  String get timerBackgroundSlate => 'Slate';
+
+  @override
+  String get timerBackgroundForest => 'Forest';
+
+  @override
+  String get timerBackgroundPlum => 'Plum';
+
+  @override
+  String get timerBackgroundOcean => 'Ocean';
+
+  @override
+  String get timerBackgroundCream => 'Cream';
+
+  @override
+  String get timerBackgroundIce => 'Ice';
+
+  @override
+  String get timerBackgroundRose => 'Rose';
+
+  @override
+  String get timerBackgroundLavender => 'Lavender';
+
+  @override
+  String timerExtraTimeCount(String time) {
+    return '+$time';
+  }
+
+  @override
   String get timerSavedPresets => 'Your timers';
 
   @override

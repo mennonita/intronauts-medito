@@ -5284,6 +5284,126 @@ abstract class AppLocalizations {
   /// **'Extra time +{time}'**
   String timerExtraTimeElapsed(String time);
 
+  /// No description provided for @timerBackgroundTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Background'**
+  String get timerBackgroundTitle;
+
+  /// No description provided for @timerBackgroundAnimation.
+  ///
+  /// In en, this message translates to:
+  /// **'Animation'**
+  String get timerBackgroundAnimation;
+
+  /// No description provided for @timerBackgroundImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Image'**
+  String get timerBackgroundImage;
+
+  /// No description provided for @timerBackgroundColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Color'**
+  String get timerBackgroundColor;
+
+  /// No description provided for @timerBackgroundNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No background'**
+  String get timerBackgroundNone;
+
+  /// No description provided for @timerBackgroundBreathing.
+  ///
+  /// In en, this message translates to:
+  /// **'Breathing'**
+  String get timerBackgroundBreathing;
+
+  /// No description provided for @timerBackgroundWaves.
+  ///
+  /// In en, this message translates to:
+  /// **'Waves'**
+  String get timerBackgroundWaves;
+
+  /// No description provided for @timerBackgroundParticles.
+  ///
+  /// In en, this message translates to:
+  /// **'Particles'**
+  String get timerBackgroundParticles;
+
+  /// No description provided for @timerBackgroundSunrise.
+  ///
+  /// In en, this message translates to:
+  /// **'Sunrise'**
+  String get timerBackgroundSunrise;
+
+  /// No description provided for @timerBackgroundMist.
+  ///
+  /// In en, this message translates to:
+  /// **'Mist'**
+  String get timerBackgroundMist;
+
+  /// No description provided for @timerBackgroundNight.
+  ///
+  /// In en, this message translates to:
+  /// **'Night'**
+  String get timerBackgroundNight;
+
+  /// No description provided for @timerBackgroundSlate.
+  ///
+  /// In en, this message translates to:
+  /// **'Slate'**
+  String get timerBackgroundSlate;
+
+  /// No description provided for @timerBackgroundForest.
+  ///
+  /// In en, this message translates to:
+  /// **'Forest'**
+  String get timerBackgroundForest;
+
+  /// No description provided for @timerBackgroundPlum.
+  ///
+  /// In en, this message translates to:
+  /// **'Plum'**
+  String get timerBackgroundPlum;
+
+  /// No description provided for @timerBackgroundOcean.
+  ///
+  /// In en, this message translates to:
+  /// **'Ocean'**
+  String get timerBackgroundOcean;
+
+  /// No description provided for @timerBackgroundCream.
+  ///
+  /// In en, this message translates to:
+  /// **'Cream'**
+  String get timerBackgroundCream;
+
+  /// No description provided for @timerBackgroundIce.
+  ///
+  /// In en, this message translates to:
+  /// **'Ice'**
+  String get timerBackgroundIce;
+
+  /// No description provided for @timerBackgroundRose.
+  ///
+  /// In en, this message translates to:
+  /// **'Rose'**
+  String get timerBackgroundRose;
+
+  /// No description provided for @timerBackgroundLavender.
+  ///
+  /// In en, this message translates to:
+  /// **'Lavender'**
+  String get timerBackgroundLavender;
+
+  /// No description provided for @timerExtraTimeCount.
+  ///
+  /// In en, this message translates to:
+  /// **'+{time}'**
+  String timerExtraTimeCount(String time);
+
   /// No description provided for @timerSavedPresets.
   ///
   /// In en, this message translates to:

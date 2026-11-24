@@ -97,7 +97,7 @@ class AppLocalizationsEs extends AppLocalizations {
       'Estoy practicando meditación con Intronauts. Ven a practicar conmigo 💜';
 
   @override
-  String get backgroundSounds => 'Sonido de Fondo';
+  String get backgroundSounds => 'Sonido de fondo';
 
   @override
   String get x06 => 'x0.6';
@@ -2782,7 +2782,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get timerStart => 'Empezar';
 
   @override
-  String get timerEndSession => 'Terminar sesión';
+  String get timerEndSession => 'Terminar';
 
   @override
   String get timerElapsed => 'transcurrido';
@@ -2930,6 +2930,68 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String timerExtraTimeElapsed(String time) {
     return 'Tiempo extra +$time';
+  }
+
+  @override
+  String get timerBackgroundTitle => 'Fondo';
+
+  @override
+  String get timerBackgroundAnimation => 'Animación';
+
+  @override
+  String get timerBackgroundImage => 'Imagen';
+
+  @override
+  String get timerBackgroundColor => 'Color';
+
+  @override
+  String get timerBackgroundNone => 'Sin fondo';
+
+  @override
+  String get timerBackgroundBreathing => 'Respiración';
+
+  @override
+  String get timerBackgroundWaves => 'Ondas';
+
+  @override
+  String get timerBackgroundParticles => 'Partículas';
+
+  @override
+  String get timerBackgroundSunrise => 'Amanecer';
+
+  @override
+  String get timerBackgroundMist => 'Bruma';
+
+  @override
+  String get timerBackgroundNight => 'Noche';
+
+  @override
+  String get timerBackgroundSlate => 'Pizarra';
+
+  @override
+  String get timerBackgroundForest => 'Bosque';
+
+  @override
+  String get timerBackgroundPlum => 'Ciruela';
+
+  @override
+  String get timerBackgroundOcean => 'Océano';
+
+  @override
+  String get timerBackgroundCream => 'Crema';
+
+  @override
+  String get timerBackgroundIce => 'Hielo';
+
+  @override
+  String get timerBackgroundRose => 'Rosa';
+
+  @override
+  String get timerBackgroundLavender => 'Lavanda';
+
+  @override
+  String timerExtraTimeCount(String time) {
+    return '+$time';
   }
 
   @override

@@ -173,6 +173,7 @@ class SharedPreferenceConstants {
   static const String timerBellSettings = 'timer_bell_settings';
   static const String timerExtraTime = 'timer_extra_time';
   static const String timerPresets = 'timer_presets';
+  static const String timerBackground = 'timerBackground';
   static const String lastRecoveredTimerClose = 'last_recovered_timer_close';
   static const String timerMinutes = 'timer_minutes';
   // Session bells on/off, separate from the ambient sound so both can play.

@@ -2166,6 +2166,31 @@
       }
     }
   },
+  "timerBackgroundTitle": "Background",
+  "timerBackgroundAnimation": "Animation",
+  "timerBackgroundImage": "Image",
+  "timerBackgroundColor": "Color",
+  "timerBackgroundNone": "No background",
+  "timerBackgroundBreathing": "Breathing",
+  "timerBackgroundWaves": "Waves",
+  "timerBackgroundParticles": "Particles",
+  "timerBackgroundSunrise": "Sunrise",
+  "timerBackgroundMist": "Mist",
+  "timerBackgroundNight": "Night",
+  "timerBackgroundSlate": "Slate",
+  "timerBackgroundForest": "Forest",
+  "timerBackgroundPlum": "Plum",
+  "timerBackgroundOcean": "Ocean",
+  "timerBackgroundCream": "Cream",
+  "timerBackgroundIce": "Ice",
+  "timerBackgroundRose": "Rose",
+  "timerBackgroundLavender": "Lavender",
+  "timerExtraTimeCount": "+{time}",
+  "@timerExtraTimeCount": {
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
   "timerSavedPresets": "Your timers",
   "timerSavePreset": "Save this timer",
   "timerPresetName": "Name",

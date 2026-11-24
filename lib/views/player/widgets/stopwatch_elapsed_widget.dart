@@ -16,20 +16,14 @@ class StopwatchElapsedWidget extends ConsumerWidget {
     final positionMs = ref.watch(audioStateProvider.select((s) => s.position));
     final textTheme = Theme.of(context).textTheme;
     final l10n = AppLocalizations.of(context)!;
-    final planned = plannedDurationMs;
-    final extraTime = planned != null && positionMs >= planned;
-    final elapsed = Duration(
-      milliseconds: planned == null
-          ? positionMs
-          : extraTime
-          ? positionMs - planned
-          : planned - positionMs,
+    final reading = timerClockReading(
+      positionMs: positionMs,
+      plannedDurationMs: plannedDurationMs,
+      hasExtraTime: plannedDurationMs != null,
     );
-    final text = extraTime
-        ? l10n.timerExtraTimeElapsed(
-            '${elapsed.inMinutes}:${(elapsed.inSeconds % 60).toString().padLeft(2, '0')}',
-          )
-        : formatTimerClock(elapsed);
+    final text = reading.isExtraTime
+        ? l10n.timerExtraTimeElapsed(reading.time)
+        : reading.time;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -45,7 +39,7 @@ class StopwatchElapsedWidget extends ConsumerWidget {
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
-        if (planned == null) ...[
+        if (plannedDurationMs == null) ...[
           const SizedBox(height: 6),
           Text(
             l10n.timerElapsed,

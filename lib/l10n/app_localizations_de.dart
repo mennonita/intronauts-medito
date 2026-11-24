@@ -2938,7 +2938,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get timerExtraTime => 'Extra time';
+  String get timerExtraTime => 'Verlängerung';
 
   @override
   String get timerExtraTimeDescription =>
@@ -2946,7 +2946,69 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String timerExtraTimeElapsed(String time) {
-    return 'Extra time +$time';
+    return 'Verlängerung +$time';
+  }
+
+  @override
+  String get timerBackgroundTitle => 'Hintergrund';
+
+  @override
+  String get timerBackgroundAnimation => 'Animation';
+
+  @override
+  String get timerBackgroundImage => 'Bild';
+
+  @override
+  String get timerBackgroundColor => 'Farbe';
+
+  @override
+  String get timerBackgroundNone => 'Ohne Hintergrund';
+
+  @override
+  String get timerBackgroundBreathing => 'Atmung';
+
+  @override
+  String get timerBackgroundWaves => 'Wellen';
+
+  @override
+  String get timerBackgroundParticles => 'Partikel';
+
+  @override
+  String get timerBackgroundSunrise => 'Sonnenaufgang';
+
+  @override
+  String get timerBackgroundMist => 'Nebel';
+
+  @override
+  String get timerBackgroundNight => 'Nacht';
+
+  @override
+  String get timerBackgroundSlate => 'Schiefer';
+
+  @override
+  String get timerBackgroundForest => 'Waldgrün';
+
+  @override
+  String get timerBackgroundPlum => 'Pflaume';
+
+  @override
+  String get timerBackgroundOcean => 'Ozeanblau';
+
+  @override
+  String get timerBackgroundCream => 'Creme';
+
+  @override
+  String get timerBackgroundIce => 'Eisblau';
+
+  @override
+  String get timerBackgroundRose => 'Rosa';
+
+  @override
+  String get timerBackgroundLavender => 'Lavendel';
+
+  @override
+  String timerExtraTimeCount(String time) {
+    return '+$time';
   }
 
   @override
