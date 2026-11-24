@@ -83,9 +83,53 @@ void main() {
     expect(_csv(), '${_es.exportCsvHeader}\r\n');
   });
 
+  test(
+    'startup removes expired exports and account changes clear the rest',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'practice-export-test-',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
+      messenger.setMockMethodCallHandler(pathChannel, (_) async => temp.path);
+      addTearDown(() => messenger.setMockMethodCallHandler(pathChannel, null));
+
+      final pluginCache = await Directory('${temp.path}/share_plus').create();
+      final expiredAndroid = File(
+        '${pluginCache.path}/mi-practica-2026-11-25-expired.csv',
+      );
+      final expiredIos = File(
+        '${temp.path}/practice-export-expired/mi-practica-2026-11-25.csv',
+      );
+      final fresh = File(
+        '${pluginCache.path}/mi-practica-2026-11-25-fresh.csv',
+      );
+      final unrelated = File('${pluginCache.path}/quote.png');
+      for (final file in [expiredAndroid, expiredIos, fresh, unrelated]) {
+        await file.create(recursive: true);
+      }
+      final expired = DateTime.now().subtract(const Duration(minutes: 61));
+      for (final file in [expiredAndroid, expiredIos, unrelated]) {
+        await file.setLastModified(expired);
+      }
+
+      await PracticeExport.cleanupExpiredCopies();
+      expect(expiredAndroid.existsSync(), isFalse);
+      expect(expiredIos.parent.existsSync(), isFalse);
+      expect(fresh.existsSync(), isTrue);
+      expect(unrelated.existsSync(), isTrue);
+
+      await PracticeExport.clearForAccountChange();
+      expect(fresh.existsSync(), isFalse);
+      expect(unrelated.existsSync(), isTrue);
+    },
+  );
+
   for (final shareResult in ['completed', 'dismissed', 'failed']) {
     testWidgets(
-      'writes BOM, anchors sharing, and cleans up when sharing is $shareResult',
+      'writes BOM, anchors sharing, and lets the receiver read after $shareResult',
       (tester) async {
         final isAndroid = defaultTargetPlatform == TargetPlatform.android;
         final stats = StatsManager()..resetForTesting();
@@ -101,6 +145,12 @@ void main() {
         addTearDown(
           () => messenger.setMockMethodCallHandler(pathChannel, null),
         );
+        final expired =
+            File('${temp.path}/share_plus/mi-practica-2026-11-25-old.csv')
+              ..createSync(recursive: true)
+              ..setLastModifiedSync(
+                DateTime.now().subtract(const Duration(minutes: 61)),
+              );
 
         const activeOwner = '00000000-0000-4000-8000-000000000001';
         const previousOwner = '00000000-0000-4000-8000-000000000002';
@@ -125,19 +175,26 @@ void main() {
         late Map<Object?, Object?> args;
         late File file;
         late File sharedFile;
-        late List<int> bytes;
+        late List<int> offeredBytes;
+        final offeredPaths = <String>[];
         messenger.setMockMethodCallHandler(shareChannel, (call) async {
+          expect(expired.existsSync(), isFalse);
           args = call.arguments as Map<Object?, Object?>;
           file = File((args['paths'] as List).single as String);
           sharedFile = file;
           if (isAndroid) {
             // Android comparte cacheDir/share_plus/<nombre>, como share_plus.
-            final cache = Directory('${temp.path}/share_plus')..createSync();
+            final cache = Directory('${temp.path}/share_plus')
+              ..createSync(recursive: true);
+            for (final entry in cache.listSync()) {
+              entry.deleteSync();
+            }
             sharedFile = file.copySync(
               '${cache.path}/${file.uri.pathSegments.last}',
             );
           }
-          bytes = sharedFile.readAsBytesSync();
+          offeredPaths.add(sharedFile.path);
+          offeredBytes = sharedFile.readAsBytesSync();
           return switch (shareResult) {
             'completed' => 'com.example/.ShareReceiver',
             'dismissed' => '',
@@ -163,6 +220,12 @@ void main() {
         await tester.runAsync(() => sharePracticeCsv(key.currentContext!));
         await tester.pumpAndSettle();
 
+        final completed = shareResult == 'completed';
+        expect(sharedFile.existsSync(), completed);
+        expect(file.existsSync(), completed && !isAndroid);
+        expect(expired.existsSync(), isFalse);
+        // El destino abre el archivo después de que se cerró el selector.
+        final bytes = completed ? sharedFile.readAsBytesSync() : offeredBytes;
         expect(bytes.take(3), [0xef, 0xbb, 0xbf]);
         final csv = utf8.decode(bytes.skip(3).toList());
         expect(csv, startsWith('${_es.exportCsvHeader}\r\n'));
@@ -171,7 +234,11 @@ void main() {
         expect(csv, isNot(contains('another-account-track')));
         expect(
           file.uri.pathSegments.last,
-          matches(r'^mi-practica-\d{4}-\d{2}-\d{2}\.csv$'),
+          matches(
+            isAndroid
+                ? r'^mi-practica-\d{4}-\d{2}-\d{2}-[a-zA-Z0-9_-]+\.csv$'
+                : r'^mi-practica-\d{4}-\d{2}-\d{2}\.csv$',
+          ),
         );
         expect(args['mimeTypes'], ['text/csv']);
         expect(args['subject'], _es.exportShareSubject);
@@ -179,14 +246,14 @@ void main() {
         expect(args['originY'], anchor.top);
         expect(args['originWidth'], anchor.width);
         expect(args['originHeight'], anchor.height);
-        expect(sharedFile.existsSync(), isFalse);
-        expect(file.existsSync(), isFalse);
-        expect(file.parent.existsSync(), isFalse);
-        expect(temp.listSync(recursive: true).whereType<File>(), isEmpty);
         expect(
           find.text(_es.exportFailed),
           shareResult == 'failed' ? findsOneWidget : findsNothing,
         );
+        if (completed) {
+          await tester.runAsync(() => sharePracticeCsv(key.currentContext!));
+          expect(offeredPaths.toSet(), hasLength(2));
+        }
       },
       variant: const TargetPlatformVariant({
         TargetPlatform.android,

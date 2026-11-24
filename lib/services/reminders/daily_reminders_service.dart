@@ -55,6 +55,8 @@ const reminderSeriesMigrationAnchorKey = 'reminder_series_copy_v2_anchor';
 /// Primer índice de la serie que reprograma la migración guardada.
 const reminderSeriesMigrationFromKey = 'reminder_series_copy_v2_from';
 
+const _migrationPendingIdsKey = 'reminder_series_copy_v2_pending_ids';
+
 /// Regla única de «avisos encendidos» para Ajustes, la migración y la
 /// reprogramación tras una sesión. Si nunca se guardó el interruptor, cuenta
 /// como encendido cuando hay una hora guardada (instalaciones antiguas).
@@ -174,6 +176,7 @@ class DailyRemindersService {
     await prefs.setBool(SharedPreferenceConstants.dailyReminderEnabled, false);
     // Sin avisos no hay nada que migrar; un ancla vieja ya no sirve.
     await _clearMigrationAnchor(prefs);
+    await prefs.remove(_migrationPendingIdsKey);
     await reminders.cancelDailyNotification();
     await reminders.cancelReminderSeries();
   });
@@ -219,11 +222,17 @@ class DailyRemindersScheduler {
     AppLocalizations? l10n,
   }) async {
     final migrating = prefs.getBool(reminderSeriesCopyV2Key) != true;
-    if (migrating) await _saveMigrationAnchor(prefs, anchorLocal, 0);
+    final replacedIds = {
+      if (migrating)
+        for (var i = 0; i <= reminderSeriesCount; i++) reminderSeriesBaseId + i,
+    };
+    if (migrating) {
+      await _saveMigrationPendingIds(replacedIds);
+      await _saveMigrationAnchor(prefs, anchorLocal, 0);
+    }
     final result = await _scheduleSeries(anchorLocal, l10n: l10n);
-    if (migrating && result.failed.isEmpty && result.ids.isNotEmpty) {
-      await prefs.setBool(reminderSeriesCopyV2Key, true);
-      await _clearMigrationAnchor(prefs);
+    if (migrating) {
+      await _checkMigration(replacedIds, result);
     }
   }
 
@@ -352,8 +361,8 @@ class DailyRemindersScheduler {
   ///
   /// Guarda el ancla antes de tocar avisos y reemplaza cada uno por su
   /// identificador, así que un fallo deja el aviso viejo y el siguiente
-  /// arranque reintenta con la misma ancla. La pref se guarda solo si cada
-  /// aviso programado quedó pendiente, nunca con cero avisos programados.
+  /// arranque reintenta con la misma ancla. Antes de terminar, confirma que
+  /// los avisos nuevos estén pendientes y que no quede ningún aviso viejo.
   Future<void> migratePendingSeries({
     DateTime Function() now = DateTime.now,
     AppLocalizations? l10n,
@@ -366,21 +375,24 @@ class DailyRemindersScheduler {
     final minute = prefs.getInt(SharedPreferenceConstants.savedMinutes);
     if (hour == null || minute == null) return;
 
+    final pending = await _pendingSeriesIds();
+    final savedIds = prefs
+        .getStringList(_migrationPendingIdsKey)
+        ?.map(int.tryParse)
+        .nonNulls
+        .toSet();
+    final pendingReplacement = savedIds == null
+        ? pending
+        : pending.intersection(savedIds);
+    final saved = _savedMigrationAnchor(prefs);
     DateTime anchor;
     int k;
-    final saved = _savedMigrationAnchor(prefs);
     if (saved != null) {
       (anchor, k) = saved;
     } else {
-      final pending = await reminders.getPendingNotifications(
-        rethrowErrors: true,
-      );
-      final indexes =
-          pending
-              .map((p) => p.id - reminderSeriesBaseId)
-              .where((i) => i >= 0 && i <= 15)
-              .toList()
-            ..sort();
+      final indexes = [
+        for (final id in pendingReplacement) id - reminderSeriesBaseId,
+      ]..sort();
       if (indexes.isEmpty) {
         // Nada viejo que cambiar. No se marca: la próxima serie completa
         // (Ajustes o una sesión) la termina.
@@ -397,8 +409,9 @@ class DailyRemindersScheduler {
       anchor = k <= 14
           ? DateTime(next.year, next.month, next.day - k, hour, minute)
           : DateTime(next.year, next.month, next.day + 7 - 29, hour, minute);
-      await _saveMigrationAnchor(prefs, anchor, k);
     }
+    await _saveMigrationPendingIds(pendingReplacement);
+    if (saved == null) await _saveMigrationAnchor(prefs, anchor, k);
 
     final result = await _scheduleSeries(
       anchor,
@@ -406,25 +419,56 @@ class DailyRemindersScheduler {
       fromIndex: k,
       notBefore: now,
     );
+    await _checkMigration(pendingReplacement, result);
     if (result.ids.isEmpty) {
       // Todas las fechas del ancla guardada ya pasaron: se vuelve a leer lo
-      // pendiente en el siguiente arranque.
+      // pendiente en el siguiente arranque. Conserva los ids sin reemplazar.
       await _clearMigrationAnchor(prefs);
-      return;
     }
-    if (result.failed.isNotEmpty) {
-      AppLogger.w('REMINDER', 'Reminder migration incomplete; will retry');
-      return;
-    }
+  }
 
-    final after = await reminders.getPendingNotifications(rethrowErrors: true);
-    final scheduledIds = after.map((p) => p.id).toSet();
-    if (!result.ids.every(scheduledIds.contains)) {
+  Future<Set<int>> _pendingSeriesIds() async {
+    final pending = await reminders.getPendingNotifications(
+      rethrowErrors: true,
+    );
+    return {
+      for (final item in pending)
+        if (item.id >= reminderSeriesBaseId &&
+            item.id <= reminderSeriesBaseId + reminderSeriesCount)
+          item.id,
+    };
+  }
+
+  Future<void> _saveMigrationPendingIds(Set<int> ids) async {
+    final saved = await prefs.setStringList(_migrationPendingIdsKey, [
+      for (final id in ids) id.toString(),
+    ]);
+    if (!saved) throw StateError('Could not save pending reminder IDs');
+  }
+
+  Future<void> _checkMigration(
+    Set<int> pendingReplacement,
+    ({List<int> ids, Set<int> failed}) result,
+  ) async {
+    final pending = await _pendingSeriesIds();
+    final verified = result.ids
+        .toSet()
+        .difference(result.failed)
+        .intersection(pending);
+    final remaining = pendingReplacement
+        .intersection(pending)
+        .difference(verified);
+    await _saveMigrationPendingIds(remaining);
+    if (result.ids.isEmpty ||
+        verified.length != result.ids.length ||
+        remaining.isNotEmpty) {
       AppLogger.w('REMINDER', 'Reminder migration incomplete; will retry');
       return;
     }
-    await prefs.setBool(reminderSeriesCopyV2Key, true);
+    final saved = await prefs.setBool(reminderSeriesCopyV2Key, true);
+    if (!saved) throw StateError('Could not finish reminder migration');
     await _clearMigrationAnchor(prefs);
+    await prefs.remove(_migrationPendingIdsKey);
   }
 
   (String, String) _copyForDay(int day, {required AppLocalizations l10n}) {

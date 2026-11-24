@@ -291,6 +291,29 @@ void main() {
       },
     );
 
+    test('un aviso viejo vencido bloquea el fin de la migración', () async {
+      await setUpWith([3, 4, 15]);
+      final staleId = reminderSeriesBaseId + 3;
+      plugin.failIds.add(staleId);
+
+      await migrate();
+      await prefs.reload();
+      expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+      expect(plugin.pending, contains(staleId));
+
+      plugin.failIds.clear();
+      plugin.scheduled.clear();
+      await migrate(at: DateTime(2026, 1, 13, 9));
+
+      expect(plugin.scheduled.map((item) => item.id), isNot(contains(staleId)));
+      expect(plugin.pending, contains(staleId));
+      expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+
+      plugin.pending.remove(staleId);
+      await migrate(at: DateTime(2026, 1, 13, 10));
+      expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+    });
+
     test('una serie completa programada termina la migración', () async {
       await setUpWith([3, 15]);
       await DailyRemindersScheduler(
