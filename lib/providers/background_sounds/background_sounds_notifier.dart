@@ -1,44 +1,264 @@
-import '../../services/audio/session_bell_preview.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
+// ignore: depend_on_referenced_packages
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../constants/strings/shared_preference_constants.dart';
 import '../../models/background_sounds/background_sounds_model.dart';
 import '../../models/player/playback_request.dart';
 import '../../models/timer/bell_sound.dart';
 import '../../models/timer/timer_session.dart';
-import '../../services/account/playback_account.dart';
 import '../../repositories/background_sounds/background_sounds_repository.dart';
 import '../../repositories/downloader/downloader_repository.dart';
+import '../../services/account/playback_account.dart';
+import '../../services/audio/session_bell_preview.dart';
 import '../../src/audio_pigeon.g.dart';
 import '../../utils/logger.dart';
+import '../player/ios_audio_handler.dart';
 import '../player/player_provider.dart';
+import '../shared_preference/shared_preference_provider.dart';
 
 part 'background_sounds_notifier.g.dart';
 
 final _api = MeditoAudioServiceApi();
-final iosBackgroundPlayer = AudioPlayer()..setLoopMode(LoopMode.all);
+final iosBackgroundPlayer = AudioPlayer(handleInterruptions: false)
+  ..setLoopMode(LoopMode.all);
 
 /// Whether [iosBackgroundPlayer] holds an ambient sound to resume with the
 /// session. Session bells are separate (IosSessionBells), so this is no
 /// longer implied by "bells are off".
 bool iosAmbientActive = false;
 
-@riverpod
-Future<List<BackgroundSoundsModel>> backgroundSounds(Ref ref) {
+String backgroundSoundFileName(BackgroundSoundsModel sound) {
+  final hash = sha256.convert([
+    ...utf8.encode(sound.id),
+    0,
+    ...utf8.encode(sound.version),
+  ]);
+  return 'bg-${hash.toString().substring(0, 32)}.mp3';
+}
+
+final backgroundSoundCacheDirectoryProvider =
+    Provider<Future<Directory> Function()>(
+      (ref) => getApplicationDocumentsDirectory,
+    );
+
+final _backgroundSoundCacheProvider = Provider<_BackgroundSoundCache>(
+  (ref) => _BackgroundSoundCache(
+    ref.watch(sharedPreferencesProvider),
+    ref.watch(backgroundSoundCacheDirectoryProvider),
+  ),
+);
+
+class _BackgroundSoundCache {
+  _BackgroundSoundCache(this._prefs, this._getDirectory);
+
+  final SharedPreferences _prefs;
+  final Future<Directory> Function() _getDirectory;
+  final _downloads = <String, Future<String?>>{};
+  List<BackgroundSoundsModel>? _fetchedCatalog;
+  static final _cacheName = RegExp(r'^bg-[0-9a-f]{32}\.mp3$');
+
+  Map<String, String> _mappedFiles() {
+    final encoded = _prefs.get(
+      SharedPreferenceConstants.backgroundSoundCacheFiles,
+    );
+    if (encoded is! String) return {};
+    try {
+      final decoded = jsonDecode(encoded);
+      return {
+        if (decoded is Map<String, dynamic>)
+          for (final entry in decoded.entries)
+            if (entry.value is String &&
+                _cacheName.hasMatch(entry.value as String))
+              entry.key: entry.value as String,
+      };
+    } on FormatException {
+      return {};
+    }
+  }
+
+  File? _legacyFile(Directory directory, String title) {
+    if (title.isEmpty ||
+        title == '.' ||
+        title == '..' ||
+        title.contains(RegExp(r'[/\\\x00]'))) {
+      return null;
+    }
+    final name = '$title.mp3';
+    // Un título antiguo puede coincidir con el nombre de otra descarga.
+    if (_cacheName.hasMatch(name)) return null;
+    final file = File(p.join(directory.path, name));
+    return p.canonicalize(file.parent.path) == p.canonicalize(directory.path)
+        ? file
+        : null;
+  }
+
+  Future<String?> currentFile(BackgroundSoundsModel sound) async {
+    final dir = await _getDirectory();
+    final file = File(p.join(dir.path, backgroundSoundFileName(sound)));
+    return await file.exists() ? file.path : null;
+  }
+
+  Stream<String> fallbackFiles(
+    String id,
+    Set<String> titles, {
+    String? excluding,
+  }) async* {
+    final dir = await _getDirectory();
+    final mappedName = _mappedFiles()[id];
+    if (mappedName != null) {
+      final file = File(p.join(dir.path, mappedName));
+      if (file.path != excluding && await file.exists()) yield file.path;
+    }
+    for (final title in titles) {
+      final file = _legacyFile(dir, title);
+      if (file != null && file.path != excluding && await file.exists()) {
+        yield file.path;
+      }
+    }
+  }
+
+  Future<String?> download(
+    BackgroundSoundsModel sound,
+    DownloaderRepository downloader, {
+    bool replace = false,
+  }) {
+    final name = backgroundSoundFileName(sound);
+    return _downloads.putIfAbsent(name, () async {
+      try {
+        final dir = await _getDirectory();
+        final target = File(p.join(dir.path, name));
+        // El descargador conserva los archivos existentes. La copia de
+        // reparación se mueve al nombre final cuando termina la descarga.
+        final downloadName = replace ? '$name.refresh' : name;
+        await downloader.downloadFile(sound.path, fileName: downloadName);
+        if (replace) {
+          await File(p.join(dir.path, downloadName)).rename(target.path);
+        }
+        return await target.exists() ? target.path : null;
+      } finally {
+        _downloads.remove(name);
+      }
+    });
+  }
+
+  Future<void> remember(
+    BackgroundSoundsModel sound,
+    Set<String> legacyTitles, {
+    required bool Function() isCurrent,
+  }) async {
+    final dir = await _getDirectory();
+    if (!isCurrent()) return;
+    final name = backgroundSoundFileName(sound);
+    final replacement = File(p.join(dir.path, name));
+    if (!await replacement.exists() || !isCurrent()) return;
+    final mapped = _mappedFiles();
+    final previous = mapped[sound.id];
+    if (previous != name) {
+      mapped[sound.id] = name;
+      final saved = await _prefs.setString(
+        SharedPreferenceConstants.backgroundSoundCacheFiles,
+        jsonEncode(mapped),
+      );
+      if (!saved) return;
+    }
+
+    final latest = _mappedFiles();
+    if (latest[sound.id] != name || !replacement.existsSync()) return;
+    final belongsToAnotherSound = _fetchedCatalog?.any(
+      (other) =>
+          other.id != sound.id && backgroundSoundFileName(other) == previous,
+    );
+    if (previous != null &&
+        !latest.containsValue(previous) &&
+        belongsToAnotherSound != true) {
+      _delete(File(p.join(dir.path, previous)));
+    }
+    for (final title in legacyTitles) {
+      final file = _legacyFile(dir, title);
+      if (file == null) continue;
+      final shared = _fetchedCatalog?.any(
+        (other) =>
+            other.id != sound.id &&
+            other.title == title &&
+            !File(
+              p.join(dir.path, backgroundSoundFileName(other)),
+            ).existsSync(),
+      );
+      if (shared != true) _delete(file);
+    }
+    await _checkLegacyMigration();
+  }
+
+  void _delete(File file) {
+    try {
+      if (file.existsSync()) file.deleteSync();
+    } on FileSystemException catch (_) {
+      // Se vuelve a intentar cuando exista otra copia lista para usar.
+    }
+  }
+
+  Future<void> catalogFetched(List<BackgroundSoundsModel> sounds) {
+    _fetchedCatalog = sounds;
+    return _checkLegacyMigration();
+  }
+
+  Future<void> _checkLegacyMigration() async {
+    final catalog = _fetchedCatalog;
+    if (catalog == null ||
+        _prefs.getBool(
+              SharedPreferenceConstants.backgroundSoundCacheV2Migrated,
+            ) ==
+            true) {
+      return;
+    }
+    try {
+      final dir = await _getDirectory();
+      for (final sound in catalog) {
+        if (!_isAmbient(sound)) continue;
+        final file = _legacyFile(dir, sound.title);
+        if (file != null && await file.exists()) return;
+      }
+      if (identical(catalog, _fetchedCatalog)) {
+        await _prefs.setBool(
+          SharedPreferenceConstants.backgroundSoundCacheV2Migrated,
+          true,
+        );
+      }
+    } on Exception catch (error) {
+      AppLogger.w('BG_SOUND', 'No se pudo revisar la migración: $error');
+    }
+  }
+}
+
+bool _isAmbient(BackgroundSoundsModel sound) =>
+    sound.id != kNoneBackgroundSoundId && sound.id != kSessionBellsId;
+
+Duration? _retryCatalog(int retryCount, Object error) => null;
+
+@Riverpod(retry: _retryCatalog)
+Future<List<BackgroundSoundsModel>> backgroundSounds(Ref ref) async {
   final backgroundSoundsRepository = ref.watch(
     backgroundSoundsRepositoryProvider,
   );
+  final cache = ref.read(_backgroundSoundCacheProvider);
   ref.keepAlive();
 
-  // Offline the request can hang well past the HTTP timeout (token wait +
-  // DNS); fail it quickly so the pickers fall back to the cached list.
-  return backgroundSoundsRepository.fetchBackgroundSounds().timeout(
-    const Duration(seconds: 10),
-  );
+  // Limita la espera sin conexión. La hoja vuelve a intentar al abrirse.
+  final sounds = await backgroundSoundsRepository
+      .fetchBackgroundSounds()
+      .timeout(const Duration(seconds: 10));
+  await cache.catalogFetched(sounds);
+  return sounds;
 }
 
 /// What a background sound picker can show without waiting on the network.
@@ -66,17 +286,23 @@ class BackgroundSoundCatalog {
       !offline || downloadedIds.contains(sound.id);
 }
 
-/// Ids of the cached sounds whose file has been downloaded (see
-/// `_downloadAndPlay`, which stores each one as `<title>.mp3`).
 final _downloadedBackgroundSoundIdsProvider =
     FutureProvider.autoDispose<Set<String>>((ref) async {
-      final downloader = ref.watch(downloaderRepositoryProvider);
-      final sounds = ref
-          .read(backgroundSoundsRepositoryProvider)
-          .fetchCachedBackgroundSounds();
+      final repo = ref.watch(backgroundSoundsRepositoryProvider);
+      final sounds = repo.fetchCachedBackgroundSounds().where(_isAmbient);
       final ids = <String>{};
+      if (sounds.isEmpty) return ids;
+      final cache = ref.watch(_backgroundSoundCacheProvider);
+      final saved = await repo.fetchLocallySavedBackgroundSounds() ?? [];
+      final selected = repo.getSelectedBgSoundFromSharedPreferences();
       for (final sound in sounds) {
-        if (await downloader.getDownloadedFile('${sound.title}.mp3') != null) {
+        if (await cache.currentFile(sound) != null ||
+            !await cache.fallbackFiles(sound.id, {
+              sound.title,
+              if (selected?.id == sound.id) selected!.title,
+              for (final item in saved)
+                if (item.id == sound.id) item.title,
+            }).isEmpty) {
           ids.add(sound.id);
         }
       }
@@ -93,11 +319,8 @@ final backgroundSoundCatalogProvider =
           .read(backgroundSoundsRepositoryProvider)
           .fetchCachedBackgroundSounds();
       final all = live.value ?? cached;
-      final ambient = [
-        for (final s in all)
-          if (s.id != kNoneBackgroundSoundId && s.id != kSessionBellsId) s,
-      ];
-      final offline = live.hasError && !live.isLoading;
+      final ambient = all.where(_isAmbient).toList();
+      final offline = live.hasError;
       final downloaded = offline
           ? ref.watch(_downloadedBackgroundSoundIdsProvider).value ??
                 const <String>{}
@@ -190,31 +413,51 @@ final backgroundSoundsNotifierProvider =
     );
 
 class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
-  StreamSubscription<Duration>? _fadeSubscription;
+  BackgroundSoundsNotifier({
+    AudioPlayer? ambientPlayer,
+    IosAudioHandler Function()? audioHandler,
+  }) : _playerOverride = ambientPlayer,
+       _audioHandler = audioHandler ?? (() => iosAudioHandler);
 
-  /// True while a home Timer session owns the player. The ambient sound is
-  /// one shared choice; only the bells switch is remembered per scope (on by
-  /// default for the Timer, off under tracks).
+  final AudioPlayer? _playerOverride;
+  final IosAudioHandler Function() _audioHandler;
+  AudioPlayer get _ambientPlayer => _playerOverride ?? iosBackgroundPlayer;
+
+  StreamSubscription<Duration>? _fadeSubscription;
+  Timer? _fadeTimer;
+  Completer<void>? _manualFade;
+  int _generation = 0;
+  Object? _iosSession;
+  bool _ducked = false;
+  double _endFade = 1;
   bool _timerScope = false;
-  int _timerBellToggle = 0;
 
   void setTimerScope(bool isTimer) {
-    if (_timerScope != isTimer) _timerBellToggle++;
     _timerScope = isTimer;
+    if (_manualFade != null) unawaited(_stopAmbient());
+    if (Platform.isIOS || _playerOverride != null) {
+      final previousSession = _iosSession;
+      _bindIosSession();
+      if (previousSession != _iosSession && iosAmbientActive) {
+        unawaited(_stopAmbient());
+      }
+      // El controlador de iOS entrega el cambio incluso sin una pista cargada.
+      _audioHandler().duckAmbient = _setAmbientDucked;
+    }
   }
 
   ({bool enabled, double volume}) prepareTimerBells() {
     final repo = ref.read(backgroundSoundsRepositoryProvider);
-    final enabled = repo.getSessionBellsEnabled(forTimer: true);
     final volume = repo.getBgSoundVolume() ?? state.volume;
-    state = state.copyWith(bellsEnabled: enabled, volume: volume);
-    return (enabled: enabled, volume: scaledVolume(volume));
+    state = state.copyWith(bellsEnabled: true, volume: volume);
+    return (enabled: true, volume: scaledVolume(volume));
   }
 
   @override
   BackgroundSoundsState build() {
     ref.onDispose(() {
       _fadeSubscription?.cancel();
+      _cancelManualFade();
     });
     return const BackgroundSoundsState();
   }
@@ -223,8 +466,9 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     AppLogger.d('BG_SOUND', 'Changing volume to $vol');
     ref.read(backgroundSoundsRepositoryProvider).handleOnChangeVolume(vol);
 
-    var scaledVol = scaledVolume(vol);
-    if (!Platform.isAndroid) iosAudioHandler.sessionBells.setVolume(scaledVol);
+    final scaledVol = scaledVolume(vol);
+    state = state.copyWith(volume: vol);
+    if (!Platform.isAndroid) _audioHandler().sessionBells.setVolume(scaledVol);
     AppLogger.d('BG_SOUND', 'Scaled volume: $scaledVol');
 
     if (Platform.isAndroid) {
@@ -232,10 +476,8 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
       _api.setBackgroundSoundVolume(scaledVol);
     } else {
       AppLogger.d('BG_SOUND', 'Setting iOS background sound volume');
-      iosBackgroundPlayer.setVolume(scaledVol);
+      _applyIosVolume();
     }
-
-    state = state.copyWith(volume: vol);
   }
 
   void handleOnChangeSound(
@@ -248,107 +490,83 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     required bool preview,
     required bool persist,
   }) {
-    unawaited(ref.read(sessionBellPreviewProvider).stop());
     AppLogger.d('BG_SOUND', 'Changing sound to: ${sound?.title}');
-    // Any new selection clears a previous failure: the retry affordance belongs
-    // to the row the user is actually on.
-    state = state.copyWith(selectedBgSound: sound, failedBgSound: null);
+    state = state.copyWith(
+      selectedBgSound: sound,
+      downloadingBgSound: null,
+      failedBgSound: null,
+    );
 
-    if (sound == null) {
-      AppLogger.d('BG_SOUND', 'Stopping background sound');
-      _stopAmbient();
-
-      return;
-    }
-
-    // Bells used to be one of the background sounds; they are a switch now.
-    if (sound.id == kSessionBellsId) {
+    // Las campanas antes se guardaban como un sonido de fondo.
+    if (sound?.id == kSessionBellsId) {
       if (persist) setSessionBells(true, preview: preview);
       _selectSound(_noneSound, preview: preview, persist: persist);
       return;
     }
 
-    if (persist) {
-      ref
-          .read(backgroundSoundsRepositoryProvider)
-          .saveSelectedBgSoundToSharedPreferences(sound);
+    String? previousTitle;
+    if (persist && sound != null) {
+      final repo = ref.read(backgroundSoundsRepositoryProvider);
+      final previous = repo.getSelectedBgSoundFromSharedPreferences();
+      if (previous?.id == sound.id) previousTitle = previous?.title;
+      repo.saveSelectedBgSoundToSharedPreferences(sound);
       _updateItemsInSavedBgSoundList(sound);
     }
 
-    if (sound.id == kNoneBackgroundSoundId) {
-      AppLogger.d('BG_SOUND', 'None selected, stopping background sound');
-      _stopAmbient();
-
-      return;
+    final stopped = _stopAmbient();
+    if (sound == null || sound.id == kNoneBackgroundSoundId) {
+      unawaited(stopped);
+    } else {
+      unawaited(_downloadAndPlay(sound, stopped, previousTitle: previousTitle));
     }
-
-    _stopAmbient();
-    unawaited(_downloadAndPlay(sound));
   }
 
-  /// Re-fetches [sound] from scratch after a failure, discarding whatever is
-  /// cached for it. Backs the retry affordance on a failed row.
+  /// Vuelve a descargar el sonido cuando falla la reproducción.
   void retryDownload(BackgroundSoundsModel sound) {
     AppLogger.d('BG_SOUND', 'Retrying download for: ${sound.title}');
-    state = state.copyWith(selectedBgSound: sound, failedBgSound: null);
-    unawaited(_downloadAndPlay(sound, forceRedownload: true));
+    state = state.copyWith(
+      selectedBgSound: sound,
+      downloadingBgSound: null,
+      failedBgSound: null,
+    );
+    unawaited(_downloadAndPlay(sound, _stopAmbient(), forceRedownload: true));
   }
 
-  /// Turns the start/middle/end bells on or off, alongside whatever ambient
-  /// sound is playing, and remembers it for this scope (tracks or timer).
-  /// [preview] rings a bell when switching on, so the user hears it.
+  /// Guarda el ajuste de las campanas guiadas y toca una muestra al activarlas.
   void setSessionBells(bool enabled, {bool preview = true}) {
+    if (_timerScope) {
+      state = state.copyWith(bellsEnabled: true);
+      return;
+    }
     ref
         .read(backgroundSoundsRepositoryProvider)
-        .saveSessionBellsEnabled(enabled, forTimer: _timerScope);
+        .saveSessionBellsEnabled(enabled);
     state = state.copyWith(bellsEnabled: enabled);
-    final toggle = _timerScope ? ++_timerBellToggle : null;
-    if (toggle != null && !enabled) {
-      unawaited(
-        ref.read(sessionBellPreviewProvider).stop().catchError((
-          Object error,
-          StackTrace stack,
-        ) {
-          AppLogger.e('BELLS', 'No se pudo detener la muestra', error, stack);
-        }),
-      );
-    }
-    unawaited(_applySessionBells(enabled, preview: preview, toggle: toggle));
+    unawaited(_applySessionBells(enabled, preview: preview));
   }
 
-  Future<void> _applySessionBells(
-    bool enabled, {
-    required bool preview,
-    required int? toggle,
-  }) async {
+  Future<void> _applySessionBells(bool enabled, {required bool preview}) async {
     final player = ref.read(playerProvider.notifier);
     final session = player.playbackIdentity;
     final account = PlaybackAccount.generation;
-    final endSound = _timerScope
-        ? player.activeTimerRequest?.timerEndSound
-        : null;
-    final timerScope = _timerScope;
     try {
       final volume = scaledVolume(state.volume);
       if (Platform.isAndroid) {
         await _api.setSessionBells(enabled);
-      } else if (_timerScope) {
-        await iosAudioHandler.sessionBells.setTimerEnabled(enabled, volume);
       } else if (enabled) {
-        await iosAudioHandler.sessionBells.enable(volume);
+        await _audioHandler().sessionBells.enable(volume);
       } else {
-        await iosAudioHandler.sessionBells.disable();
+        await _audioHandler().sessionBells.disable();
       }
       if (PlaybackAccount.isCurrent(account) &&
           session == player.playbackIdentity &&
-          timerScope == _timerScope &&
+          !_timerScope &&
           enabled &&
           preview &&
-          state.bellsEnabled &&
-          (toggle == null || toggle == _timerBellToggle)) {
+          state.bellsEnabled) {
         await ref
             .read(sessionBellPreviewProvider)
-            .play(volume, assetKey: BellSound.resolve(endSound).assetKey);
+            .play(volume, assetKey: BellSound.resolve(null).assetKey);
       }
     } catch (error, stack) {
       AppLogger.e(
@@ -360,225 +578,287 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     }
   }
 
-  /// Resolves [sound] to a local file — downloading it first if needed — and
-  /// plays it.
-  ///
-  /// Every failure is handled here. The previous `.then` chain had no error
-  /// handler, so a failed download became an unhandled async error, which
-  /// `PlatformDispatcher.onError` records in Crashlytics as a *fatal* — a
-  /// dropped connection showed up as an app crash. It also left
-  /// `downloadingBgSound` set, so the tile's spinner never stopped.
   Future<void> _downloadAndPlay(
-    BackgroundSoundsModel sound, {
+    BackgroundSoundsModel stored,
+    Future<void> stopped, {
     bool forceRedownload = false,
+    String? previousTitle,
   }) async {
-    var fileName = '${sound.title}.mp3';
-    AppLogger.d('BG_SOUND', 'File name: $fileName');
-    final downloadAudio = ref.read(downloaderRepositoryProvider);
+    final generation = _generation;
+    final player = ref.read(playerProvider.notifier);
+    final session = player.playbackIdentity;
+    final account = PlaybackAccount.generation;
+    bool isCurrent() =>
+        ref.mounted &&
+        generation == _generation &&
+        session == player.playbackIdentity &&
+        PlaybackAccount.isCurrent(account);
 
+    final cache = ref.read(_backgroundSoundCacheProvider);
+    final downloader = ref.read(downloaderRepositoryProvider);
+    var sound = stored;
     try {
-      if (forceRedownload) {
-        await downloadAudio.deleteDownloadedFile(fileName);
-      }
+      await stopped;
+      if (!isCurrent()) return;
 
-      var played = await _fetchAndPlay(sound, fileName, downloadAudio);
-
-      if (!played) {
-        // A file that downloaded but won't play is corrupt — most likely a
-        // truncated fragment written by an older build, before downloads
-        // became atomic. Those are cached on devices already and no amount of
-        // re-selecting the sound would ever get past them, so bin the file and
-        // fetch it once more rather than making the user find the retry button.
-        AppLogger.d('BG_SOUND', 'Playback failed, re-fetching $fileName');
-        await downloadAudio.deleteDownloadedFile(fileName);
-        played = await _fetchAndPlay(sound, fileName, downloadAudio);
-      }
-
-      state = state.copyWith(failedBgSound: played ? null : sound);
-    } catch (e, s) {
-      AppLogger.e(
-        'BG_SOUND',
-        'Failed to prepare background sound ${sound.title}',
-        e,
-        s,
-      );
-      state = state.copyWith(failedBgSound: sound);
-    } finally {
-      if (state.downloadingBgSound?.id == sound.id) {
-        state = state.copyWith(downloadingBgSound: null);
-      }
-    }
-  }
-
-  /// Downloads [sound] if it isn't cached and starts playing it. Returns
-  /// whether the sound is now playing (a superseded selection counts as
-  /// success — nothing failed, the user just moved on).
-  Future<bool> _fetchAndPlay(
-    BackgroundSoundsModel sound,
-    String fileName,
-    DownloaderRepository downloadAudio,
-  ) async {
-    var path = await downloadAudio.getDownloadedFile(fileName);
-
-    if (path == null) {
-      AppLogger.d('BG_SOUND', 'File not downloaded, downloading now');
-      state = state.copyWith(downloadingBgSound: sound);
-      await downloadAudio.downloadFile(sound.path, fileName: fileName);
-      AppLogger.d('BG_SOUND', 'Download completed');
-      path = await downloadAudio.getDownloadedFile(fileName);
-    } else {
-      AppLogger.d('BG_SOUND', 'File already downloaded at: $path');
-    }
-
-    // The user can pick another sound (or None) while this downloads; don't
-    // let a slow download start playing over whatever they chose since.
-    if (state.selectedBgSound?.id != sound.id) {
-      AppLogger.d('BG_SOUND', 'Selection changed during download, not playing');
-
-      return true;
-    }
-
-    return _play(path);
-  }
-
-  /// Starts playback of [uri], returning whether it actually started. The
-  /// result matters: a cached-but-corrupt file fails here, and the caller uses
-  /// that to re-fetch it instead of leaving the user with silence.
-  Future<bool> _play(String? uri) async {
-    if (uri == null) {
-      AppLogger.e('BG_SOUND', 'URI is null, cannot play');
-      if (Platform.isAndroid) {
-        unawaited(_api.stopBackgroundSound());
-      } else {
-        unawaited(iosBackgroundPlayer.stop());
-      }
-
-      return false;
-    }
-
-    AppLogger.d('BG_SOUND', 'Playing sound with URI: $uri');
-    getVolumeFromPref();
-
-    var parsedUri = Uri.parse(uri);
-    var isUrl = ['http', 'https'].contains(parsedUri.scheme);
-    AppLogger.d('BG_SOUND', 'Is URL: $isUrl');
-
-    if (Platform.isAndroid) {
+      final repo = ref.read(backgroundSoundsRepositoryProvider);
+      var catalog = repo.fetchCachedBackgroundSounds();
+      final saved = await repo.fetchLocallySavedBackgroundSounds() ?? [];
+      if (!isCurrent()) return;
+      final titles = {
+        stored.title,
+        ?previousTitle,
+        for (final item in [...catalog, ...saved])
+          if (item.id == stored.id) item.title,
+      };
+      var offline = false;
       try {
-        // First clear any existing background sound
-        AppLogger.d('BG_SOUND', 'Clearing previous background sound');
-        await _api.setBackgroundSound(null);
-        await _api.stopBackgroundSound();
-
-        // Set new background sound
-        var formattedUri = isUrl ? uri : 'file://$uri';
-        AppLogger.d(
-          'BG_SOUND',
-          'Setting Android background sound: $formattedUri',
-        );
-        await _api.setBackgroundSound(formattedUri);
-
-        // Play the background sound
-        AppLogger.d('BG_SOUND', 'Starting background playback');
-        await _api.playBackgroundSound();
-
-        // Ensure volume is set after playback starts
-        _api.setBackgroundSoundVolume(scaledVolume(state.volume));
-
-        return true;
-      } catch (e, s) {
-        AppLogger.e('BG_SOUND', 'Error playing Android background sound', e, s);
-
-        return false;
-      }
-    } else {
-      try {
-        if (isUrl) {
-          AppLogger.d('BG_SOUND', 'Setting iOS background sound with URL');
-          await iosBackgroundPlayer.setUrl(uri);
-        } else {
-          AppLogger.d(
-            'BG_SOUND',
-            'Setting iOS background sound with file path',
-          );
-          await iosBackgroundPlayer.setFilePath(uri);
+        catalog = await ref.read(backgroundSoundsProvider.future);
+      } catch (_) {
+        offline = true;
+        if (isCurrent()) {
+          catalog = ref
+              .read(backgroundSoundsRepositoryProvider)
+              .fetchCachedBackgroundSounds();
         }
-        AppLogger.d('BG_SOUND', 'Playing iOS background sound');
-        iosBackgroundPlayer.setVolume(scaledVolume(state.volume));
-        iosAmbientActive = true;
-        unawaited(iosBackgroundPlayer.play());
-        _handleFadeAtEndForIos();
+      }
+      if (!isCurrent()) return;
+      final catalogSound = catalog
+          .where((item) => item.id == stored.id)
+          .firstOrNull;
+      sound = catalogSound ?? stored;
+      titles.add(sound.title);
+      state = state.copyWith(selectedBgSound: sound);
 
-        return true;
-      } catch (e, s) {
-        AppLogger.e('BG_SOUND', 'Error playing iOS background sound', e, s);
-
+      Future<bool> playFallback({String? excluding}) async {
+        await for (final path in cache.fallbackFiles(
+          sound.id,
+          titles,
+          excluding: excluding,
+        )) {
+          if (!isCurrent()) return false;
+          if (await _play(path, isCurrent)) {
+            if (isCurrent()) _updateItemsInSavedBgSoundList(stored);
+            return true;
+          }
+        }
         return false;
       }
+
+      Future<void> keepCurrentFile() async {
+        if (!isCurrent()) return;
+        _updateItemsInSavedBgSoundList(sound);
+        try {
+          await cache.remember(sound, titles, isCurrent: isCurrent);
+        } on Exception catch (error) {
+          AppLogger.w(
+            'BG_SOUND',
+            'No se pudo guardar el archivo actual: $error',
+          );
+        }
+        if (isCurrent()) ref.invalidate(_downloadedBackgroundSoundIdsProvider);
+      }
+
+      final current = await cache.currentFile(sound);
+      if (!isCurrent()) return;
+      final preferFallback = offline || catalogSound == null;
+      if (preferFallback && await playFallback()) return;
+      if (!isCurrent()) return;
+      if (!forceRedownload &&
+          current != null &&
+          await _play(current, isCurrent)) {
+        await keepCurrentFile();
+        return;
+      }
+      if (!isCurrent()) return;
+
+      try {
+        if (sound.path.isNotEmpty) {
+          state = state.copyWith(downloadingBgSound: sound);
+          final downloaded = await cache.download(
+            sound,
+            downloader,
+            replace: current != null,
+          );
+          if (!isCurrent()) return;
+          if (downloaded != null && await _play(downloaded, isCurrent)) {
+            await keepCurrentFile();
+            return;
+          }
+        }
+      } catch (error, stack) {
+        AppLogger.e(
+          'BG_SOUND',
+          'No se pudo descargar ${sound.id}',
+          error,
+          stack,
+        );
+      }
+
+      if (isCurrent() &&
+          !preferFallback &&
+          await playFallback(excluding: forceRedownload ? null : current)) {
+        return;
+      }
+      if (isCurrent()) state = state.copyWith(failedBgSound: sound);
+    } catch (error, stack) {
+      AppLogger.e('BG_SOUND', 'No se pudo preparar ${sound.id}', error, stack);
+      if (isCurrent()) state = state.copyWith(failedBgSound: sound);
+    } finally {
+      if (isCurrent()) state = state.copyWith(downloadingBgSound: null);
+    }
+  }
+
+  Future<bool> _play(String path, bool Function() isCurrent) async {
+    getVolumeFromPref();
+    try {
+      if (Platform.isAndroid) {
+        await _api.setBackgroundSound(Uri.file(path).toString());
+        if (!isCurrent()) return false;
+        await _api.playBackgroundSound();
+        if (!isCurrent()) return false;
+        await _api.setBackgroundSoundVolume(scaledVolume(state.volume));
+      } else {
+        _bindIosSession();
+        await _ambientPlayer.setFilePath(path);
+        if (!isCurrent()) return false;
+        iosAmbientActive = true;
+        await _applyIosVolume();
+        if (!isCurrent()) return false;
+        // El controlador reanuda el fondo junto con el reloj si sigue en pausa.
+        if (_audioHandler().playing) unawaited(_ambientPlayer.play());
+        _handleFadeAtEndForIos();
+      }
+      return true;
+    } catch (error, stack) {
+      AppLogger.e('BG_SOUND', 'No se pudo reproducir $path', error, stack);
+      if (isCurrent()) iosAmbientActive = false;
+      return false;
     }
   }
 
   void togglePlayPause(bool isPlaying) {
-    // Bells follow the primary player in their own controller; this only
-    // pauses/resumes an ambient sound, if one is playing.
-    if (Platform.isIOS && !iosAmbientActive) return;
-    AppLogger.d(
-      'BG_SOUND',
-      'Toggling background sound play/pause, current isPlaying: $isPlaying',
-    );
-
     if (Platform.isAndroid) {
       if (isPlaying) {
-        AppLogger.d('BG_SOUND', 'Pausing Android background sound only');
-        _api.pauseBackgroundSound();
+        unawaited(_api.pauseBackgroundSound());
       } else {
-        AppLogger.d('BG_SOUND', 'Playing Android background sound only');
-        _api.playBackgroundSound();
+        unawaited(_api.playBackgroundSound());
       }
-    } else {
+    } else if (iosAmbientActive) {
       if (isPlaying) {
-        AppLogger.d('BG_SOUND', 'Pausing iOS background sound only');
-        iosBackgroundPlayer.pause();
-      } else {
-        AppLogger.d('BG_SOUND', 'Playing iOS background sound only');
-        iosBackgroundPlayer.play();
+        unawaited(_ambientPlayer.pause());
+      } else if (_iosSession ==
+              ref.read(playerProvider.notifier).playbackIdentity &&
+          _audioHandler().playing) {
+        unawaited(_ambientPlayer.play());
       }
     }
   }
 
-  // fade: lo implementa W3-AMBIENT.
   Future<void> stopTimerAmbient({
     required bool transportAlreadyStopped,
     Duration fade = Duration.zero,
-  }) async {
-    _timerBellToggle++;
-    _stopAmbient(transportAlreadyStopped: transportAlreadyStopped);
+  }) {
+    if (transportAlreadyStopped ||
+        Platform.isAndroid ||
+        fade <= Duration.zero ||
+        !iosAmbientActive) {
+      return _stopAmbient(transportAlreadyStopped: transportAlreadyStopped);
+    }
+
+    _endAmbientPlayback();
+    final generation = _generation;
+    final startVolume = _ambientPlayer.volume;
+    final done = _manualFade = Completer<void>();
+    const step = Duration(milliseconds: 200);
+
+    void ramp(Duration elapsed) {
+      final remaining = fade - elapsed;
+      final delay = remaining < step ? remaining : step;
+      _fadeTimer = Timer(delay, () async {
+        if (generation != _generation) return;
+        final next = elapsed + delay;
+        final fraction = (fade - next).inMicroseconds / fade.inMicroseconds;
+        if (next < fade) ramp(next);
+        try {
+          await _ambientPlayer.setVolume(startVolume * fraction);
+          if (next < fade || generation != _generation) return;
+          await _ambientPlayer.stop();
+          if (generation != _generation) return;
+          final storedVolume = ref
+              .read(backgroundSoundsRepositoryProvider)
+              .getBgSoundVolume();
+          await _ambientPlayer.setVolume(
+            scaledVolume(storedVolume ?? state.volume),
+          );
+        } catch (error, stack) {
+          AppLogger.e(
+            'BG_SOUND',
+            'No se pudo bajar el sonido de fondo',
+            error,
+            stack,
+          );
+          if (next == fade && generation == _generation) {
+            await _stopIosAmbient();
+          }
+        } finally {
+          if (next == fade && generation == _generation) _cancelManualFade();
+        }
+      });
+    }
+
+    ramp(Duration.zero);
+    return done.future;
+  }
+
+  void _cancelManualFade() {
+    _fadeTimer?.cancel();
+    _fadeTimer = null;
+    _manualFade?.complete();
+    _manualFade = null;
   }
 
   /// Detiene el sonido de fondo y las campanas al cerrar la sesión.
   void stopBackgroundSound() {
-    _stopAmbient();
+    unawaited(_stopAmbient());
     if (Platform.isAndroid) {
       unawaited(_api.setSessionBells(false));
     } else {
-      unawaited(iosAudioHandler.sessionBells.disable());
+      unawaited(_audioHandler().sessionBells.disable());
     }
   }
 
-  /// Stops only the ambient sound (None picked, or switching sounds); the
-  /// bells keep their own on/off state.
-  void _stopAmbient({bool transportAlreadyStopped = false}) {
+  void _endAmbientPlayback() {
+    _generation++;
+    _cancelManualFade();
     unawaited(ref.read(sessionBellPreviewProvider).stop());
-    AppLogger.d('BG_SOUND', 'Stopping background sound');
     iosAmbientActive = false;
     _fadeSubscription?.cancel();
     _fadeSubscription = null;
+    _endFade = 1;
+  }
+
+  Future<void> _stopAmbient({bool transportAlreadyStopped = false}) async {
+    _endAmbientPlayback();
     if (transportAlreadyStopped) return;
     if (Platform.isAndroid) {
-      _api.setBackgroundSound(null);
-      _api.stopBackgroundSound();
-    } else {
-      iosBackgroundPlayer.stop();
+      await _api.setBackgroundSound(null);
+      await _api.stopBackgroundSound();
+    } else if (Platform.isIOS || _playerOverride != null) {
+      await _stopIosAmbient();
+    }
+  }
+
+  Future<void> _stopIosAmbient() async {
+    try {
+      await _ambientPlayer.stop();
+    } catch (error, stack) {
+      AppLogger.e(
+        'BG_SOUND',
+        'No se pudo detener el sonido de fondo',
+        error,
+        stack,
+      );
     }
   }
 
@@ -588,6 +868,8 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
   }
 
   void restoreTimerBackgroundSound(PlaybackRequest request) {
+    if (!_timerScope) setTimerScope(true);
+    state = state.copyWith(bellsEnabled: true);
     final repo = ref.read(backgroundSoundsRepositoryProvider);
     final sound = request.resolveBackgroundSound(
       request.overrideBackgroundSound
@@ -613,34 +895,41 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     handleOnChangeVolume(value);
   }
 
+  void _bindIosSession() {
+    final session = ref.read(playerProvider.notifier).playbackIdentity;
+    if (_iosSession == session) return;
+    _iosSession = session;
+    _ducked = false;
+  }
+
+  void _setAmbientDucked(bool ducked) {
+    if (!ref.mounted ||
+        _iosSession != ref.read(playerProvider.notifier).playbackIdentity) {
+      return;
+    }
+    _ducked = ducked;
+    if (iosAmbientActive) unawaited(_applyIosVolume());
+  }
+
+  Future<void> _applyIosVolume() async {
+    if (_manualFade != null) return;
+    await _ambientPlayer.setVolume(
+      scaledVolume(state.volume) * _endFade * (_ducked ? 0.2 : 1),
+    );
+  }
+
   void _handleFadeAtEndForIos() {
     _fadeSubscription?.cancel();
-    _fadeSubscription = null;
-
-    var durationFromEnd = const Duration(seconds: 10).inMilliseconds;
-
-    _fadeSubscription = iosAudioHandler.positionStream.listen((
-      currentPosition,
-    ) {
-      var duration = iosAudioHandler.duration?.inMilliseconds ?? 0;
-      if (duration == 0) {
-        iosBackgroundPlayer.setVolume(scaledVolume(state.volume));
+    const fadeMs = 10000;
+    _fadeSubscription = _audioHandler().positionStream.listen((position) {
+      if (_iosSession != ref.read(playerProvider.notifier).playbackIdentity) {
         return;
       }
-
-      var remainingTime = duration - currentPosition.inMilliseconds;
-
-      if (remainingTime <= 0) {
-        // At or past the end: stay silent. Without this the fade would snap
-        // back to full volume on the final position update, causing an
-        // audible blip right before playback completes.
-        iosBackgroundPlayer.setVolume(0);
-      } else if (remainingTime <= durationFromEnd) {
-        var newVolume = state.volume * remainingTime / durationFromEnd;
-        iosBackgroundPlayer.setVolume(scaledVolume(newVolume));
-      } else {
-        iosBackgroundPlayer.setVolume(scaledVolume(state.volume));
-      }
+      final duration = _audioHandler().duration?.inMilliseconds ?? 0;
+      _endFade = duration == 0
+          ? 1
+          : ((duration - position.inMilliseconds) / fadeMs).clamp(0.0, 1.0);
+      unawaited(_applyIosVolume());
     });
   }
 

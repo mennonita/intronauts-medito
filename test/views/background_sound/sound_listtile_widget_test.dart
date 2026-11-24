@@ -6,7 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/models.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
+import 'package:medito/providers/player/player_provider.dart';
+import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
 import 'package:medito/views/background_sound/widgets/sound_listtile_widget.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _rain = BackgroundSoundsModel(
   id: '12',
@@ -21,6 +24,24 @@ const _none = BackgroundSoundsModel(
   path: '',
   duration: 0,
 );
+
+class _SheetPlayer extends PlayerProvider {
+  _SheetPlayer(this.isTimer);
+
+  final bool isTimer;
+
+  @override
+  PlaybackRequest build() => PlaybackRequest(
+    trackId: isTimer ? 'timer-120' : 'guided',
+    fileId: 'timer-file',
+    title: 'Temporizador',
+    description: '',
+    coverUrl: '',
+    remoteUrl: '',
+    duration: 120,
+    hasBackgroundSound: true,
+  );
+}
 
 /// Lets a test put the notifier in an arbitrary state and observe the calls the
 /// widget makes, without touching the filesystem or an audio player.
@@ -177,10 +198,14 @@ void main() {
     tester,
   ) async {
     final notifier = _FakeNotifier(const BackgroundSoundsState());
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
           backgroundSoundsNotifierProvider.overrideWith(() => notifier),
+          playerProvider.overrideWith(() => _SheetPlayer(false)),
           backgroundSoundsProvider.overrideWith(
             (ref) async => throw const ServerError(),
           ),
@@ -201,5 +226,36 @@ void main() {
     expect(notifier.bells, [true]);
     expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('timer sheet hides the session bells switch', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playerProvider.overrideWith(() => _SheetPlayer(true)),
+          backgroundSoundsNotifierProvider.overrideWith(
+            () =>
+                _FakeNotifier(const BackgroundSoundsState(bellsEnabled: true)),
+          ),
+          backgroundSoundCatalogProvider.overrideWithValue(
+            const BackgroundSoundCatalog(
+              sounds: [_rain],
+              downloadedIds: {},
+              offline: false,
+              loading: false,
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          locale: Locale('es'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: BackgroundSoundView()),
+        ),
+      ),
+    );
+    expect(find.text('Campanas de sesión'), findsNothing);
+    expect(find.byType(Switch), findsNothing);
+    expect(find.text('Rain'), findsOneWidget);
   });
 }

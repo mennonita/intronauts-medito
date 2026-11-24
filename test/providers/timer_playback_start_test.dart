@@ -1,16 +1,12 @@
-import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:medito/models/timer/timer_bell_settings.dart';
 import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/providers/player/audio_state_provider.dart';
 import 'package:medito/providers/player/ios_audio_handler.dart';
 import 'package:medito/providers/player/player_provider.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
-import 'package:medito/services/account/playback_account.dart';
-import 'package:medito/services/audio/ios_session_bells.dart';
 import 'package:medito/services/audio/session_bell_preview.dart';
 import 'package:medito/src/audio_pigeon.g.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
@@ -20,8 +16,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _AudioHandler extends Mock implements IosAudioHandler {}
 
 class _Track extends Fake implements Track {}
-
-class _Bells extends Mock implements IosSessionBells {}
 
 class _Preview extends Mock implements SessionBellPreview {}
 
@@ -110,15 +104,15 @@ void main() {
     },
   );
 
+  // Las campanas del temporizador ya no tienen interruptor general:
+  // cada campana decide por su ajuste (PLAN §4 UX-2).
   test(
-    'el interruptor prueba el cierre de la sesión y descarta solicitudes viejas',
+    'en el temporizador, el interruptor de campanas no cambia nada',
     () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
       final preview = _Preview();
       when(preview.stop).thenAnswer((_) async {});
-      const asset = 'assets/audio/bells/p8-kalimba.mp3';
-      when(() => preview.play(any(), assetKey: asset)).thenAnswer((_) async {});
       final container = ProviderContainer(
         overrides: [
           sessionBellPreviewProvider.overrideWithValue(preview),
@@ -126,69 +120,17 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
-      final originalSink = AudioSessionTracker.logSink;
-      AudioSessionTracker.logSink = (_, _) async {};
-      addTearDown(() {
-        AudioSessionTracker.logSink = originalSink;
-        AudioSessionTracker.instance.resetForTesting();
-      });
-      final request = timerPlaybackRequest(
-        mode: TimerMode.countdown,
-        duration: const Duration(minutes: 3),
-        filePath: '/tmp/timer.wav',
-        title: 'Temporizador',
-        bells: const TimerBellSettings(endSound: 'kalimba'),
-      );
-      registerFallbackValue(_Track());
-      final handler = _AudioHandler();
-      final bells = _Bells();
-      iosAudioHandler = handler;
-      when(() => handler.sessionBells).thenReturn(bells);
-      when(
-        () => handler.setCustomRepeatMode(RepeatMode.none),
-      ).thenAnswer((_) async {});
-      when(() => handler.setSpeed(1)).thenAnswer((_) async {});
-      when(handler.cancelPendingTimerStart).thenAnswer((_) {});
-      when(
-        () => handler.configureSession(
-          mixWithOthers: any(named: 'mixWithOthers'),
-        ),
-      ).thenAnswer((_) async {});
-      when(
-        () => handler.setUrl(
-          any(),
-          request,
-          any(),
-          timerBells: any(named: 'timerBells'),
-        ),
-      ).thenAnswer((_) async {});
-      when(handler.play).thenAnswer((_) async {});
-      when(() => bells.setTimerEnabled(true, any())).thenAnswer((_) async {});
-
-      final player = container.read(playerProvider.notifier);
       final sounds = container.read(backgroundSoundsNotifierProvider.notifier);
-      expect(player.reserveStart(request.timerRunId), isTrue);
-      await player.play(request);
-      sounds.setSessionBells(true);
-      await pumpEventQueue();
-      verify(() => preview.play(any(), assetKey: asset)).called(1);
+      sounds.setTimerScope(true);
 
-      var applying = Completer<void>();
-      when(
-        () => bells.setTimerEnabled(true, any()),
-      ).thenAnswer((_) => applying.future);
-      sounds.setSessionBells(true);
-      await player.play(request);
-      applying.complete();
+      sounds.setSessionBells(false);
       await pumpEventQueue();
-      verifyNever(() => preview.play(any(), assetKey: asset));
 
-      applying = Completer<void>();
-      sounds.setSessionBells(true);
-      await PlaybackAccount.clear();
-      applying.complete();
-      await pumpEventQueue();
-      verifyNever(() => preview.play(any(), assetKey: asset));
+      expect(
+        container.read(backgroundSoundsNotifierProvider).bellsEnabled,
+        isTrue,
+      );
+      verifyNever(() => preview.play(any(), assetKey: any(named: 'assetKey')));
     },
   );
 
