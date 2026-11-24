@@ -100,6 +100,7 @@ class HealthConnectBridge(
     override fun writeMindfulnessSession(
         startEpochMs: Long,
         endEpochMs: Long,
+        clientRecordId: String,
         callback: (Result<Boolean>) -> Unit,
     ) {
         val client = clientOrNull() ?: return callback(Result.success(false))

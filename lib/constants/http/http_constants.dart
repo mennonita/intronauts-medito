@@ -160,6 +160,8 @@ class HTTPConstants {
   static const String tracks = 'tracks';
   static const String favorites = 'favorites';
   static const String backgroundSounds = 'backgroundsounds';
+  static const String timerConfig = 'timer';
+  static const String timerJournal = 'journal';
   static const String home = 'home';
   static const String latestAnnouncement = 'announcements?latest=true';
   static const String allStats = 'stats';

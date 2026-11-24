@@ -124,6 +124,7 @@ class HealthKitManager {
         return await _androidBridge.writeMindfulnessSession(
           start.millisecondsSinceEpoch,
           end.millisecondsSinceEpoch,
+          '',
         );
       }
 

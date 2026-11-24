@@ -176,6 +176,42 @@ class SharedPreferenceConstants {
   static const String timerBackground = 'timerBackground';
   static const String lastRecoveredTimerClose = 'last_recovered_timer_close';
   static const String timerMinutes = 'timer_minutes';
+  // Permite que suene el audio de otras apps durante la sesión.
+  static const String timerMixWithOthers = 'timer_mix_with_others';
+  // Mantiene encendida la pantalla durante la sesión.
+  static const String timerKeepScreenOn = 'timer_keep_screen_on';
+  // Segundos de preparación antes de empezar.
+  static const String timerPrepSeconds = 'timer_prep_seconds';
+  // Etapas configuradas para la sesión.
+  static const String timerStages = 'timer_stages';
+  // Ajustes de la última sesión que empezó.
+  static const String timerLastSettings = 'timer_last_settings';
+  // Sesiones pendientes de guardar en Salud.
+  static const String pendingHealthSessions = 'pending_health_sessions';
+  // Indica si la persona descartó la invitación para conectar Salud.
+  static const String healthPromptDismissed = 'health_prompt_dismissed';
+  // Indica si ya se migraron los archivos de sonido de fondo.
+  static const String backgroundSoundCacheV2Migrated =
+      'background_sound_cache_v2_migrated';
+  // Activa las campanas durante el día.
+  static const String mindfulnessBellsEnabled = 'mindfulness_bells_enabled';
+  // Hora en que empiezan las campanas del día.
+  static const String mindfulnessBellsStartHour =
+      'mindfulness_bells_start_hour';
+  // Hora en que terminan las campanas del día.
+  static const String mindfulnessBellsEndHour = 'mindfulness_bells_end_hour';
+  // Horas entre las campanas del día.
+  static const String mindfulnessBellsEveryHours =
+      'mindfulness_bells_every_hours';
+  // Consentimiento explícito para sincronizar con Salud; desactivado por defecto.
+  static const String healthSyncEnabled = 'health_sync_enabled';
+  // Cuenta que dio su consentimiento para sincronizar con Salud.
+  static const String healthSyncAccountId = 'health_sync_account_id';
+  // Mapa JSON de identificadores de sonido a nombres de archivos guardados.
+  static const String backgroundSoundCacheFiles =
+      'background_sound_cache_files';
+  // Registro de la sesión activa y las sesiones terminadas en iOS.
+  static const String iosTimerRuns = 'ios_timer_runs';
   // Session bells on/off, separate from the ambient sound so both can play.
   // Tracks default off; the Timer defaults on.
   static const String sessionBellsEnabled = 'session_bells_enabled';

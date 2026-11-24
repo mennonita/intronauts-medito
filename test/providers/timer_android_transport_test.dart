@@ -171,7 +171,7 @@ void main() {
     () async {
       var attempts = 0;
       audioHost('stopTimerPlayback', (message) {
-        expect(message, [42]);
+        expect(message, [42, true]);
         return TimerStopReport(
           positionMs: 42000,
           stopped: ++attempts == 2,

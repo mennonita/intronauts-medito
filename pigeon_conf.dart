@@ -23,6 +23,26 @@ class AudioData {
     this.timerSeed,
     this.timerHasExtraTime,
     this.timerStopLabel,
+    this.timerPrepMs,
+    this.timerPlannedMs,
+    this.timerIsStopwatch,
+    this.timerBellOutput,
+    this.timerMixWithOthers,
+    this.dndRequested,
+    this.timerLanguageTag,
+    this.timerPausedText,
+    this.timerPrepText,
+    this.timerExtraTimeText,
+    this.timerHeadphonesPausedText,
+    this.timerOtherAudioPausedText,
+    this.timerAlertsChannelName,
+    this.timerRunId,
+    this.timerOwnerId,
+    this.timerBackupTitle,
+    this.timerBackupBody,
+    this.timerBackupChannelName,
+    this.timerBackupSilentChannelName,
+    this.timerDndRuleName,
   });
 
   String url;
@@ -30,6 +50,46 @@ class AudioData {
   int? timerSeed;
   bool? timerHasExtraTime;
   String? timerStopLabel;
+  // Cuenta regresiva antes de la campana de inicio, en ms.
+  int? timerPrepMs;
+  // Duración planeada en ms; cinco horas para el cronómetro.
+  int? timerPlannedMs;
+  // Indica si la sesión usa el modo cronómetro.
+  bool? timerIsStopwatch;
+  // Salida de la campana: sonido, vibración o ambos.
+  String? timerBellOutput;
+  // Permite que suene el audio de otras apps durante la sesión.
+  bool? timerMixWithOthers;
+  // La persona activó No molestar y Android concedió acceso.
+  bool? dndRequested;
+  // Etiqueta de idioma que se usa para leer los avisos en voz alta.
+  String? timerLanguageTag;
+  // Texto que indica que la sesión está en pausa.
+  String? timerPausedText;
+  // Texto que aparece durante la preparación.
+  String? timerPrepText;
+  // Texto que indica que empezó el tiempo extra.
+  String? timerExtraTimeText;
+  // Aviso de pausa por desconexión de audífonos.
+  String? timerHeadphonesPausedText;
+  // Aviso de pausa porque otra app empezó a sonar.
+  String? timerOtherAudioPausedText;
+  // Nombre del canal de avisos del temporizador.
+  String? timerAlertsChannelName;
+  // Identificador de la sesión para recuperación, avisos y notas.
+  String? timerRunId;
+  // Identificador verificado al reservar la sesión; vacío si no se verificó.
+  String? timerOwnerId;
+  // Título del aviso de respaldo que marca el fin de la sesión.
+  String? timerBackupTitle;
+  // Texto del aviso de respaldo con la duración ya incluida.
+  String? timerBackupBody;
+  // Nombre del canal del aviso de respaldo con sonido.
+  String? timerBackupChannelName;
+  // Nombre del canal del aviso de respaldo sin sonido.
+  String? timerBackupSilentChannelName;
+  // Nombre de la regla de No molestar para Android 15 en adelante.
+  String? timerDndRuleName;
 }
 
 class BellCue {
@@ -78,8 +138,13 @@ abstract class MeditoHealthConnectManager {
   @async
   bool requestMindfulnessPermissions();
 
+  // Clave estable: Health Connect no duplica un reintento.
   @async
-  bool writeMindfulnessSession(int startEpochMs, int endEpochMs);
+  bool writeMindfulnessSession(
+    int startEpochMs,
+    int endEpochMs,
+    String clientRecordId,
+  );
 
   void openHealthConnectInstall();
 }
@@ -113,7 +178,7 @@ abstract class MeditoAudioServiceApi {
 
   void setBellCues(bool useTrackSchedule, List<BellCue> cues);
 
-  TimerStopReport stopTimerPlayback(int sessionSeed);
+  TimerStopReport stopTimerPlayback(int sessionSeed, bool save);
 
   void playBackgroundSound();
 
@@ -134,6 +199,10 @@ class PlaybackState {
   int volume;
   Track track;
   BackgroundSound? backgroundSound;
+  // true cuando empezó a sonar la campana final de esta sesión; null en guiadas.
+  bool? endCueRang;
+  // Identificador de la sesión del temporizador; null en meditaciones guiadas.
+  String? runId;
 
   PlaybackState({
     required this.isPlaying,
@@ -146,6 +215,8 @@ class PlaybackState {
     required this.volume,
     required this.track,
     this.backgroundSound,
+    this.endCueRang,
+    this.runId,
   });
 }
 
@@ -204,6 +275,12 @@ class CompletionData {
   int timestamp;
   String? userToken;
   TimerEndedData? timerEnded;
+  // Identificador de la sesión del temporizador; null en meditaciones guiadas.
+  String? runId;
+  // Dueño de las estadísticas al reservar la sesión: id verificado, vacío si no está verificado.
+  String? ownerId;
+  // true si Android la recuperó tras cerrarse la app.
+  bool? recovered;
 
   CompletionData({
     required this.trackId,
@@ -212,6 +289,9 @@ class CompletionData {
     required this.guideId,
     required this.timestamp,
     required this.userToken,
+    this.runId,
+    this.ownerId,
+    this.recovered,
   });
 }
 
@@ -228,6 +308,7 @@ abstract class MeditoAudioServiceCallbackApi {
     String message,
     int positionMs,
     int durationMs,
+    String? runId,
   );
 }
 
@@ -239,12 +320,15 @@ class TimerStopReport {
     required this.endCueRang,
     required this.stopped,
     this.completionPersisted,
+    this.runId,
   });
 
   int positionMs;
   bool endCueRang;
   bool stopped;
   bool? completionPersisted;
+  // Identificador de la sesión del temporizador; null en meditaciones guiadas.
+  String? runId;
 }
 
 @FlutterApi()

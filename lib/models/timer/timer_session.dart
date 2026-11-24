@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:medito/models/player/playback_request.dart';
 
 import '../background_sounds/background_sounds_model.dart';
@@ -57,9 +59,7 @@ String timerFileId(TimerMode mode, Duration duration) =>
 extension TimerPlaybackRequest on PlaybackRequest {
   int get plannedDurationMs => timerPlannedDurationMs ?? duration;
   bool get hasExtraTime =>
-      isTimer &&
-      timerMode == TimerMode.countdown &&
-      plannedDurationMs < duration;
+      isTimer && timerMode == TimerMode.countdown && timerExtraTime;
 
   BackgroundSoundsModel? resolveBackgroundSound(
     BackgroundSoundsModel? global,
@@ -85,6 +85,8 @@ PlaybackRequest timerPlaybackRequest({
   TimerBellSettings bells = const TimerBellSettings(),
   bool extraTime = false,
   int? seed,
+  String? runId,
+  String ownerId = '',
   String? stopLabel,
   bool overrideBackgroundSound = false,
   BackgroundSoundsModel? backgroundSound,
@@ -111,7 +113,10 @@ PlaybackRequest timerPlaybackRequest({
     remoteUrl: Uri.file(filePath).toString(),
     duration: fileDuration.inMilliseconds,
     timerPlannedDurationMs: duration.inMilliseconds,
+    timerExtraTime: hasExtraTime,
     timerSeed: sessionSeed,
+    timerRunId: runId ?? newTimerRunId(),
+    timerOwnerId: ownerId,
     timerStopLabel: stopLabel,
     timerBellCues: cues,
     timerEndSound: BellSound.resolve(bells.endSound).id,
@@ -120,4 +125,13 @@ PlaybackRequest timerPlaybackRequest({
     backgroundSound: backgroundSound,
     hasBackgroundSound: true,
   );
+}
+
+// Un identificador por sesión iniciada; une recuperación, estadísticas, Salud y nota.
+String newTimerRunId() {
+  final random = Random.secure();
+  return List.generate(
+    16,
+    (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ).join();
 }

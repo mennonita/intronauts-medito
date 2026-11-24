@@ -225,7 +225,27 @@ data class AudioData (
   val track: Track,
   val timerSeed: Long? = null,
   val timerHasExtraTime: Boolean? = null,
-  val timerStopLabel: String? = null
+  val timerStopLabel: String? = null,
+  val timerPrepMs: Long? = null,
+  val timerPlannedMs: Long? = null,
+  val timerIsStopwatch: Boolean? = null,
+  val timerBellOutput: String? = null,
+  val timerMixWithOthers: Boolean? = null,
+  val dndRequested: Boolean? = null,
+  val timerLanguageTag: String? = null,
+  val timerPausedText: String? = null,
+  val timerPrepText: String? = null,
+  val timerExtraTimeText: String? = null,
+  val timerHeadphonesPausedText: String? = null,
+  val timerOtherAudioPausedText: String? = null,
+  val timerAlertsChannelName: String? = null,
+  val timerRunId: String? = null,
+  val timerOwnerId: String? = null,
+  val timerBackupTitle: String? = null,
+  val timerBackupBody: String? = null,
+  val timerBackupChannelName: String? = null,
+  val timerBackupSilentChannelName: String? = null,
+  val timerDndRuleName: String? = null
 )
  {
   companion object {
@@ -235,7 +255,27 @@ data class AudioData (
       val timerSeed = pigeonVar_list[2] as Long?
       val timerHasExtraTime = pigeonVar_list[3] as Boolean?
       val timerStopLabel = pigeonVar_list[4] as String?
-      return AudioData(url, track, timerSeed, timerHasExtraTime, timerStopLabel)
+      val timerPrepMs = pigeonVar_list[5] as Long?
+      val timerPlannedMs = pigeonVar_list[6] as Long?
+      val timerIsStopwatch = pigeonVar_list[7] as Boolean?
+      val timerBellOutput = pigeonVar_list[8] as String?
+      val timerMixWithOthers = pigeonVar_list[9] as Boolean?
+      val dndRequested = pigeonVar_list[10] as Boolean?
+      val timerLanguageTag = pigeonVar_list[11] as String?
+      val timerPausedText = pigeonVar_list[12] as String?
+      val timerPrepText = pigeonVar_list[13] as String?
+      val timerExtraTimeText = pigeonVar_list[14] as String?
+      val timerHeadphonesPausedText = pigeonVar_list[15] as String?
+      val timerOtherAudioPausedText = pigeonVar_list[16] as String?
+      val timerAlertsChannelName = pigeonVar_list[17] as String?
+      val timerRunId = pigeonVar_list[18] as String?
+      val timerOwnerId = pigeonVar_list[19] as String?
+      val timerBackupTitle = pigeonVar_list[20] as String?
+      val timerBackupBody = pigeonVar_list[21] as String?
+      val timerBackupChannelName = pigeonVar_list[22] as String?
+      val timerBackupSilentChannelName = pigeonVar_list[23] as String?
+      val timerDndRuleName = pigeonVar_list[24] as String?
+      return AudioData(url, track, timerSeed, timerHasExtraTime, timerStopLabel, timerPrepMs, timerPlannedMs, timerIsStopwatch, timerBellOutput, timerMixWithOthers, dndRequested, timerLanguageTag, timerPausedText, timerPrepText, timerExtraTimeText, timerHeadphonesPausedText, timerOtherAudioPausedText, timerAlertsChannelName, timerRunId, timerOwnerId, timerBackupTitle, timerBackupBody, timerBackupChannelName, timerBackupSilentChannelName, timerDndRuleName)
     }
   }
   fun toList(): List<Any?> {
@@ -245,6 +285,26 @@ data class AudioData (
       timerSeed,
       timerHasExtraTime,
       timerStopLabel,
+      timerPrepMs,
+      timerPlannedMs,
+      timerIsStopwatch,
+      timerBellOutput,
+      timerMixWithOthers,
+      dndRequested,
+      timerLanguageTag,
+      timerPausedText,
+      timerPrepText,
+      timerExtraTimeText,
+      timerHeadphonesPausedText,
+      timerOtherAudioPausedText,
+      timerAlertsChannelName,
+      timerRunId,
+      timerOwnerId,
+      timerBackupTitle,
+      timerBackupBody,
+      timerBackupChannelName,
+      timerBackupSilentChannelName,
+      timerDndRuleName,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -255,7 +315,7 @@ data class AudioData (
       return true
     }
     val other = other as AudioData
-    return AudioPigeonPigeonUtils.deepEquals(this.url, other.url) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.timerSeed, other.timerSeed) && AudioPigeonPigeonUtils.deepEquals(this.timerHasExtraTime, other.timerHasExtraTime) && AudioPigeonPigeonUtils.deepEquals(this.timerStopLabel, other.timerStopLabel)
+    return AudioPigeonPigeonUtils.deepEquals(this.url, other.url) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.timerSeed, other.timerSeed) && AudioPigeonPigeonUtils.deepEquals(this.timerHasExtraTime, other.timerHasExtraTime) && AudioPigeonPigeonUtils.deepEquals(this.timerStopLabel, other.timerStopLabel) && AudioPigeonPigeonUtils.deepEquals(this.timerPrepMs, other.timerPrepMs) && AudioPigeonPigeonUtils.deepEquals(this.timerPlannedMs, other.timerPlannedMs) && AudioPigeonPigeonUtils.deepEquals(this.timerIsStopwatch, other.timerIsStopwatch) && AudioPigeonPigeonUtils.deepEquals(this.timerBellOutput, other.timerBellOutput) && AudioPigeonPigeonUtils.deepEquals(this.timerMixWithOthers, other.timerMixWithOthers) && AudioPigeonPigeonUtils.deepEquals(this.dndRequested, other.dndRequested) && AudioPigeonPigeonUtils.deepEquals(this.timerLanguageTag, other.timerLanguageTag) && AudioPigeonPigeonUtils.deepEquals(this.timerPausedText, other.timerPausedText) && AudioPigeonPigeonUtils.deepEquals(this.timerPrepText, other.timerPrepText) && AudioPigeonPigeonUtils.deepEquals(this.timerExtraTimeText, other.timerExtraTimeText) && AudioPigeonPigeonUtils.deepEquals(this.timerHeadphonesPausedText, other.timerHeadphonesPausedText) && AudioPigeonPigeonUtils.deepEquals(this.timerOtherAudioPausedText, other.timerOtherAudioPausedText) && AudioPigeonPigeonUtils.deepEquals(this.timerAlertsChannelName, other.timerAlertsChannelName) && AudioPigeonPigeonUtils.deepEquals(this.timerRunId, other.timerRunId) && AudioPigeonPigeonUtils.deepEquals(this.timerOwnerId, other.timerOwnerId) && AudioPigeonPigeonUtils.deepEquals(this.timerBackupTitle, other.timerBackupTitle) && AudioPigeonPigeonUtils.deepEquals(this.timerBackupBody, other.timerBackupBody) && AudioPigeonPigeonUtils.deepEquals(this.timerBackupChannelName, other.timerBackupChannelName) && AudioPigeonPigeonUtils.deepEquals(this.timerBackupSilentChannelName, other.timerBackupSilentChannelName) && AudioPigeonPigeonUtils.deepEquals(this.timerDndRuleName, other.timerDndRuleName)
   }
 
   override fun hashCode(): Int {
@@ -265,6 +325,26 @@ data class AudioData (
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerSeed)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerHasExtraTime)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerStopLabel)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerPrepMs)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerPlannedMs)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerIsStopwatch)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerBellOutput)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerMixWithOthers)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.dndRequested)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerLanguageTag)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerPausedText)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerPrepText)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerExtraTimeText)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerHeadphonesPausedText)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerOtherAudioPausedText)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerAlertsChannelName)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerRunId)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerOwnerId)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerBackupTitle)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerBackupBody)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerBackupChannelName)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerBackupSilentChannelName)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerDndRuleName)
     return result
   }
 }
@@ -322,7 +402,9 @@ data class PlaybackState (
   val speed: Speed,
   val volume: Long,
   val track: Track,
-  val backgroundSound: BackgroundSound? = null
+  val backgroundSound: BackgroundSound? = null,
+  val endCueRang: Boolean? = null,
+  val runId: String? = null
 )
  {
   companion object {
@@ -337,7 +419,9 @@ data class PlaybackState (
       val volume = pigeonVar_list[7] as Long
       val track = pigeonVar_list[8] as Track
       val backgroundSound = pigeonVar_list[9] as BackgroundSound?
-      return PlaybackState(isPlaying, isBuffering, isSeeking, isCompleted, position, duration, speed, volume, track, backgroundSound)
+      val endCueRang = pigeonVar_list[10] as Boolean?
+      val runId = pigeonVar_list[11] as String?
+      return PlaybackState(isPlaying, isBuffering, isSeeking, isCompleted, position, duration, speed, volume, track, backgroundSound, endCueRang, runId)
     }
   }
   fun toList(): List<Any?> {
@@ -352,6 +436,8 @@ data class PlaybackState (
       volume,
       track,
       backgroundSound,
+      endCueRang,
+      runId,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -362,7 +448,7 @@ data class PlaybackState (
       return true
     }
     val other = other as PlaybackState
-    return AudioPigeonPigeonUtils.deepEquals(this.isPlaying, other.isPlaying) && AudioPigeonPigeonUtils.deepEquals(this.isBuffering, other.isBuffering) && AudioPigeonPigeonUtils.deepEquals(this.isSeeking, other.isSeeking) && AudioPigeonPigeonUtils.deepEquals(this.isCompleted, other.isCompleted) && AudioPigeonPigeonUtils.deepEquals(this.position, other.position) && AudioPigeonPigeonUtils.deepEquals(this.duration, other.duration) && AudioPigeonPigeonUtils.deepEquals(this.speed, other.speed) && AudioPigeonPigeonUtils.deepEquals(this.volume, other.volume) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.backgroundSound, other.backgroundSound)
+    return AudioPigeonPigeonUtils.deepEquals(this.isPlaying, other.isPlaying) && AudioPigeonPigeonUtils.deepEquals(this.isBuffering, other.isBuffering) && AudioPigeonPigeonUtils.deepEquals(this.isSeeking, other.isSeeking) && AudioPigeonPigeonUtils.deepEquals(this.isCompleted, other.isCompleted) && AudioPigeonPigeonUtils.deepEquals(this.position, other.position) && AudioPigeonPigeonUtils.deepEquals(this.duration, other.duration) && AudioPigeonPigeonUtils.deepEquals(this.speed, other.speed) && AudioPigeonPigeonUtils.deepEquals(this.volume, other.volume) && AudioPigeonPigeonUtils.deepEquals(this.track, other.track) && AudioPigeonPigeonUtils.deepEquals(this.backgroundSound, other.backgroundSound) && AudioPigeonPigeonUtils.deepEquals(this.endCueRang, other.endCueRang) && AudioPigeonPigeonUtils.deepEquals(this.runId, other.runId)
   }
 
   override fun hashCode(): Int {
@@ -377,6 +463,8 @@ data class PlaybackState (
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.volume)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.track)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.backgroundSound)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.endCueRang)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.runId)
     return result
   }
 }
@@ -565,7 +653,10 @@ data class CompletionData (
   val guideId: String? = null,
   val timestamp: Long,
   val userToken: String? = null,
-  val timerEnded: TimerEndedData? = null
+  val timerEnded: TimerEndedData? = null,
+  val runId: String? = null,
+  val ownerId: String? = null,
+  val recovered: Boolean? = null
 )
  {
   companion object {
@@ -577,7 +668,10 @@ data class CompletionData (
       val timestamp = pigeonVar_list[4] as Long
       val userToken = pigeonVar_list[5] as String?
       val timerEnded = pigeonVar_list[6] as TimerEndedData?
-      return CompletionData(trackId, duration, fileId, guideId, timestamp, userToken, timerEnded)
+      val runId = pigeonVar_list[7] as String?
+      val ownerId = pigeonVar_list[8] as String?
+      val recovered = pigeonVar_list[9] as Boolean?
+      return CompletionData(trackId, duration, fileId, guideId, timestamp, userToken, timerEnded, runId, ownerId, recovered)
     }
   }
   fun toList(): List<Any?> {
@@ -589,6 +683,9 @@ data class CompletionData (
       timestamp,
       userToken,
       timerEnded,
+      runId,
+      ownerId,
+      recovered,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -599,7 +696,7 @@ data class CompletionData (
       return true
     }
     val other = other as CompletionData
-    return AudioPigeonPigeonUtils.deepEquals(this.trackId, other.trackId) && AudioPigeonPigeonUtils.deepEquals(this.duration, other.duration) && AudioPigeonPigeonUtils.deepEquals(this.fileId, other.fileId) && AudioPigeonPigeonUtils.deepEquals(this.guideId, other.guideId) && AudioPigeonPigeonUtils.deepEquals(this.timestamp, other.timestamp) && AudioPigeonPigeonUtils.deepEquals(this.userToken, other.userToken) && AudioPigeonPigeonUtils.deepEquals(this.timerEnded, other.timerEnded)
+    return AudioPigeonPigeonUtils.deepEquals(this.trackId, other.trackId) && AudioPigeonPigeonUtils.deepEquals(this.duration, other.duration) && AudioPigeonPigeonUtils.deepEquals(this.fileId, other.fileId) && AudioPigeonPigeonUtils.deepEquals(this.guideId, other.guideId) && AudioPigeonPigeonUtils.deepEquals(this.timestamp, other.timestamp) && AudioPigeonPigeonUtils.deepEquals(this.userToken, other.userToken) && AudioPigeonPigeonUtils.deepEquals(this.timerEnded, other.timerEnded) && AudioPigeonPigeonUtils.deepEquals(this.runId, other.runId) && AudioPigeonPigeonUtils.deepEquals(this.ownerId, other.ownerId) && AudioPigeonPigeonUtils.deepEquals(this.recovered, other.recovered)
   }
 
   override fun hashCode(): Int {
@@ -611,6 +708,9 @@ data class CompletionData (
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timestamp)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.userToken)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.timerEnded)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.runId)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.ownerId)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.recovered)
     return result
   }
 }
@@ -620,7 +720,8 @@ data class TimerStopReport (
   val positionMs: Long,
   val endCueRang: Boolean,
   val stopped: Boolean,
-  val completionPersisted: Boolean? = null
+  val completionPersisted: Boolean? = null,
+  val runId: String? = null
 )
  {
   companion object {
@@ -629,7 +730,8 @@ data class TimerStopReport (
       val endCueRang = pigeonVar_list[1] as Boolean
       val stopped = pigeonVar_list[2] as Boolean
       val completionPersisted = pigeonVar_list[3] as Boolean?
-      return TimerStopReport(positionMs, endCueRang, stopped, completionPersisted)
+      val runId = pigeonVar_list[4] as String?
+      return TimerStopReport(positionMs, endCueRang, stopped, completionPersisted, runId)
     }
   }
   fun toList(): List<Any?> {
@@ -638,6 +740,7 @@ data class TimerStopReport (
       endCueRang,
       stopped,
       completionPersisted,
+      runId,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -648,7 +751,7 @@ data class TimerStopReport (
       return true
     }
     val other = other as TimerStopReport
-    return AudioPigeonPigeonUtils.deepEquals(this.positionMs, other.positionMs) && AudioPigeonPigeonUtils.deepEquals(this.endCueRang, other.endCueRang) && AudioPigeonPigeonUtils.deepEquals(this.stopped, other.stopped) && AudioPigeonPigeonUtils.deepEquals(this.completionPersisted, other.completionPersisted)
+    return AudioPigeonPigeonUtils.deepEquals(this.positionMs, other.positionMs) && AudioPigeonPigeonUtils.deepEquals(this.endCueRang, other.endCueRang) && AudioPigeonPigeonUtils.deepEquals(this.stopped, other.stopped) && AudioPigeonPigeonUtils.deepEquals(this.completionPersisted, other.completionPersisted) && AudioPigeonPigeonUtils.deepEquals(this.runId, other.runId)
   }
 
   override fun hashCode(): Int {
@@ -657,6 +760,7 @@ data class TimerStopReport (
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.endCueRang)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.stopped)
     result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.completionPersisted)
+    result = 31 * result + AudioPigeonPigeonUtils.deepHash(this.runId)
     return result
   }
 }
@@ -919,7 +1023,7 @@ interface MeditoHealthConnectManager {
   fun getStatus(callback: (Result<HealthConnectStatus>) -> Unit)
   fun hasMindfulnessPermissions(callback: (Result<Boolean>) -> Unit)
   fun requestMindfulnessPermissions(callback: (Result<Boolean>) -> Unit)
-  fun writeMindfulnessSession(startEpochMs: Long, endEpochMs: Long, callback: (Result<Boolean>) -> Unit)
+  fun writeMindfulnessSession(startEpochMs: Long, endEpochMs: Long, clientRecordId: String, callback: (Result<Boolean>) -> Unit)
   fun openHealthConnectInstall()
 
   companion object {
@@ -992,7 +1096,8 @@ interface MeditoHealthConnectManager {
             val args = message as List<Any?>
             val startEpochMsArg = args[0] as Long
             val endEpochMsArg = args[1] as Long
-            api.writeMindfulnessSession(startEpochMsArg, endEpochMsArg) { result: Result<Boolean> ->
+            val clientRecordIdArg = args[2] as String
+            api.writeMindfulnessSession(startEpochMsArg, endEpochMsArg, clientRecordIdArg) { result: Result<Boolean> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(AudioPigeonPigeonUtils.wrapError(error))
@@ -1041,7 +1146,7 @@ interface MeditoAudioServiceApi {
   /** Start/middle/end bells, independent of the ambient background sound. */
   fun setSessionBells(enabled: Boolean)
   fun setBellCues(useTrackSchedule: Boolean, cues: List<BellCue>)
-  fun stopTimerPlayback(sessionSeed: Long): TimerStopReport
+  fun stopTimerPlayback(sessionSeed: Long, save: Boolean): TimerStopReport
   fun playBackgroundSound()
   fun pauseBackgroundSound()
 
@@ -1284,8 +1389,9 @@ interface MeditoAudioServiceApi {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
             val sessionSeedArg = args[0] as Long
+            val saveArg = args[1] as Boolean
             val wrapped: List<Any?> = try {
-              listOf(api.stopTimerPlayback(sessionSeedArg))
+              listOf(api.stopTimerPlayback(sessionSeedArg, saveArg))
             } catch (exception: Throwable) {
               AudioPigeonPigeonUtils.wrapError(exception)
             }
@@ -1395,12 +1501,12 @@ class MeditoAudioServiceCallbackApi(private val binaryMessenger: BinaryMessenger
       } 
     }
   }
-  fun reportPlayerError(errorCodeArg: String, messageArg: String, positionMsArg: Long, durationMsArg: Long, callback: (Result<Unit>) -> Unit)
+  fun reportPlayerError(errorCodeArg: String, messageArg: String, positionMsArg: Long, durationMsArg: Long, runIdArg: String?, callback: (Result<Unit>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.medito.MeditoAudioServiceCallbackApi.reportPlayerError$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(errorCodeArg, messageArg, positionMsArg, durationMsArg)) {
+    channel.send(listOf(errorCodeArg, messageArg, positionMsArg, durationMsArg, runIdArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))
@@ -1435,7 +1541,7 @@ class MeditoTimerStopCallbackApi(private val binaryMessenger: BinaryMessenger, p
         }
       } else {
         callback(Result.failure(AudioPigeonPigeonUtils.createConnectionError(channelName)))
-      }
+      } 
     }
   }
 }

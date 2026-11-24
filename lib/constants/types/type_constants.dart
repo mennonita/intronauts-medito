@@ -7,6 +7,7 @@ class TypeConstants {
   static const String flow = 'flow';
   static const String fileIdKey = 'fileId';
   static const String trackIdKey = 'trackId';
+  static const String runIdKey = 'runId';
   static const String timestampIdKey = 'timestamp';
   static const String guideIdKey = 'guide';
   static const String durationIdKey = 'duration';
