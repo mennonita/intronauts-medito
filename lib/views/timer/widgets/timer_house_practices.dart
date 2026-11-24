@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/timer/timer_house_content.dart';
-import 'package:medito/models/timer/timer_preset.dart';
 import 'package:medito/models/timer/timer_settings.dart';
 
-import 'timer_preset_manager_sheet.dart';
+import 'timer_preset_name_dialog.dart';
 
 /// «Prácticas de la casa»: las prácticas que publica la organización, arriba
 /// de los temporizadores guardados. Tocar una la carga en la pantalla igual
@@ -70,16 +69,11 @@ class _HousePracticeCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final onSurface = theme.colorScheme.onSurface;
     final radius = BorderRadius.circular(16);
-    // La misma línea de duración que un temporizador guardado.
-    final summary = timerPresetLengthLabel(
-      TimerPreset(name: practice.name, settings: settings, sound: null),
-      l10n,
-    );
+    final summary = timerPresetAutoName(settings, l10n);
     final description = practice.description;
     final secondary = theme.textTheme.bodySmall?.copyWith(
       color: onSurface.withValues(alpha: 0.7),
     );
-    // Para el lector de pantalla es un botón con nombre y duración.
     return Semantics(
       button: true,
       enabled: enabled,

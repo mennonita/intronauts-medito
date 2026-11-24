@@ -1078,8 +1078,9 @@ void main() {
       expect(find.text(l10n.timerHousePracticesTitle), findsOneWidget);
       expect(find.text('Zazen de la mañana'), findsOneWidget);
       expect(find.text('Sentada y caminata'), findsOneWidget);
-      expect(find.text('25 min'), findsNWidgets(2));
-      expect(find.text('15 min'), findsOneWidget);
+      expect(find.text('25 min'), findsOneWidget);
+      expect(find.text('25 min · Campana clásica'), findsOneWidget);
+      expect(find.text('15 min · Campana clásica'), findsOneWidget);
       expect(
         tester.getTopLeft(find.text(l10n.timerHousePracticesTitle)).dy,
         lessThan(tester.getTopLeft(find.text(l10n.timerSavedPresets)).dy),
