@@ -697,7 +697,92 @@ void main() {
       expect(request.timerRunId, _player.reservedIds.single);
       expect(request.timerOwnerId, 'dueño-1');
       expect(request.overrideBackgroundSound, isFalse);
-      expect(container.read(timerSettingsProvider).minutes, 7);
+      // Los ajustes del enlace son temporales: los guardados no cambian.
+      final saved = container.read(timerSettingsProvider);
+      expect(saved.minutes, 30);
+      expect(saved.extraTime, isTrue);
+      expect(saved.stages, hasLength(2));
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(
+        prefs.getString(kTimerSettingsSnapshotKey),
+        _settingsJson(
+          const TimerSettings(
+            mode: TimerMode.countdown,
+            minutes: 30,
+            extraTime: true,
+            prepSeconds: 30,
+            stages: [
+              TimerStage(kind: TimerStageKind.sit, minutes: 10),
+              TimerStage(kind: TimerStageKind.walk, minutes: 5),
+            ],
+          ),
+        ),
+      );
+      // El «último temporizador» solo queda preparado hasta que el reloj
+      // avance (lo confirma PlayerProvider).
+      expect(
+        prefs.containsKey(SharedPreferenceConstants.timerLastSettings),
+        isFalse,
+      );
+      expect(
+        await LastTimerStore.commitStaged(prefs, request.timerRunId),
+        isTrue,
+      );
+      expect(LastTimerStore.read(prefs)!.settings['minutes'], 7);
+    });
+
+    testWidgets('minutos: reserva antes de cualquier espera', (tester) async {
+      final file = Completer<String>();
+      TimerView.prepareTimerFile = (_) => file.future;
+      final container = await _pump(
+        tester,
+        launch: const TimerLaunch(minutes: 9),
+        prefs: {
+          kTimerSettingsSnapshotKey: _settingsJson(
+            const TimerSettings(mode: TimerMode.countdown, minutes: 20),
+          ),
+        },
+      );
+      // Ya reservó y sigue esperando el archivo: nada guardado.
+      expect(_player.reservedIds, hasLength(1));
+      expect(container.read(timerSettingsProvider).minutes, 20);
+      file.complete('/tmp/medito_timer_prueba.wav');
+      await _pumpUntilSettled(tester);
+      expect(_player.played.single.plannedDurationMs, 9 * 60 * 1000);
+      expect(container.read(timerSettingsProvider).minutes, 20);
+    });
+
+    testWidgets('minutos: cancelar el aviso de volumen no guarda nada', (
+      tester,
+    ) async {
+      TimerDeviceChannel.debugIsAndroid = true;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('intronauts/timer_device'),
+            (call) async =>
+                call.method == 'mediaVolume' ? {'current': 0, 'max': 15} : null,
+          );
+      final stored = _settingsJson(
+        const TimerSettings(mode: TimerMode.countdown, minutes: 20),
+      );
+      final container = await _pump(
+        tester,
+        launch: const TimerLaunch(minutes: 4),
+        prefs: {kTimerSettingsSnapshotKey: stored},
+      );
+      await _pumpUntilSettled(tester);
+      expect(find.text(l10n.timerVolumeZeroTitle), findsOneWidget);
+      await tester.tap(find.text(l10n.timerPresetCancel));
+      await _pumpUntilSettled(tester);
+      expect(_player.prepared, isEmpty);
+      expect(_player.reserved, isNull);
+      expect(container.read(timerSettingsProvider).minutes, 20);
+      final prefs = container.read(sharedPreferencesProvider);
+      expect(prefs.getString(kTimerSettingsSnapshotKey), stored);
+      expect(
+        prefs.containsKey(SharedPreferenceConstants.timerLastSettings),
+        isFalse,
+      );
     });
 
     testWidgets('«startAt» se ignora: empieza ya con la preparación guardada', (
@@ -887,6 +972,34 @@ void main() {
       expect(_player.reservedIds, hasLength(1));
       expect(_player.played, hasLength(1));
       expect(find.text(l10n.timerLaunchBusy), findsOneWidget);
+    });
+
+    testWidgets('dos enlaces de minutos distintos: el que pierde no escribe '
+        'ajustes', (tester) async {
+      final container = await _pump(
+        tester,
+        prefs: {
+          kTimerSettingsSnapshotKey: _settingsJson(
+            const TimerSettings(mode: TimerMode.countdown, minutes: 20),
+          ),
+        },
+      );
+      final navigator = Navigator.of(tester.element(find.byKey(_home)));
+      for (final minutes in [5, 11]) {
+        unawaited(
+          navigator.push(
+            MaterialPageRoute<void>(
+              builder: (_) => TimerView(
+                source: 'enlace',
+                launch: TimerLaunch(minutes: minutes),
+              ),
+            ),
+          ),
+        );
+      }
+      await _pumpUntilSettled(tester);
+      expect(_player.played.single.plannedDurationMs, 5 * 60 * 1000);
+      expect(container.read(timerSettingsProvider).minutes, 20);
     });
   });
 }

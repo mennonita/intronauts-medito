@@ -75,6 +75,7 @@ class HealthSyncDependencies {
     Future<bool> Function()? healthAvailable,
     Future<List<HealthPendingRun>> Function()? pendingRuns,
     Future<bool> Function(String runId)? clearPending,
+    Future<bool> Function(SharedPreferences prefs, String? raw)? persist,
   }) : prefs = prefs ?? SharedPreferences.getInstance,
        ready = ready ?? _statsReady,
        currentAccountId = currentAccountId ?? _verifiedAccountId,
@@ -89,7 +90,8 @@ class HealthSyncDependencies {
        pendingRuns = pendingRuns ?? _statsPendingRuns,
        clearPending =
            clearPending ??
-           ((runId) => StatsManager().clearHealthPending(runId));
+           ((runId) => StatsManager().clearHealthPending(runId)),
+       persist = persist ?? _persist;
 
   final Future<SharedPreferences> Function() prefs;
 
@@ -106,6 +108,20 @@ class HealthSyncDependencies {
   final Future<bool> Function() healthAvailable;
   final Future<List<HealthPendingRun>> Function() pendingRuns;
   final Future<bool> Function(String runId) clearPending;
+
+  /// Guarda la lista ya codificada (`null` = sin entradas). Devuelve `false`
+  /// si el guardado no se confirmó.
+  final Future<bool> Function(SharedPreferences prefs, String? raw) persist;
+
+  static Future<bool> _persist(SharedPreferences prefs, String? raw) {
+    if (raw == null) {
+      return prefs.remove(SharedPreferenceConstants.pendingHealthSessions);
+    }
+    return prefs.setString(
+      SharedPreferenceConstants.pendingHealthSessions,
+      raw,
+    );
+  }
 
   static Future<void> _statsReady() async {
     try {
@@ -157,6 +173,24 @@ class HealthSyncQueue {
     _flushing = null;
     _again = false;
     _lockTail = null;
+    _generation = 0;
+  }
+
+  // Sube con cada cambio de cuenta, eliminación o Salud apagada. Un envío que
+  // empezó con otra generación ya no escribe ni guarda nada.
+  static int _generation = 0;
+
+  /// Invalida los envíos pendientes y vacía la cola bajo su propio bloqueo.
+  /// Se llama al cambiar de cuenta o eliminarla: un envío en curso no manda
+  /// la siguiente sesión ni vuelve a guardar la lista.
+  static Future<void> invalidate() {
+    _generation++;
+    return _locked(() async {
+      final prefs = await _d.prefs();
+      if (!await _save(prefs, const [])) {
+        AppLogger.w(_tag, 'No se pudo vaciar la cola de Salud');
+      }
+    });
   }
 
   // Un solo cambio a la vez sobre la lista guardada. Sin nada pendiente la
@@ -189,13 +223,16 @@ class HealthSyncQueue {
   /// Guarda o quita el permiso. Al activarlo, la sesión que esperaba el
   /// permiso se libera y se envía; al quitarlo, se vacía la cola.
   static Future<void> setConsent(bool on) async {
+    // Antes de cualquier espera: el envío en curso se detiene ya, no al
+    // terminar toda la cola.
+    if (!on) _generation++;
     await _d.ready();
     final prefs = await _d.prefs();
     if (!on) {
       await _locked(() async {
         await prefs.setBool(SharedPreferenceConstants.healthSyncEnabled, false);
         await prefs.remove(SharedPreferenceConstants.healthSyncAccountId);
-        await prefs.remove(SharedPreferenceConstants.pendingHealthSessions);
+        await _save(prefs, const []);
       });
       return;
     }
@@ -235,18 +272,21 @@ class HealthSyncQueue {
   /// Agrega una sesión. Una clave repetida no se agrega dos veces. Solo
   /// queda una sesión esperando el permiso: la más nueva reemplaza a la otra.
   /// Con más de [maxEntries], se quitan las más viejas.
-  static Future<void> add(HealthSyncEntry entry) async {
+  ///
+  /// Devuelve `true` solo si la entrada quedó guardada en la cola. Si el
+  /// guardado falla, la lista vuelve a como estaba y devuelve `false`.
+  static Future<bool> add(HealthSyncEntry entry) async {
     final prefs = await _d.prefs();
-    await _locked(() async {
+    return _locked(() async {
       final entries = _read(prefs);
       final index = entries.indexWhere((e) => e.key == entry.key);
       if (index >= 0) {
         final existing = entries[index];
         if (existing.awaitingConsent && !entry.awaitingConsent) {
           entries[index] = existing.copyWith(awaitingConsent: false);
-          await _save(prefs, entries);
+          return _save(prefs, entries);
         }
-        return;
+        return true;
       }
       if (entry.awaitingConsent) {
         entries.removeWhere((e) => e.awaitingConsent);
@@ -255,7 +295,7 @@ class HealthSyncQueue {
       while (entries.length > maxEntries) {
         entries.removeAt(0);
       }
-      await _save(prefs, entries);
+      return _save(prefs, entries);
     });
   }
 
@@ -269,7 +309,7 @@ class HealthSyncQueue {
     await _d.ready();
     final prefs = await _d.prefs();
     if (!hasConsent(prefs)) return false;
-    await add(
+    return add(
       HealthSyncEntry(
         key: key,
         startMs: startMs,
@@ -277,7 +317,6 @@ class HealthSyncQueue {
         accountId: _d.currentAccountId(prefs),
       ),
     );
-    return true;
   }
 
   static Future<void>? _flushing;
@@ -301,11 +340,13 @@ class HealthSyncQueue {
   static Future<void> _flushLoop(Completer<void> done) async {
     do {
       _again = false;
+      // Generación al empezar la vuelta, antes de cualquier espera.
+      final generation = _generation;
       try {
         await _d.ready();
         final prefs = await _d.prefs();
-        await _drainTimerMarks(prefs);
-        await _writePending(prefs);
+        await _drainTimerMarks(prefs, generation);
+        await _writePending(prefs, generation);
       } catch (error) {
         AppLogger.e(_tag, 'Falló el envío a Salud', error);
       }
@@ -319,14 +360,23 @@ class HealthSyncQueue {
   /// runId (R78). Cada marca se pasa a la cola (o se descarta) y DESPUÉS se
   /// quita; así un cierre a la mitad deja la marca (se vuelve a agregar sin
   /// duplicar) o la entrada sin marca (se escribe una vez) (R85).
-  static Future<void> _drainTimerMarks(SharedPreferences prefs) async {
+  ///
+  /// La marca solo se quita cuando la cola confirmó el guardado; si falló,
+  /// la marca queda para el siguiente envío.
+  static Future<void> _drainTimerMarks(
+    SharedPreferences prefs,
+    int generation,
+  ) async {
     final marks = await _d.pendingRuns();
     if (marks.isEmpty) return;
-    final account = _d.currentAccountId(prefs);
     for (final mark in marks) {
+      // Cambió la cuenta o se apagó Salud: estas marcas ya no son de aquí.
+      if (generation != _generation) return;
+      final account = _d.currentAccountId(prefs);
+      var queued = true;
       if (mark.accountId == account) {
         if (hasConsent(prefs)) {
-          await add(
+          queued = await add(
             HealthSyncEntry(
               key: mark.runId,
               startMs: mark.startMs,
@@ -335,7 +385,7 @@ class HealthSyncQueue {
             ),
           );
         } else if (await _canAskForConsent(prefs)) {
-          await add(
+          queued = await add(
             HealthSyncEntry(
               key: mark.runId,
               startMs: mark.startMs,
@@ -345,6 +395,10 @@ class HealthSyncQueue {
             ),
           );
         }
+      }
+      if (!queued) {
+        AppLogger.w(_tag, 'No se guardó ${mark.runId}; la marca se conserva');
+        continue;
       }
       if (!await _d.clearPending(mark.runId)) {
         AppLogger.w(_tag, 'No se pudo quitar la marca de ${mark.runId}');
@@ -366,11 +420,26 @@ class HealthSyncQueue {
     }
   }
 
-  static Future<void> _writePending(SharedPreferences prefs) async {
-    if (!hasConsent(prefs)) return;
-    final account = _d.currentAccountId(prefs);
+  static Future<void> _writePending(
+    SharedPreferences prefs,
+    int generation,
+  ) async {
+    if (generation != _generation || !hasConsent(prefs)) return;
     final marked = {for (final run in await _d.pendingRuns()) run.runId};
     await _locked(() async {
+      if (generation != _generation) return;
+      final account = _d.currentAccountId(prefs);
+      // Lo último que la cola guardó. Si cambia por fuera (la eliminación de
+      // la cuenta borra la clave sin este bloqueo), no se vuelve a escribir.
+      var stored = _raw(prefs);
+      bool stillOurs() => generation == _generation && _raw(prefs) == stored;
+      Future<bool> save(List<HealthSyncEntry> entries) async {
+        if (!stillOurs()) return false;
+        if (!await _save(prefs, entries)) return false;
+        stored = _raw(prefs);
+        return true;
+      }
+
       var entries = _read(prefs);
       final own = [
         for (final e in entries)
@@ -378,7 +447,7 @@ class HealthSyncQueue {
       ];
       if (own.length != entries.length) {
         entries = own;
-        if (!await _save(prefs, entries)) return;
+        if (!await save(entries)) return;
       }
       var i = 0;
       while (i < entries.length) {
@@ -388,31 +457,35 @@ class HealthSyncQueue {
           i++;
           continue;
         }
+        // Justo antes de CADA envío: misma cuenta, mismo permiso y la cola
+        // no se vació mientras se escribía la anterior.
+        if (!_maySend(prefs, entry) || !stillOurs()) return;
         if (_d.isIOS) {
           if (entry.attempting) {
             // Un intento anterior se cortó a la mitad y pudo haber llegado:
             // a lo más una vez, así que no se reintenta.
             AppLogger.w(_tag, 'Se descarta ${entry.key}: intento cortado');
             entries.removeAt(i);
-            if (!await _save(prefs, entries)) return;
+            if (!await save(entries)) return;
             continue;
           }
           entries[i] = entry.copyWith(attempting: true);
-          if (!await _save(prefs, entries)) return;
+          if (!await save(entries)) return;
+          if (!_maySend(prefs, entry)) return;
         }
         final written = await _tryWrite(entry);
         if (!written) {
           if (_d.isIOS) {
             // No se escribió nada: se puede reintentar después.
             entries[i] = entry.copyWith(attempting: false);
-            await _save(prefs, entries);
+            await save(entries);
           }
           // Android conserva la entrada; el reintento usa el mismo
           // clientRecordId y no duplica.
           return;
         }
         entries.removeAt(i);
-        if (!await _save(prefs, entries)) return;
+        if (!await save(entries)) return;
         try {
           await _d.markSynced(entry.endMs);
         } catch (error) {
@@ -421,6 +494,10 @@ class HealthSyncQueue {
       }
     });
   }
+
+  /// La cuenta actual es la dueña de la entrada y su permiso sigue vigente.
+  static bool _maySend(SharedPreferences prefs, HealthSyncEntry entry) =>
+      hasConsent(prefs) && _d.currentAccountId(prefs) == entry.accountId;
 
   static Future<bool> _tryWrite(HealthSyncEntry entry) async {
     try {
@@ -431,10 +508,11 @@ class HealthSyncQueue {
     }
   }
 
+  static String? _raw(SharedPreferences prefs) =>
+      prefs.getString(SharedPreferenceConstants.pendingHealthSessions);
+
   static List<HealthSyncEntry> _read(SharedPreferences prefs) {
-    final raw = prefs.getString(
-      SharedPreferenceConstants.pendingHealthSessions,
-    );
+    final raw = _raw(prefs);
     if (raw == null || raw.isEmpty) return [];
     try {
       final list = jsonDecode(raw) as List<dynamic>;
@@ -454,23 +532,39 @@ class HealthSyncQueue {
     }
   }
 
+  /// Guarda la lista. Si el guardado no se confirma, devuelve la caché de
+  /// preferencias a lo que había antes, para que nadie lea un cambio que no
+  /// quedó guardado.
   static Future<bool> _save(
     SharedPreferences prefs,
     List<HealthSyncEntry> entries,
   ) async {
+    final previous = _raw(prefs);
+    final raw = entries.isEmpty
+        ? null
+        : jsonEncode([for (final e in entries) e.toJson()]);
+    var saved = false;
     try {
-      if (entries.isEmpty) {
-        return await prefs.remove(
-          SharedPreferenceConstants.pendingHealthSessions,
-        );
-      }
-      return await prefs.setString(
-        SharedPreferenceConstants.pendingHealthSessions,
-        jsonEncode([for (final e in entries) e.toJson()]),
-      );
+      saved = await _d.persist(prefs, raw);
     } catch (error) {
       AppLogger.e(_tag, 'No se pudo guardar la cola de Salud', error);
-      return false;
     }
+    if (saved) return true;
+    AppLogger.w(_tag, 'La cola de Salud no se guardó; se deshace el cambio');
+    if (_raw(prefs) != previous) {
+      try {
+        if (previous == null) {
+          await prefs.remove(SharedPreferenceConstants.pendingHealthSessions);
+        } else {
+          await prefs.setString(
+            SharedPreferenceConstants.pendingHealthSessions,
+            previous,
+          );
+        }
+      } catch (_) {
+        // La caché ya volvió a su valor; el disco conserva el anterior.
+      }
+    }
+    return false;
   }
 }

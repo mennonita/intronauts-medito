@@ -155,13 +155,22 @@ void main() {
         final t = _randomDateTime(rng);
         final offset = _randomOffset(rng);
         final today = dayOf(t, offset);
-        // Adding 24h to the wall-clock should always land in the next
-        // user-day, regardless of offset — there's no DST in pure-Dart
-        // local time here (test env is fixed), so 24h ≡ 1 day.
-        final tomorrow = dayOf(t.add(const Duration(days: 1)), offset);
+        // La misma hora de reloj al día siguiente cae en el siguiente día
+        // del usuario, aunque haya un cambio de horario en medio (entonces
+        // no son 24 h exactas).
+        final nextWallClock = DateTime(
+          t.year,
+          t.month,
+          t.day + 1,
+          t.hour,
+          t.minute,
+          t.second,
+          t.millisecond,
+        );
+        final tomorrow = dayOf(nextWallClock, offset);
         expect(
-          tomorrow.difference(today).inDays,
-          1,
+          tomorrow,
+          DateTime(today.year, today.month, today.day + 1),
           reason: 't=$t offset=$offset today=$today tomorrow=$tomorrow',
         );
       }
@@ -188,6 +197,58 @@ void main() {
         }
       },
     );
+  });
+
+  // Corre con TZ=America/New_York para que haya cambios de horario reales.
+  // En 2026 el adelanto es el 8 de marzo (02:00 → 03:00) y el atraso el
+  // 1 de noviembre (02:00 → 01:00). Sin horario de verano en la zona, estas
+  // pruebas siguen siendo válidas: solo usan horas de reloj.
+  group('dayOf - cambios de horario con desfase distinto de 0', () {
+    const four = Duration(hours: 4);
+    const minusTwo = Duration(hours: -2);
+
+    test('adelanto: 04:30 con inicio a las 04:00 es de ese mismo día', () {
+      expect(dayOf(DateTime(2026, 3, 8, 4, 30), four), DateTime(2026, 3, 8));
+    });
+
+    test('adelanto: 03:59 todavía es del día anterior', () {
+      expect(dayOf(DateTime(2026, 3, 8, 3, 59), four), DateTime(2026, 3, 7));
+    });
+
+    test('adelanto: 04:00 exactas empiezan el día', () {
+      expect(dayOf(DateTime(2026, 3, 8, 4), four), DateTime(2026, 3, 8));
+    });
+
+    test('atraso: 03:30 con inicio a las 04:00 es del día anterior', () {
+      expect(dayOf(DateTime(2026, 11, 1, 3, 30), four), DateTime(2026, 10, 31));
+    });
+
+    test('atraso: 04:00 exactas empiezan el día', () {
+      expect(dayOf(DateTime(2026, 11, 1, 4), four), DateTime(2026, 11, 1));
+    });
+
+    test('desfase negativo en ambos cambios: 22:00 abre el día siguiente', () {
+      expect(dayOf(DateTime(2026, 3, 7, 22), minusTwo), DateTime(2026, 3, 8));
+      expect(
+        dayOf(DateTime(2026, 3, 7, 21, 59), minusTwo),
+        DateTime(2026, 3, 7),
+      );
+      expect(
+        dayOf(DateTime(2026, 10, 31, 22), minusTwo),
+        DateTime(2026, 11, 1),
+      );
+      expect(
+        dayOf(DateTime(2026, 10, 31, 21, 59), minusTwo),
+        DateTime(2026, 10, 31),
+      );
+    });
+
+    test('una fecha UTC usa sus propios campos', () {
+      expect(
+        dayOf(DateTime.utc(2026, 3, 8, 4, 30), four),
+        DateTime(2026, 3, 8),
+      );
+    });
   });
 }
 

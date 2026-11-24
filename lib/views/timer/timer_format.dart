@@ -52,8 +52,10 @@ String formatTimerLength(Duration duration, AppLocalizations l10n) {
 }
 
 /// Dice la duración en palabras para el lector de pantalla, como
-/// «12 minutos» o «1 hora 5 minutos». Los segundos solo se dicen cuando falta
-/// o se lleva menos de un minuto; si no, los minutos se redondean hacia abajo.
+/// «12 minutos», «12 minutos 30 segundos» o «1 hora 5 minutos». Con menos de
+/// un minuto solo dice los segundos; desde un minuto, los segundos restantes
+/// se dicen cuando no son cero (PLAN §6, fila 10). Quien llama redondea antes,
+/// igual que el reloj en pantalla.
 String timerSpokenDuration(AppLocalizations l10n, Duration duration) {
   final d = duration.isNegative ? Duration.zero : duration;
   if (d < const Duration(minutes: 1)) {
@@ -61,8 +63,10 @@ String timerSpokenDuration(AppLocalizations l10n, Duration duration) {
   }
   final hours = d.inHours;
   final minutes = d.inMinutes.remainder(60);
+  final seconds = d.inSeconds.remainder(60);
   return [
     if (hours > 0) l10n.timerSpokenHours(hours),
     if (minutes > 0) l10n.timerSpokenMinutes(minutes),
+    if (seconds > 0) l10n.timerSpokenSeconds(seconds),
   ].join(' ');
 }
