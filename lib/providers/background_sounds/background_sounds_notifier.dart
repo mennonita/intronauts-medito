@@ -156,21 +156,53 @@ class _BackgroundSoundCache {
     return await file.exists() ? file.path : null;
   }
 
-  Stream<String> fallbackFiles(
-    String id,
-    Set<String> titles, {
-    String? excluding,
-  }) async* {
+  Stream<String> fallbackFiles(String id, {String? excluding}) async* {
     final dir = await _getDirectory();
     final mappedName = _mappedFiles()[id];
     if (mappedName != null) {
       final file = File(p.join(dir.path, mappedName));
       if (file.path != excluding && await file.exists()) yield file.path;
     }
+    await for (final file in _verifiedLegacyFiles(dir, id)) {
+      if (file.path != excluding) yield file.path;
+    }
+  }
+
+  Stream<File> _verifiedLegacyFiles(Directory dir, String id) async* {
+    final legacy = await legacyDownloads;
+    // La lista antigua debe asociar el título con un solo sonido.
+    final titles =
+        {
+          for (final sound in legacy)
+            if (sound.id == id) sound.title,
+        }..removeAll(
+          legacy.where((sound) => sound.id != id).map((sound) => sound.title),
+        );
+    if (titles.isEmpty) return;
+
+    final Set<String> guidedNames;
+    try {
+      guidedNames = {
+        for (final track in await _guidedDownloads())
+          for (final voice in track.voices)
+            for (final file in voice.audioFiles)
+              '${track.id}-${file.id}${getAudioFileExtension(file.path)}',
+      };
+    } catch (error) {
+      AppLogger.w(
+        'BG_SOUND',
+        'No se pudo comprobar el origen del audio: $error',
+      );
+      return;
+    }
+
     for (final title in titles) {
       final file = _legacyFile(dir, title);
-      if (file != null && file.path != excluding && await file.exists()) {
-        yield file.path;
+      if (file != null &&
+          !guidedNames.contains(p.basename(file.path)) &&
+          FileSystemEntity.typeSync(file.path, followLinks: false) ==
+              FileSystemEntityType.file) {
+        yield file;
       }
     }
   }
@@ -232,34 +264,9 @@ class _BackgroundSoundCache {
         belongsToAnotherSound != true) {
       _delete(File(p.join(dir.path, previous)));
     }
-    final legacy = await legacyDownloads;
-    final titles = {
-      for (final item in legacy)
-        if (item.id == sound.id) item.title,
-    };
-    if (titles.isNotEmpty && isCurrent()) {
-      final guided = await _guidedDownloads();
+    await for (final file in _verifiedLegacyFiles(dir, sound.id)) {
       if (!isCurrent()) return;
-      final guidedNames = {
-        for (final track in guided)
-          for (final voice in track.voices)
-            for (final file in voice.audioFiles)
-              '${track.id}-${file.id}${getAudioFileExtension(file.path)}',
-      };
-      final current = _mappedFiles();
-      for (final title in titles) {
-        final file = _legacyFile(dir, title);
-        if (file == null || guidedNames.contains(p.basename(file.path))) {
-          continue;
-        }
-        final shared = legacy.any((other) {
-          if (other.id == sound.id || other.title != title) return false;
-          final mappedName = current[other.id];
-          return mappedName == null ||
-              !File(p.join(dir.path, mappedName)).existsSync();
-        });
-        if (!shared) _delete(file);
-      }
+      _delete(file);
     }
     await _checkLegacyMigration();
   }
@@ -357,16 +364,9 @@ final _downloadedBackgroundSoundIdsProvider =
       final ids = <String>{};
       if (sounds.isEmpty) return ids;
       final cache = ref.watch(_backgroundSoundCacheProvider);
-      final saved = await repo.fetchLocallySavedBackgroundSounds() ?? [];
-      final selected = repo.getSelectedBgSoundFromSharedPreferences();
       for (final sound in sounds) {
         if (await cache.currentFile(sound) != null ||
-            !await cache.fallbackFiles(sound.id, {
-              sound.title,
-              if (selected?.id == sound.id) selected!.title,
-              for (final item in saved)
-                if (item.id == sound.id) item.title,
-            }).isEmpty) {
+            !await cache.fallbackFiles(sound.id).isEmpty) {
           ids.add(sound.id);
         }
       }
@@ -571,11 +571,8 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
       return;
     }
 
-    String? previousTitle;
     if (persist && sound != null) {
       final repo = ref.read(backgroundSoundsRepositoryProvider);
-      final previous = repo.getSelectedBgSoundFromSharedPreferences();
-      if (previous?.id == sound.id) previousTitle = previous?.title;
       repo.saveSelectedBgSoundToSharedPreferences(sound);
       unawaited(_updateItemsInSavedBgSoundList(sound));
     }
@@ -584,7 +581,7 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     if (sound == null || sound.id == kNoneBackgroundSoundId) {
       unawaited(stopped);
     } else {
-      unawaited(_downloadAndPlay(sound, stopped, previousTitle: previousTitle));
+      unawaited(_downloadAndPlay(sound, stopped));
     }
   }
 
@@ -649,7 +646,6 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
     BackgroundSoundsModel stored,
     Future<void> stopped, {
     bool forceRedownload = false,
-    String? previousTitle,
   }) async {
     final generation = _generation;
     final player = ref.read(playerProvider.notifier);
@@ -668,39 +664,27 @@ class BackgroundSoundsNotifier extends Notifier<BackgroundSoundsState> {
       await stopped;
       if (!isCurrent()) return;
 
-      final repo = ref.read(backgroundSoundsRepositoryProvider);
-      var catalog = repo.fetchCachedBackgroundSounds();
-      final saved = await repo.fetchLocallySavedBackgroundSounds() ?? [];
-      if (!isCurrent()) return;
-      final titles = {
-        stored.title,
-        ?previousTitle,
-        for (final item in [...catalog, ...saved])
-          if (item.id == stored.id) item.title,
-      };
+      List<BackgroundSoundsModel> catalog;
       var offline = false;
       try {
         catalog = await ref.read(backgroundSoundsProvider.future);
       } catch (_) {
         offline = true;
-        if (isCurrent()) {
-          catalog = ref
-              .read(backgroundSoundsRepositoryProvider)
-              .fetchCachedBackgroundSounds();
-        }
+        if (!isCurrent()) return;
+        catalog = ref
+            .read(backgroundSoundsRepositoryProvider)
+            .fetchCachedBackgroundSounds();
       }
       if (!isCurrent()) return;
       final catalogSound = catalog
           .where((item) => item.id == stored.id)
           .firstOrNull;
       sound = catalogSound ?? stored;
-      titles.add(sound.title);
       state = state.copyWith(selectedBgSound: sound);
 
       Future<bool> playFallback({String? excluding}) async {
         await for (final path in cache.fallbackFiles(
           sound.id,
-          titles,
           excluding: excluding,
         )) {
           if (!isCurrent()) return false;
