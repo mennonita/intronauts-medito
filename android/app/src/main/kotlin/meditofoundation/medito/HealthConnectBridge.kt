@@ -24,8 +24,8 @@ class HealthConnectBridge(
     private val scope: CoroutineScope,
 ) : MeditoHealthConnectManager {
 
+    // Solo escritura: la app nunca lee datos de Salud.
     private val permissions = setOf(
-        HealthPermission.getReadPermission(MindfulnessSessionRecord::class),
         HealthPermission.getWritePermission(MindfulnessSessionRecord::class),
     )
 
@@ -106,6 +106,23 @@ class HealthConnectBridge(
         val client = clientOrNull() ?: return callback(Result.success(false))
         scope.launch(Dispatchers.IO) {
             try {
+                val device = androidx.health.connect.client.records.metadata
+                    .Device(type = androidx.health.connect.client.records.metadata.Device.TYPE_PHONE)
+                // Con clientRecordId, Health Connect reemplaza el registro con
+                // el mismo id en vez de duplicarlo: un reintento tras un cierre
+                // a la mitad no deja dos sesiones. Cada sesión se escribe desde
+                // una sola fuente y nunca se corrige, así que la versión 1 basta.
+                val metadata = if (clientRecordId.isNotEmpty()) {
+                    Metadata.autoRecorded(
+                        device = device,
+                        clientRecordId = clientRecordId,
+                        clientRecordVersion = 1L,
+                    )
+                } else {
+                    Metadata.autoRecorded(device = device)
+                }
+                // El intervalo es la duración meditada que termina en la hora
+                // de fin, a propósito: las pausas no son minutos de atención.
                 val record = MindfulnessSessionRecord(
                     startTime = Instant.ofEpochMilli(startEpochMs),
                     startZoneOffset = ZoneOffset.UTC,
@@ -115,10 +132,7 @@ class HealthConnectBridge(
                         .MINDFULNESS_SESSION_TYPE_MEDITATION,
                     title = "Intronauts",
                     notes = null,
-                    metadata = Metadata.autoRecorded(
-                        device = androidx.health.connect.client.records.metadata
-                            .Device(type = androidx.health.connect.client.records.metadata.Device.TYPE_PHONE),
-                    ),
+                    metadata = metadata,
                 )
                 client.insertRecords(listOf(record))
                 callback(Result.success(true))

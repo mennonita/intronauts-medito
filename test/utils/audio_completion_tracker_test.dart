@@ -2,6 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/models/local_audio_completed.dart';
 import 'package:medito/utils/audio_completion_tracker.dart';
+import 'package:medito/utils/stats_manager.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:medito/services/stats_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('AudioCompletionTracker.checkTrackCrossedMidnight', () {
@@ -358,4 +362,76 @@ void main() {
       expect(result.totalTracksCompleted, 0);
     });
   });
+
+  group('inicio del día con desfase (TECH-15)', () {
+    final end = DateTime(2026, 3, 10, 0, 20).millisecondsSinceEpoch;
+    const thirtyMinutes = 30 * 60 * 1000;
+
+    test('23:50 → 00:20 NO cruza con +4 h', () {
+      expect(
+        AudioCompletionTracker.checkTrackCrossedMidnight(
+          endTimestamp: end,
+          duration: thirtyMinutes,
+          dayBoundaryOffset: const Duration(hours: 4),
+        ),
+        isFalse,
+      );
+    });
+
+    test('23:50 → 00:20 SÍ cruza sin desfase', () {
+      expect(
+        AudioCompletionTracker.checkTrackCrossedMidnight(
+          endTimestamp: end,
+          duration: thirtyMinutes,
+        ),
+        isTrue,
+      );
+    });
+
+    group('StatsManager usa el desfase al guardar', () {
+      final stats = StatsManager();
+
+      setUpAll(() => registerFallbackValue(LocalAllStats.empty()));
+
+      setUp(() async {
+        TestWidgetsFlutterBinding.ensureInitialized();
+        SharedPreferences.setMockInitialValues({});
+        final service = _StatsService();
+        when(() => service.fetchAllStats()).thenAnswer((_) async => null);
+        when(
+          () => service.postStats(any(), clientSeq: any(named: 'clientSeq')),
+        ).thenAnswer(
+          (call) async => (
+            applied: true,
+            clientSeq: call.namedArguments[#clientSeq] as int,
+          ),
+        );
+        stats.resetForTesting();
+        await stats.initializeForTesting(statsService: service);
+        stats.setCurrentDateForTesting(DateTime(2026, 3, 10, 9));
+      });
+
+      tearDown(stats.resetForTesting);
+
+      Future<int> savedTimestamp(Duration offset) async {
+        await stats.setDayBoundaryOffset(offset);
+        await stats.addAudioCompleted(
+          LocalAudioCompleted(id: 'pista', timestamp: end),
+          thirtyMinutes,
+          skipPost: true,
+        );
+        return stats.currentStats!.audioCompleted!.single.timestamp;
+      }
+
+      test('con +4 h la sesión queda en su hora de fin', () async {
+        expect(await savedTimestamp(const Duration(hours: 4)), end);
+      });
+
+      test('sin desfase cuenta en el día en que empezó', () async {
+        expect(await savedTimestamp(Duration.zero), end - thirtyMinutes);
+      });
+    });
+  });
 }
+
+class _StatsService extends Mock implements StatsService {}

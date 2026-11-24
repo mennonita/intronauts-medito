@@ -138,9 +138,18 @@ class NativeTimerCloseRecovery {
     } on Object {
       return false;
     }
+    // El mismo inicio de día que usó el historial al guardar la sesión.
+    var offsetHours = 0;
+    try {
+      offsetHours =
+          prefs.getInt(SharedPreferenceConstants.dayBoundaryOffsetHours) ?? 0;
+    } on Object {
+      offsetHours = 0;
+    }
     final crossedMidnight = AudioCompletionTracker.checkTrackCrossedMidnight(
       endTimestamp: completion.timestamp,
       duration: completion.duration,
+      dayBoundaryOffset: Duration(hours: offsetHours),
     );
     final timestamp = crossedMidnight
         ? completion.timestamp - completion.duration
