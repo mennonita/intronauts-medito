@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,12 +115,14 @@ void main() {
   ).migratePendingSeries(now: () => at ?? now, l10n: es);
 
   setUp(() {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
     ReminderProvider.resetForTesting();
     ReminderProvider.timeZoneSetup = () async {};
     tz.setLocalLocation(tz.getLocation('America/Mexico_City'));
   });
 
   tearDown(() {
+    debugDefaultTargetPlatformOverride = null;
     ReminderProvider.resetForTesting();
     tz.setLocalLocation(tz.UTC);
   });
@@ -129,6 +132,7 @@ void main() {
 
   test('pendientes 3..15: reprograma desde el 3 a la próxima hora', () async {
     await setUpWith([for (var i = 3; i <= 15; i++) i]);
+    await prefs.setBool(reminderSeriesCopyV2Key, true);
 
     await migrate();
 
@@ -145,16 +149,28 @@ void main() {
     expect(plugin.scheduled.first.title, es.reminderDay4Title);
     expect(plugin.scheduled.last.title, es.reminderDay30Title);
     for (final item in plugin.scheduled) {
+      expect(item.details.android!.channelId, 'intronauts_reminders_channel');
       expect(item.details.android!.actions!.map((a) => a.title), [
         es.reminderActionSit3,
         es.reminderActionNotToday,
       ]);
       expect(item.details.iOS!.categoryIdentifier, kReminderCategoryId);
     }
-    expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+    expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
     // La hora guardada no cambia.
     expect(prefs.getInt(SharedPreferenceConstants.savedHours), 7);
     expect(prefs.getInt(SharedPreferenceConstants.savedMinutes), 30);
+  });
+
+  test('iOS conserva la migración previa de textos y botones', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    await setUpWith([3, 15]);
+    await prefs.setBool(reminderSeriesCopyV2Key, true);
+
+    await migrate();
+
+    expect(plugin.calls, 0);
+    expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
   });
 
   test('antes de la hora guardada, el siguiente aviso es hoy', () async {
@@ -174,7 +190,7 @@ void main() {
     expect(plugin.scheduled.map((e) => e.id), [reminderSeriesBaseId + 15]);
     expect(fields(plugin.scheduled.single.date), (2026, 1, 20, 7, 30));
     expect(plugin.scheduled.single.title, es.reminderDay30Title);
-    expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+    expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
   });
 
   test('sin avisos pendientes no programa nada y no marca la pref', () async {
@@ -187,7 +203,7 @@ void main() {
 
     expect(plugin.scheduled, isEmpty);
     expect(plugin.pending, {dailyNotificationId});
-    expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+    expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
   });
 
   test('corre una sola vez: la segunda vez no hace nada', () async {
@@ -208,7 +224,7 @@ void main() {
     await migrate();
 
     expect(plugin.calls, 0);
-    expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+    expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
   });
 
   test('si programar falla, no marca la pref', () async {
@@ -217,7 +233,7 @@ void main() {
 
     await migrate();
 
-    expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+    expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
   });
 
   group('REM-01: ancla guardada y reemplazo por identificador', () {
@@ -229,7 +245,7 @@ void main() {
 
         await migrate();
 
-        expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+        expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
         // Nada se canceló: los avisos viejos siguen pendientes.
         expect(plugin.pending, {
           reminderSeriesBaseId + 3,
@@ -245,7 +261,7 @@ void main() {
         // Misma ancla que el primer intento: el aviso 3 sigue el 13 a las 7:30.
         expect(fields(plugin.scheduled.first.date), (2026, 1, 13, 7, 30));
         expect(plugin.scheduled.last.id, reminderSeriesBaseId + 15);
-        expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+        expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
         expect(prefs.getString(reminderSeriesMigrationAnchorKey), isNull);
         expect(prefs.getInt(reminderSeriesMigrationFromKey), isNull);
       },
@@ -259,7 +275,7 @@ void main() {
 
         await migrate();
 
-        expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+        expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
         // El 3 viejo sigue pendiente para el reintento.
         expect(plugin.pending, contains(reminderSeriesBaseId + 3));
 
@@ -270,7 +286,7 @@ void main() {
         expect(plugin.scheduled.first.id, reminderSeriesBaseId + 3);
         expect(fields(plugin.scheduled.first.date), (2026, 1, 13, 7, 30));
         expect(fields(plugin.scheduled[1].date), (2026, 1, 14, 7, 30));
-        expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+        expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
       },
     );
 
@@ -286,7 +302,7 @@ void main() {
         await migrate(at: DateTime(2026, 3, 30, 9));
 
         expect(plugin.scheduled, isEmpty);
-        expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+        expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
         expect(prefs.getString(reminderSeriesMigrationAnchorKey), isNull);
       },
     );
@@ -298,7 +314,7 @@ void main() {
 
       await migrate();
       await prefs.reload();
-      expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+      expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
       expect(plugin.pending, contains(staleId));
 
       plugin.failIds.clear();
@@ -307,11 +323,11 @@ void main() {
 
       expect(plugin.scheduled.map((item) => item.id), isNot(contains(staleId)));
       expect(plugin.pending, contains(staleId));
-      expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+      expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
 
       plugin.pending.remove(staleId);
       await migrate(at: DateTime(2026, 1, 13, 10));
-      expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+      expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
     });
 
     test('una serie completa programada termina la migración', () async {
@@ -322,7 +338,7 @@ void main() {
       ).scheduleSeriesFromAnchor(DateTime(2026, 1, 13, 7, 30), l10n: es);
 
       expect(plugin.scheduled, hasLength(16));
-      expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+      expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
       expect(prefs.getString(reminderSeriesMigrationAnchorKey), isNull);
     });
 
@@ -335,7 +351,7 @@ void main() {
           prefs: prefs,
           reminders: ReminderProvider(),
         ).scheduleSeriesFromAnchor(DateTime(2026, 1, 13, 7, 30), l10n: es);
-        expect(prefs.getBool(reminderSeriesCopyV2Key), isNull);
+        expect(prefs.getBool(reminderSeriesSoundChannelKey), isNull);
 
         plugin.failIds.clear();
         plugin.scheduled.clear();
@@ -343,7 +359,7 @@ void main() {
 
         expect(plugin.scheduled, hasLength(16));
         expect(fields(plugin.scheduled.first.date), (2026, 1, 13, 7, 30));
-        expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+        expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
       },
     );
   });
@@ -439,7 +455,7 @@ void main() {
 
       expect(plugin.scheduled.first.id, reminderSeriesBaseId + 3);
       expect(plugin.scheduled.first.title, es.reminderDay4Title);
-      expect(prefs.getBool(reminderSeriesCopyV2Key), isTrue);
+      expect(prefs.getBool(reminderSeriesSoundChannelKey), isTrue);
     });
 
     test(
@@ -463,6 +479,10 @@ void main() {
         );
 
         expect(plugin.scheduled, hasLength(16));
+        expect(
+          plugin.scheduled.map((item) => item.details.android!.channelId),
+          everyElement('intronauts_reminders_channel'),
+        );
       },
     );
 

@@ -1191,7 +1191,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get donationContinue => 'Continuar';
 
   @override
-  String get notNow => 'Ahora No';
+  String get notNow => 'Ahora no';
 
   @override
   String get helpTitle => 'Ayuda';
@@ -2900,7 +2900,13 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String timerBellEvery(int minutes) {
-    return 'Cada $minutes minutos';
+    String _temp0 = intl.Intl.pluralLogic(
+      minutes,
+      locale: localeName,
+      other: 'Cada $minutes minutos',
+      one: 'Cada 1 minuto',
+    );
+    return '$_temp0';
   }
 
   @override

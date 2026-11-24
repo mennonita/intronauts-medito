@@ -1642,7 +1642,7 @@
   "timerEndBell": "Am Ende",
   "timerBellRepeats": "Wie oft sie klingt",
   "timerBellRepeatCount": "{count, plural, one{1 Mal} other{{count} Mal}}",
-  "timerBellEvery": "Alle {minutes} Minuten",
+  "timerBellEvery": "{minutes, plural, =1{Jede Minute} other{Alle {minutes} Minuten}}",
   "timerBellInterval": "Glocke alle …",
   "timerBellsOff": "Keine",
   "timerRandomBells": "Zufällige Glocken",

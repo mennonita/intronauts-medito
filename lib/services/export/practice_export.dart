@@ -172,11 +172,7 @@ Future<void> sharePracticeCsv(BuildContext context) async {
     await PracticeExport._cleanup(expiredOnly: true, temp: temp);
     final folder = await temp.createTemp(PracticeExport._folderPrefix);
     final android = defaultTargetPlatform == TargetPlatform.android;
-    final folderName = folder.uri.pathSegments.where((s) => s.isNotEmpty).last;
-    final suffix = folderName.substring(PracticeExport._folderPrefix.length);
-    final name = android
-        ? 'mi-practica-$date-$suffix.csv'
-        : 'mi-practica-$date.csv';
+    final name = 'mi-practica-$date.csv';
     final file = File('${folder.path}/$name');
     // Android copia el archivo a una carpeta propia y conserva solo el nombre.
     final sharedCopy = android ? File('${temp.path}/share_plus/$name') : file;
