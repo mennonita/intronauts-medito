@@ -708,5 +708,117 @@ void main() {
       expect(invalidations, 1);
       expect(await _queue(), isEmpty);
     });
+
+    test(
+      'empezar a cerrar sesión suelta la escritura en curso (REV-02)',
+      () async {
+        late HealthSyncRelease release;
+        await raceDuringWrite(() async {
+          release = HealthSyncQueue.holdForAccountChange();
+        });
+        expect(sent, [false]);
+        expect(invalidations, 1);
+        release();
+      },
+    );
+
+    test('la sesión se cierra mientras se esperan los permisos: no envía, '
+        'aunque el historial siga siendo de la cuenta (REV-02)', () async {
+      await raceDuringWrite(() async {
+        final prefs = await SharedPreferences.getInstance();
+        // Lo primero que hace el restablecimiento de Auth.
+        await prefs.setBool(SharedPreferenceConstants.isLoggedIn, false);
+      });
+      expect(sent, [false]);
+    });
+  });
+
+  group('pausa durante el cambio de cuenta (REV-02)', () {
+    test('mientras dura la pausa nada sale; al soltarla, sí', () async {
+      await _giveConsent();
+      await HealthSyncQueue.add(_entry('a'));
+      final release = HealthSyncQueue.holdForAccountChange();
+
+      await HealthSyncQueue.flush();
+      expect(env.writes, isEmpty);
+      expect([for (final e in await _queue()) e.key], ['a']);
+
+      release();
+      await pumpEventQueue();
+      expect([for (final w in env.writes) w.key], ['a']);
+      expect(await _queue(), isEmpty);
+    });
+
+    test('soltar dos veces no deja de pausar otra pausa', () async {
+      await _giveConsent();
+      await HealthSyncQueue.add(_entry('a'));
+      final first = HealthSyncQueue.holdForAccountChange();
+      final second = HealthSyncQueue.holdForAccountChange();
+      first();
+      first();
+
+      await HealthSyncQueue.flush();
+      expect(env.writes, isEmpty);
+
+      second();
+      await pumpEventQueue();
+      expect([for (final w in env.writes) w.key], ['a']);
+    });
+
+    test('las marcas del temporizador esperan a que termine', () async {
+      await _giveConsent();
+      env.mark('run-1');
+      final release = HealthSyncQueue.holdForAccountChange();
+
+      await HealthSyncQueue.flush();
+      expect(env.cleared, isEmpty);
+      expect(env.marks, hasLength(1));
+      expect(env.writes, isEmpty);
+      release();
+    });
+
+    test('una sesión guiada que termina durante la pausa no entra', () async {
+      await _giveConsent();
+      final release = HealthSyncQueue.holdForAccountChange();
+      expect(
+        await HealthSyncQueue.addConsentedSession(
+          key: 'pista@2000',
+          startMs: 1000,
+          endMs: 2000,
+        ),
+        isFalse,
+      );
+      expect(await _queue(), isEmpty);
+      release();
+    });
+
+    test('sesión cerrada con el historial de la cuenta anterior: nada sale '
+        'hasta que se asienta la nueva identidad', () async {
+      await _giveConsent();
+      await HealthSyncQueue.add(_entry('a'));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(SharedPreferenceConstants.isLoggedIn, false);
+
+      await HealthSyncQueue.flush();
+      expect(env.writes, isEmpty);
+      expect([for (final e in await _queue()) e.key], ['a']);
+
+      // La misma cuenta vuelve a entrar.
+      await prefs.setBool(SharedPreferenceConstants.isLoggedIn, true);
+      await HealthSyncQueue.flush();
+      expect([for (final w in env.writes) w.key], ['a']);
+    });
+
+    test('sin cuenta verificada, sin sesión abierta sí escribe (uso sin '
+        'conexión con la identidad local)', () async {
+      env.account = '';
+      await _giveConsent('');
+      await HealthSyncQueue.add(_entry('a', accountId: ''));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(SharedPreferenceConstants.isLoggedIn, false);
+
+      await HealthSyncQueue.flush();
+      expect([for (final w in env.writes) w.key], ['a']);
+    });
   });
 }

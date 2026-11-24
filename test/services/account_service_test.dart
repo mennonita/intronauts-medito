@@ -6,10 +6,12 @@ import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/exceptions/app_error.dart';
 import 'package:medito/repositories/auth/auth_repository.dart';
 import 'package:medito/services/account/account_service.dart';
+import 'package:medito/services/account/playback_account.dart';
 import 'package:medito/services/secure_storage_service.dart';
 import 'package:medito/services/stats_backup_service.dart';
 import 'package:medito/services/timer/mantra_counter_store.dart';
 import 'package:medito/utils/completed_tracks_storage.dart';
+import 'package:medito/utils/health_sync_queue.dart';
 import 'package:medito/utils/stats_manager.dart';
 import 'package:mockito/mockito.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -57,6 +59,11 @@ void main() {
   late int nativeClears;
 
   setUp(() async {
+    PlaybackAccount.resetForTesting();
+    PlaybackAccount.bindsNatively = false;
+    HealthSyncQueue.resetForTesting();
+    addTearDown(PlaybackAccount.resetForTesting);
+    addTearDown(HealthSyncQueue.resetForTesting);
     SharedPreferences.setMockInitialValues({
       SharedPreferenceConstants.userId: 'old-client-id',
       SharedPreferenceConstants.favorites: '[]',
@@ -232,6 +239,89 @@ void main() {
     },
   );
 
+  test('al reanudar la eliminación antes de vincular, nada vuelve a vincular '
+      'la identidad borrada ni envía a Salud hasta quitarla (REV-02, '
+      'REV-06)', () async {
+    await prefs.setBool('account_deletion_requested', true);
+    final steps = <String>[];
+    var healthHeld = false;
+    Future<void> tryToBind(String step) async {
+      try {
+        await PlaybackAccount.ensureBound(prefs: prefs);
+        steps.add('$step: vinculó');
+      } on StateError {
+        steps.add('$step: bloqueado');
+      }
+    }
+
+    final resumed = AccountService(
+      httpApiService: http,
+      authRepository: auth,
+      preferences: prefs,
+      statsManager: stats,
+      holdHealthSync: () {
+        healthHeld = true;
+        return () => healthHeld = false;
+      },
+      clearPlayback: () async {
+        expect(healthHeld, isTrue);
+        await tryToBind('reproducción');
+      },
+      clearFavorites: () async {
+        expect(healthHeld, isTrue);
+        // `userId` todavía no se borra.
+        expect(
+          prefs.getString(SharedPreferenceConstants.userId),
+          'old-client-id',
+        );
+        await tryToBind('favoritos');
+      },
+    );
+    auth.signIn = () async {
+      expect(healthHeld, isFalse);
+      expect(prefs.containsKey(SharedPreferenceConstants.userId), isFalse);
+    };
+
+    await resumed.signInAnonymously();
+
+    expect(steps, ['reproducción: bloqueado', 'favoritos: bloqueado']);
+    expect(PlaybackAccount.isBound, isFalse);
+    // Ya sin la identidad borrada, se crea una nueva.
+    await PlaybackAccount.ensureBound(prefs: prefs);
+    expect(
+      prefs.getString(SharedPreferenceConstants.userId),
+      isNot('old-client-id'),
+    );
+  });
+
+  test('si la limpieza no se confirma, la identidad borrada sigue sin '
+      'vincularse (REV-06)', () async {
+    await prefs.setBool('account_deletion_requested', true);
+    var healthHeld = false;
+    final failing = AccountService(
+      httpApiService: http,
+      authRepository: auth,
+      preferences: prefs,
+      statsManager: stats,
+      holdHealthSync: () {
+        healthHeld = true;
+        return () => healthHeld = false;
+      },
+      clearPlayback: () async {},
+      clearFavorites: () async => throw StateError('sin confirmar'),
+    );
+
+    await expectLater(failing.signInAnonymously(), throwsStateError);
+
+    expect(healthHeld, isFalse);
+    expect(prefs.getString(SharedPreferenceConstants.userId), 'old-client-id');
+    await expectLater(
+      PlaybackAccount.ensureBound(prefs: prefs),
+      throwsStateError,
+    );
+    expect(PlaybackAccount.isBound, isFalse);
+  });
+
   test('a tombstoned client ID is cleared before a fresh signin', () async {
     final clientIds = <String?>[];
     auth.signIn = () async {
@@ -304,6 +394,11 @@ void main() {
           steps.add('mantras');
           if (wipeFails) throw StateError('sin confirmar');
         },
+        holdHealthSync: () {
+          steps.add('pausa Salud');
+          return () => steps.add('suelta Salud');
+        },
+        clearHealthQueue: () async => steps.add('vacía Salud'),
         retryDelay: Duration.zero,
       );
     }
@@ -313,7 +408,27 @@ void main() {
 
       await service.signOut();
 
-      expect(steps, ['mantras', 'signOut', 'favorites']);
+      expect(steps, containsAllInOrder(['mantras', 'signOut', 'favorites']));
+      expect(stats.clearCalls, 1);
+    });
+
+    test('Salud se pausa al EMPEZAR, antes de cualquier espera, y se suelta '
+        'solo al terminar (REV-02)', () async {
+      final service = signOutService();
+
+      final signingOut = service.signOut();
+      // Sin esperar nada: la pausa ya empezó.
+      expect(steps.first, 'pausa Salud');
+      await signingOut;
+
+      expect(steps, [
+        'pausa Salud',
+        'mantras',
+        'vacía Salud',
+        'signOut',
+        'favorites',
+        'suelta Salud',
+      ]);
       expect(stats.clearCalls, 1);
     });
 
@@ -324,7 +439,8 @@ void main() {
 
       await expectLater(service.signOut(), throwsStateError);
 
-      expect(steps, ['mantras']);
+      // La cola de Salud sigue intacta y vuelve a enviar.
+      expect(steps, ['pausa Salud', 'mantras', 'suelta Salud']);
       expect(stats.clearCalls, 0);
     });
 

@@ -196,4 +196,65 @@ void main() {
       expect(PlaybackAccount.isBound, isTrue);
     });
   });
+
+  group('limpieza de una eliminación (REV-06)', () {
+    test('al reanudar la eliminación antes de vincular, no se vuelve a '
+        'vincular la identidad guardada', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(SharedPreferenceConstants.userId, 'cliente-viejo');
+
+      final release = PlaybackAccount.holdForWipe('cliente-viejo');
+      // Nada vinculado todavía: clear() no tiene identidad que retirar.
+      await PlaybackAccount.clear();
+      await expectLater(
+        PlaybackAccount.ensureBound(prefs: prefs),
+        throwsStateError,
+      );
+      // Aun sin la identidad en las preferencias, nada se vincula mientras
+      // dura la limpieza.
+      await prefs.remove(SharedPreferenceConstants.userId);
+      await expectLater(
+        PlaybackAccount.ensureBound(prefs: prefs),
+        throwsStateError,
+      );
+      expect(calls.where((c) => c.method == 'bind'), isEmpty);
+
+      release();
+      await PlaybackAccount.ensureBound(prefs: prefs);
+      final fresh = prefs.getString(SharedPreferenceConstants.userId);
+      expect(fresh, isNot('cliente-viejo'));
+      expect((calls.last.arguments as Map)['clientId'], fresh);
+      expect(PlaybackAccount.isBound, isTrue);
+    });
+
+    test('un intento que ya esperaba las preferencias se descarta', () async {
+      SharedPreferences.setMockInitialValues({
+        SharedPreferenceConstants.userId: 'cliente-viejo',
+      });
+
+      final ensuring = expectLater(
+        PlaybackAccount.ensureBound(),
+        throwsStateError,
+      );
+      final release = PlaybackAccount.holdForWipe('cliente-viejo');
+      await ensuring;
+      await pumpEventQueue();
+      expect(calls.where((c) => c.method == 'bind'), isEmpty);
+      release();
+    });
+
+    test('si la limpieza no quitó la identidad guardada, sigue sin '
+        'vincularse al terminar', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(SharedPreferenceConstants.userId, 'cliente-viejo');
+
+      PlaybackAccount.holdForWipe('cliente-viejo')();
+
+      await expectLater(
+        PlaybackAccount.ensureBound(prefs: prefs),
+        throwsStateError,
+      );
+      expect(calls.where((c) => c.method == 'bind'), isEmpty);
+    });
+  });
 }

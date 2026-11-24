@@ -13,6 +13,7 @@ import 'package:medito/services/secure_storage_service.dart';
 import 'package:medito/services/stats_backup_service.dart';
 import 'package:medito/services/timer/mantra_counter_store.dart';
 import 'package:medito/utils/completed_tracks_storage.dart';
+import 'package:medito/utils/health_sync_queue.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/practice_history.dart';
 import 'package:medito/utils/stats_manager.dart';
@@ -91,6 +92,10 @@ class AccountService {
   final Future<void> Function() _clearPlayback;
   final Future<void> Function()? _clearFavorites;
   final Future<void> Function() _clearMantraCounter;
+  final HealthSyncRelease Function() _holdHealthSync;
+  final Future<void> Function() _clearHealthQueue;
+  final void Function() Function(String? persistedClientId)
+  _holdPlaybackForWipe;
 
   /// Base delay between DELETE retries (multiplied by the attempt number).
   final Duration retryDelay;
@@ -104,6 +109,11 @@ class AccountService {
     Future<void> Function()? clearFavorites,
     Future<void> Function() clearMantraCounter =
         MantraCounterStore.clearForAccountChange,
+    HealthSyncRelease Function() holdHealthSync =
+        HealthSyncQueue.holdForAccountChange,
+    Future<void> Function() clearHealthQueue = HealthSyncQueue.invalidate,
+    void Function() Function(String? persistedClientId) holdPlaybackForWipe =
+        PlaybackAccount.holdForWipe,
     this.retryDelay = const Duration(seconds: 1),
   }) : _httpApiService = httpApiService,
        _authRepository = authRepository,
@@ -111,7 +121,10 @@ class AccountService {
        _statsManager = statsManager,
        _clearPlayback = clearPlayback,
        _clearFavorites = clearFavorites,
-       _clearMantraCounter = clearMantraCounter;
+       _clearMantraCounter = clearMantraCounter,
+       _holdHealthSync = holdHealthSync,
+       _clearHealthQueue = clearHealthQueue,
+       _holdPlaybackForWipe = holdPlaybackForWipe;
 
   bool get needsReplacement =>
       _preferences.getBool(_deletionRequestedKey) == true ||
@@ -149,13 +162,23 @@ class AccountService {
   /// guardado del contador de mantras no basta: se borra aquí. Va primero y
   /// debe confirmarse; si falla, la sesión sigue abierta y quien llama avisa
   /// del error (MANTRA-01).
+  ///
+  /// Los envíos a Salud se detienen al empezar, antes de cualquier espera, y
+  /// no vuelven a salir hasta que el historial ya no es de esta cuenta
+  /// (REV-02). Las sesiones que esperaban ir a Salud se borran.
   Future<void> signOut() async {
-    await _clearMantraCounter();
-    await _authRepository.signOut();
-    await _statsManager.clearAllStats();
-    // Si no, la siguiente cuenta que entre en este teléfono mezclaría (y
-    // subiría) los favoritos de esta.
-    await _clearFavorites?.call();
+    final releaseHealth = _holdHealthSync();
+    try {
+      await _clearMantraCounter();
+      await _clearHealthQueue();
+      await _authRepository.signOut();
+      await _statsManager.clearAllStats();
+      // Si no, la siguiente cuenta que entre en este teléfono mezclaría (y
+      // subiría) los favoritos de esta.
+      await _clearFavorites?.call();
+    } finally {
+      releaseHealth();
+    }
   }
 
   /// Guarda la solicitud antes de borrar la cuenta y limpiar los datos locales.
@@ -216,24 +239,39 @@ class AccountService {
   /// The access token stays valid for up to 2 hours after deletion and any
   /// authenticated call would recreate a profile, so drop it before anything
   /// else can fire. The server session is already gone, so no tokens/signout.
+  ///
+  /// Antes de la primera espera: Salud deja de enviar y la reproducción no
+  /// vuelve a vincular la identidad borrada, ni siquiera al reanudar la
+  /// eliminación antes de la primera vinculación (REV-02, REV-06).
   Future<void> _finishLocalDeletion() async {
-    final owner = _preferences.getString(
-      SharedPreferenceConstants.serverUserId,
+    final releaseHealth = _holdHealthSync();
+    final releasePlayback = _holdPlaybackForWipe(
+      _preferences.getString(SharedPreferenceConstants.userId),
     );
-    await _setAccountFlag(_replacementPendingKey, true);
-    _httpApiService.clearAuthHeader();
-    await _authRepository.signOutLocally();
-    await PracticeHistory.clear(_preferences, owner);
-    await _clearPlayback();
-    await _clearFavorites?.call();
-    await _statsManager.clearAllStats(preservePending: false);
-    await StatsBackupService(prefs: _preferences).clearAll();
-    for (final key in _accountPrefKeys) {
-      if (!await _preferences.remove(key)) {
-        throw StateError('Could not remove account data');
+    try {
+      final owner = _preferences.getString(
+        SharedPreferenceConstants.serverUserId,
+      );
+      await _setAccountFlag(_replacementPendingKey, true);
+      _httpApiService.clearAuthHeader();
+      await _authRepository.signOutLocally();
+      await PracticeHistory.clear(_preferences, owner);
+      await _clearPlayback();
+      await _clearFavorites?.call();
+      await _statsManager.clearAllStats(preservePending: false);
+      await StatsBackupService(prefs: _preferences).clearAll();
+      for (final key in _accountPrefKeys) {
+        if (!await _preferences.remove(key)) {
+          throw StateError('Could not remove account data');
+        }
       }
+      await _setAccountFlag(_deletionRequestedKey, false);
+    } finally {
+      // Si algo falló, la identidad borrada sigue retirada mientras siga
+      // guardada; el siguiente inicio termina la limpieza.
+      releasePlayback();
+      releaseHealth();
     }
-    await _setAccountFlag(_deletionRequestedKey, false);
   }
 }
 
