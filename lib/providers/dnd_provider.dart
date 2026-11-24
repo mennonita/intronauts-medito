@@ -11,8 +11,8 @@ import 'package:medito/providers/providers.dart';
 /// plays. Android only: iOS offers no API for this, so the setting is hidden.
 ///
 /// The preference and the system permission are separate things. The user can
-/// have the preference on while Android has revoked access; [setDndMode] then
-/// silently does nothing. The settings sheet gates turning it on behind
+/// have the preference on while Android has revoked access; [shouldRequestDnd]
+/// then reports false. The settings sheet gates turning it on behind
 /// [hasAccess] so the two normally agree.
 class DndNotifier extends Notifier<bool> {
   final _dndPlugin = DoNotDisturbPlugin();
@@ -77,21 +77,17 @@ class DndNotifier extends Notifier<bool> {
     await prefs.setBool(SharedPreferenceConstants.dndEnabled, value);
   }
 
-  /// Applies or lifts Do Not Disturb around playback. Best effort: no-op when
-  /// the preference is off or access has been revoked.
-  Future<void> setDndMode(bool enable) async {
-    if (!Platform.isAndroid) return;
+  /// Whether the next session should ask the native service for Do Not
+  /// Disturb: Android, preference on and access granted (sent as
+  /// `AudioData.dndRequested`).
+  Future<bool> shouldRequestDnd() async {
+    if (!Platform.isAndroid || !state) return false;
+    return hasAccess();
+  }
 
-    try {
-      final hasAccess = await _dndPlugin.isNotificationPolicyAccessGranted();
-      if (hasAccess && state) {
-        await _dndPlugin.setInterruptionFilter(
-          enable ? InterruptionFilter.alarms : InterruptionFilter.all,
-        );
-      }
-    } catch (e) {
-      // Handle the error silently as this is a best-effort feature
-    }
+  /// Kept for callers that still toggle Do Not Disturb around playback.
+  Future<void> setDndMode(bool enable) async {
+    // El servicio nativo aplica y restaura No molestar (DndGuard).
   }
 }
 

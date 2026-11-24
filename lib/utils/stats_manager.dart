@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -36,6 +37,48 @@ import 'package:medito/utils/stats_change.dart';
 
 typedef _StatsAttempt = ({int seq, int changes, String digest});
 
+/// Clave del dueño de una sesión del temporizador en su registro de entrega.
+const String timerOwnerIdKey = 'ownerId';
+
+/// Resultado de guardar una sesión del temporizador por su `runId`.
+enum TimerRecordResult { accepted, duplicate, rejected, failed }
+
+/// Sesión aceptada que todavía debe exportarse a Salud (R78).
+class HealthPendingRun {
+  const HealthPendingRun({
+    required this.runId,
+    required this.startMs,
+    required this.endMs,
+    required this.accountId,
+  });
+
+  final String runId;
+  final int startMs;
+  final int endMs;
+  final String accountId;
+}
+
+/// Resumen de solo lectura del historial guardado antes de verificar la cuenta.
+class PreVerificationSummary {
+  const PreVerificationSummary({required this.sessions, required this.minutes});
+
+  final int sessions;
+  final int minutes;
+}
+
+typedef _MemoryState = ({
+  LocalAllStats? allStats,
+  int localSeq,
+  bool dirty,
+  bool needsResync,
+  _StatsAttempt? attempt,
+  StatsSnapshot? synced,
+  LocalAllStats? legacyPending,
+  String? verifiedUserId,
+  List<StatsChange> changes,
+  List<Map<String, dynamic>> recordedRuns,
+});
+
 class StatsManager {
   static final StatsManager _instance = StatsManager._internal();
   factory StatsManager() => _instance;
@@ -53,12 +96,16 @@ class StatsManager {
   static const _resyncKey = 'stats_needs_resync';
   static const _attemptKey = 'stats_post_attempt';
   static const _ownerKey = 'user_id';
+  static const _recordedRunsKey = 'recorded_runs';
+  static const _maxRecordedRuns = 200;
   static final _uuidPattern = RegExp(
     r'^[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$',
   );
 
   late StatsService _statsService;
   late SharedPreferences _prefs;
+  // Última lista de copias guardadas confirmada por el almacenamiento.
+  List<Map<String, dynamic>>? _confirmedOwners;
   LocalAllStats? _allStats;
   bool _isInitialized = false;
   Completer<void>? _initCompleter;
@@ -72,8 +119,13 @@ class StatsManager {
   bool _needsResync = false;
   _StatsAttempt? _attempt;
   LocalAllStats? _legacyPending;
+  List<Map<String, dynamic>> _recordedRuns = [];
   final _postsInFlight = <int, Future<void>>{};
-  Future<void>? _localWrite;
+
+  // Un solo escritor a la vez para el registro de estadísticas y el de
+  // dueños pendientes (R63).
+  Future<void> _writeQueue = Future.value();
+  static final _lockZoneKey = Object();
 
   Duration _dayBoundaryOffset = Duration.zero;
 
@@ -83,6 +135,58 @@ class StatsManager {
   int _clearGeneration = 0;
 
   StatsManager._internal();
+
+  /// Ejecuta [body] cuando termina la escritura anterior. Una llamada anidada
+  /// dentro del mismo candado corre de inmediato.
+  Future<T> _locked<T>(Future<T> Function() body) {
+    if (identical(Zone.current[_lockZoneKey], this)) return body();
+    final previous = _writeQueue;
+    final done = Completer<void>();
+    _writeQueue = done.future;
+    return previous
+        .then((_) {
+          return runZoned(body, zoneValues: {_lockZoneKey: this});
+        })
+        .whenComplete(done.complete);
+  }
+
+  _MemoryState _captureState() => (
+    allStats: _allStats,
+    localSeq: _localSeq,
+    dirty: _dirty,
+    needsResync: _needsResync,
+    attempt: _attempt,
+    synced: _synced,
+    legacyPending: _legacyPending,
+    verifiedUserId: _verifiedUserId,
+    changes: List.of(_changes),
+    recordedRuns: [for (final run in _recordedRuns) Map.of(run)],
+  );
+
+  void _restoreState(_MemoryState state) {
+    _allStats = state.allStats;
+    _localSeq = state.localSeq;
+    _dirty = state.dirty;
+    _needsResync = state.needsResync;
+    _attempt = state.attempt;
+    _synced = state.synced;
+    _legacyPending = state.legacyPending;
+    _verifiedUserId = state.verifiedUserId;
+    _changes = state.changes;
+    _recordedRuns = state.recordedRuns;
+  }
+
+  /// Corre [body] dentro del candado. Si la escritura falla o lanza un error,
+  /// la memoria vuelve a lo que había antes: nunca queda un cambio sin guardar.
+  Future<T> _transaction<T>(Future<T> Function() body) => _locked(() async {
+    final before = _captureState();
+    try {
+      return await body();
+    } catch (_) {
+      _restoreState(before);
+      rethrow;
+    }
+  });
 
   Future<bool> _acquireLock() async {
     var prefs = _prefs;
@@ -216,20 +320,26 @@ class StatsManager {
     if (generation != _clearGeneration || startedSeq != _localSeq) return;
     if (remote == null) return;
 
-    _synced = remote;
-    // Conserva el historial local creado antes de guardar la secuencia.
-    if (_localSeq == 0 && remote.clientSeq == 0) {
-      _merge(remote.stats);
-    } else {
-      _allStats = remote.stats;
-    }
-    if (remote.clientSeq > _localSeq) _localSeq = remote.clientSeq;
-    final savedSeq = _localSeq;
-    final score = _updateDerivedStats();
+    final saved = await _transaction(() async {
+      // Otra escritura pudo llegar mientras se descargaba la copia remota.
+      if (generation != _clearGeneration || startedSeq != _localSeq) {
+        return null;
+      }
+      _synced = remote;
+      // Conserva el historial local creado antes de guardar la secuencia.
+      if (_localSeq == 0 && remote.clientSeq == 0) {
+        _merge(remote.stats);
+      } else {
+        _allStats = remote.stats;
+      }
+      if (remote.clientSeq > _localSeq) _localSeq = remote.clientSeq;
+      final score = _updateDerivedStats();
+      await _saveLocalAllStatsToSharedPrefs();
+      return score;
+    });
+    if (saved == null || generation != _clearGeneration) return;
     _lastSyncedAt = _getCurrentDate();
-    await _saveLocalAllStatsToSharedPrefs();
-    if (generation != _clearGeneration || savedSeq != _localSeq) return;
-    await saveConsistencyScoreHistory(score);
+    await saveConsistencyScoreHistory(saved);
     await _saveLastSyncedAt();
     if (generation == _clearGeneration) _updateHomeWidget();
   }
@@ -533,7 +643,16 @@ class StatsManager {
       for (final change in (record?[_changesKey] as List? ?? const []))
         StatsChange(change as Map<String, dynamic>),
     ];
+    _recordedRuns = _readRecordedRuns(record);
   }
+
+  static List<Map<String, dynamic>> _readRecordedRuns(
+    Map<String, dynamic>? record,
+  ) => [
+    for (final run in (record?[_recordedRunsKey] as List? ?? const []))
+      if (run is Map && run['runId'] is String)
+        Map<String, dynamic>.of(run.cast()),
+  ];
 
   Map<String, dynamic> _recordState() => {
     _ownerKey: _verifiedUserId,
@@ -552,6 +671,7 @@ class StatsManager {
     },
     if (_legacyPending case final legacy?) _legacyPendingKey: legacy.toJson(),
     _changesKey: [for (final change in _changes) change.json],
+    _recordedRunsKey: _recordedRuns,
   };
 
   Future<void> _saveLocalAllStatsToSharedPrefs() async {
@@ -570,12 +690,35 @@ class StatsManager {
         : LocalAllStats.fromJson(record);
   }
 
+  /// Copias guardadas de otras cuentas y el historial sin dueño. Se leen de
+  /// la última escritura CONFIRMADA, no de la caché de SharedPreferences, que
+  /// cambia aunque la escritura falle. Las entradas sin dueño se juntan en una.
   List<Map<String, dynamic>> _pendingOwners() {
+    final confirmed = _confirmedOwners ??= _readPendingOwners();
+    final owners = <Map<String, dynamic>>[];
+    Map<String, dynamic>? ownerless;
+    for (final owner in _deepCopy(confirmed)) {
+      if (owner[_ownerKey] != null) {
+        owners.add(owner);
+      } else {
+        ownerless = ownerless == null
+            ? owner
+            : _mergeOwnerless(ownerless, owner);
+      }
+    }
+    return [...owners, ?ownerless];
+  }
+
+  List<Map<String, dynamic>> _readPendingOwners() {
     final record = _readStatsRecord(_pendingOwnerKey);
     if (record == null) return [];
     final others = record.remove('other_owners') as List? ?? [];
     return [record, ...others.cast<Map<String, dynamic>>()];
   }
+
+  static List<Map<String, dynamic>> _deepCopy(
+    List<Map<String, dynamic>> owners,
+  ) => (jsonDecode(jsonEncode(owners)) as List).cast<Map<String, dynamic>>();
 
   Future<void> _savePendingOwners(List<Map<String, dynamic>> owners) async {
     final saved = owners.isEmpty
@@ -588,6 +731,86 @@ class StatsManager {
             }),
           );
     if (!saved) throw StateError('Could not preserve pending stats');
+    _confirmedOwners = _deepCopy(owners);
+  }
+
+  /// Agrega [entry] a la lista; si no tiene dueño, lo junta con el único
+  /// historial sin dueño (nunca hay dos).
+  List<Map<String, dynamic>> _withPendingOwner(
+    List<Map<String, dynamic>> owners,
+    Map<String, dynamic> entry,
+  ) {
+    if (entry[_ownerKey] != null) {
+      return [
+        for (final owner in owners)
+          if (owner[_ownerKey] != entry[_ownerKey]) owner,
+        entry,
+      ];
+    }
+    final index = owners.indexWhere((owner) => owner[_ownerKey] == null);
+    if (index < 0) return [...owners, entry];
+    return [
+      for (var i = 0; i < owners.length; i++)
+        if (i != index) owners[i],
+      _mergeOwnerless(owners[index], entry),
+    ];
+  }
+
+  /// Junta dos historiales sin dueño sin repetir sesiones ni `runId`.
+  Map<String, dynamic> _mergeOwnerless(
+    Map<String, dynamic> older,
+    Map<String, dynamic> newer,
+  ) {
+    LocalAllStats statsOf(Map<String, dynamic> entry) => LocalAllStats.fromJson(
+      entry['stats'] as Map<String, dynamic>? ?? const {},
+    );
+    final a = statsOf(older);
+    final b = statsOf(newer);
+    final seen = <String>{};
+    var duplicated = 0;
+    final completed = <LocalAudioCompleted>[];
+    for (final session in [...?a.audioCompleted, ...?b.audioCompleted]) {
+      if (seen.add('${session.id}@${session.timestamp}')) {
+        completed.add(session);
+      } else {
+        duplicated++;
+      }
+    }
+    var merged = a.copyWith(
+      audioCompleted: completed,
+      totalTimeListened: a.totalTimeListened + b.totalTimeListened,
+      totalTracksCompleted: max(
+        0,
+        a.totalTracksCompleted + b.totalTracksCompleted - duplicated,
+      ),
+      tracksChecked: {...?a.tracksChecked, ...?b.tracksChecked}.toList(),
+      updated: max(a.updated, b.updated),
+    );
+    merged = calculateStreak(merged);
+    merged = merged.copyWith(
+      consistencyScore: calculateConsistencyScore(merged),
+    );
+    final runIds = <String>{};
+    return {
+      ...newer,
+      _ownerKey: null,
+      'stats': jsonDecode(jsonEncode(merged.toJson())),
+      _localSeqKey:
+          (older[_localSeqKey] as int? ?? 0) +
+          (newer[_localSeqKey] as int? ?? 0),
+      _pendingSyncKey: true,
+      _changesKey: [
+        ...(older[_changesKey] as List? ?? const []),
+        ...(newer[_changesKey] as List? ?? const []),
+      ],
+      _recordedRunsKey: [
+        for (final run in [
+          ..._readRecordedRuns(older),
+          ..._readRecordedRuns(newer),
+        ])
+          if (runIds.add(run['runId'] as String)) run,
+      ],
+    };
   }
 
   Map<String, dynamic>? _archiveActiveStats() {
@@ -610,20 +833,16 @@ class StatsManager {
     return score;
   }
 
-  Future<void> _saveLocalChange({
-    StatsChange? change,
-    double? score,
-    bool skipPost = false,
-  }) async {
+  /// Guarda un cambio local en una sola escritura. Se llama dentro del candado;
+  /// el envío al servidor lo hace quien llama, ya fuera del candado.
+  Future<void> _commitLocalChange({StatsChange? change, double? score}) async {
     final generation = _clearGeneration;
     _localSeq++;
     _dirty = true;
     if (change != null) _changes.add(change);
-    final write = _localWrite = _saveLocalAllStatsToSharedPrefs();
-    await write;
+    await _saveLocalAllStatsToSharedPrefs();
     if (generation != _clearGeneration) return;
     if (score != null) await saveConsistencyScoreHistory(score);
-    if (!skipPost && generation == _clearGeneration) await flushPendingPost();
   }
 
   void _updateHomeWidget() {
@@ -641,9 +860,29 @@ class StatsManager {
       await initialize();
     }
     await _ensureStatsLoaded();
-    if (generation != _clearGeneration) return;
+    final saved = await _transaction(() async {
+      if (generation != _clearGeneration) return false;
+      _allStats ??= _loadLocalAllStats();
+      final change = _completionChange(audioCompleted, duration);
+      _allStats = _applyCompletion(
+        _allStats!,
+        change,
+        completedAt: audioCompleted.timestamp,
+      );
+      await _commitLocalChange(change: change, score: _updateDerivedStats());
+      return true;
+    });
+    if (!saved || skipPost || generation != _clearGeneration) return;
+    await flushPendingPost();
+    _updateHomeWidget();
+  }
 
-    final completedAt = audioCompleted.timestamp;
+  /// Cambio de una sesión terminada; si cruzó la medianoche cuenta en el día
+  /// en que empezó.
+  StatsChange _completionChange(
+    LocalAudioCompleted audioCompleted,
+    int duration,
+  ) {
     if (AudioCompletionTracker.checkTrackCrossedMidnight(
       endTimestamp: audioCompleted.timestamp,
       duration: duration,
@@ -652,26 +891,243 @@ class StatsManager {
         timestamp: audioCompleted.timestamp - duration,
       );
     }
+    return StatsChange.completion(audioCompleted, duration);
+  }
 
-    final change = StatsChange.completion(audioCompleted, duration);
-    _allStats = change.apply(
-      _allStats!,
+  LocalAllStats _applyCompletion(
+    LocalAllStats stats,
+    StatsChange change, {
+    required int completedAt,
+  }) {
+    final session = LocalAudioCompleted.fromJson(
+      change.json['session'] as Map<String, dynamic>,
+    );
+    final updated = change.apply(
+      stats,
       _getCurrentDate().millisecondsSinceEpoch,
     );
     PracticeHistory.read(
-      _allStats!,
+      updated,
       prefs: _prefs,
       now: _getCurrentDate(),
       offset: _dayBoundaryOffset,
-      storedSession: audioCompleted,
+      storedSession: session,
       completedAt: completedAt,
     );
-    await _saveLocalChange(
-      change: change,
-      score: _updateDerivedStats(),
-      skipPost: skipPost,
+    return updated;
+  }
+
+  /// Guarda una sesión del temporizador una sola vez por su `runId`, en el
+  /// historial de su dueño (R77): la cuenta activa, o el historial de antes de
+  /// verificar cuando la sesión empezó sin cuenta. Una sesión de otra cuenta
+  /// verificada se rechaza sin escribir nada.
+  Future<TimerRecordResult> recordTimerRun(Map<String, dynamic> payload) async {
+    final runId = payload[TypeConstants.runIdKey] as String?;
+    if (runId == null || runId.isEmpty) return TimerRecordResult.rejected;
+    final ownerId = payload[timerOwnerIdKey] as String? ?? '';
+    final generation = _clearGeneration;
+    try {
+      await initialize();
+      await _ensureStatsLoaded();
+    } catch (error) {
+      AppLogger.e('STATS_MANAGER', 'No se pudo abrir el historial', error);
+      return TimerRecordResult.failed;
+    }
+    final completion = LocalAudioCompleted(
+      id: payload[TypeConstants.trackIdKey] as String,
+      timestamp: payload[TypeConstants.timestampIdKey] as int,
     );
-    if (!skipPost) _updateHomeWidget();
+    final duration = payload[TypeConstants.durationIdKey] as int;
+    final endMs = completion.timestamp;
+    TimerRecordResult result;
+    try {
+      result = await _transaction(() async {
+        if (generation != _clearGeneration) return TimerRecordResult.failed;
+        _allStats ??= _loadLocalAllStats();
+        final current = _verifiedUserId ?? '';
+        if (ownerId == current) {
+          if (_recordedRuns.any((run) => run['runId'] == runId)) {
+            return TimerRecordResult.duplicate;
+          }
+          final change = _completionChange(completion, duration);
+          _allStats = _applyCompletion(_allStats!, change, completedAt: endMs);
+          _recordedRuns = _appendRun(_recordedRuns, {
+            'runId': runId,
+            if (ownerId.isNotEmpty)
+              'healthPending': {
+                'startMs': endMs - duration,
+                'endMs': endMs,
+                'accountId': ownerId,
+              },
+          });
+          await _commitLocalChange(
+            change: change,
+            score: _updateDerivedStats(),
+          );
+          return TimerRecordResult.accepted;
+        }
+        if (ownerId.isNotEmpty) {
+          AppLogger.w(
+            'STATS_MANAGER',
+            'Sesión $runId de otra cuenta; no se guarda',
+          );
+          return TimerRecordResult.rejected;
+        }
+        return _recordPreVerificationRun(runId, completion, duration);
+      });
+    } catch (error) {
+      AppLogger.e('STATS_MANAGER', 'No se pudo guardar la sesión', error);
+      return TimerRecordResult.failed;
+    }
+    if (result == TimerRecordResult.accepted &&
+        ownerId == (_verifiedUserId ?? '') &&
+        generation == _clearGeneration) {
+      flushPendingPost().ignore();
+      _updateHomeWidget();
+    }
+    return result;
+  }
+
+  /// Escribe la sesión en el historial de antes de verificar (la copia
+  /// archivada sin dueño), sin mezclarla con la cuenta. Una sola escritura.
+  Future<TimerRecordResult> _recordPreVerificationRun(
+    String runId,
+    LocalAudioCompleted completion,
+    int duration,
+  ) async {
+    final owners = _pendingOwners();
+    final index = owners.indexWhere((owner) => owner[_ownerKey] == null);
+    final entry = index < 0
+        ? <String, dynamic>{
+            _ownerKey: null,
+            _localSeqKey: 0,
+            _pendingSyncKey: true,
+            _changesKey: <Object>[],
+            'stats': LocalAllStats.empty().toJson(),
+          }
+        : Map<String, dynamic>.of(owners[index]);
+    final runs = _readRecordedRuns(entry);
+    if (runs.any((run) => run['runId'] == runId)) {
+      return TimerRecordResult.duplicate;
+    }
+    final change = _completionChange(completion, duration);
+    final stats = LocalAllStats.fromJson(
+      entry['stats'] as Map<String, dynamic>? ?? const {},
+    );
+    var updated = change.apply(stats, _getCurrentDate().millisecondsSinceEpoch);
+    updated = calculateStreak(updated);
+    updated = updated.copyWith(
+      consistencyScore: calculateConsistencyScore(updated),
+    );
+    entry['stats'] = updated.toJson();
+    entry[_localSeqKey] = (entry[_localSeqKey] as int? ?? 0) + 1;
+    entry[_pendingSyncKey] = true;
+    entry[_changesKey] = [
+      ...(entry[_changesKey] as List? ?? const []),
+      change.json,
+    ];
+    entry[_recordedRunsKey] = _appendRun(runs, {'runId': runId});
+    final next = List.of(owners);
+    if (index < 0) {
+      next.add(entry);
+    } else {
+      next[index] = entry;
+    }
+    await _savePendingOwners(next);
+    return TimerRecordResult.accepted;
+  }
+
+  /// Agrega [run] y respeta el límite quitando los más viejos, pero nunca
+  /// uno que aún espera su entrega a Salud.
+  static List<Map<String, dynamic>> _appendRun(
+    List<Map<String, dynamic>> runs,
+    Map<String, dynamic> run,
+  ) {
+    final next = [...runs, run];
+    var excess = next.length - _maxRecordedRuns;
+    if (excess <= 0) return next;
+    final kept = <Map<String, dynamic>>[];
+    for (final entry in next) {
+      if (excess > 0 &&
+          !identical(entry, run) &&
+          !entry.containsKey('healthPending')) {
+        excess--;
+        continue;
+      }
+      kept.add(entry);
+    }
+    return kept;
+  }
+
+  /// Sesiones de la cuenta activa que siguen pendientes de exportar a Salud.
+  List<HealthPendingRun> healthPendingRuns() => [
+    for (final run in _recordedRuns)
+      if (run['healthPending'] case {
+        'startMs': final int startMs,
+        'endMs': final int endMs,
+        'accountId': final String accountId,
+      })
+        HealthPendingRun(
+          runId: run['runId'] as String,
+          startMs: startMs,
+          endMs: endMs,
+          accountId: accountId,
+        ),
+  ];
+
+  /// Quita la marca de Salud de [runId]; `false` si no se pudo guardar.
+  Future<bool> clearHealthPending(String runId) async {
+    await initialize();
+    await _ensureStatsLoaded();
+    try {
+      return await _transaction(() async {
+        final index = _recordedRuns.indexWhere(
+          (run) => run['runId'] == runId && run.containsKey('healthPending'),
+        );
+        if (index < 0) return true;
+        _recordedRuns = [
+          for (var i = 0; i < _recordedRuns.length; i++)
+            i == index
+                ? (Map.of(_recordedRuns[i])..remove('healthPending'))
+                : _recordedRuns[i],
+        ];
+        await _saveLocalAllStatsToSharedPrefs();
+        return true;
+      });
+    } catch (error) {
+      AppLogger.e(
+        'STATS_MANAGER',
+        'No se pudo quitar la marca de Salud',
+        error,
+      );
+      return false;
+    }
+  }
+
+  /// Sesiones y minutos guardados en este teléfono antes de verificar la
+  /// cuenta. Solo lectura; nunca se sincroniza ni se mezcla con la cuenta.
+  Future<PreVerificationSummary?> preVerificationSummary() async {
+    await initialize();
+    if (_verifiedUserId == null) return null;
+    final entry = _pendingOwners().firstWhere(
+      (owner) => owner[_ownerKey] == null,
+      orElse: () => const {},
+    );
+    final raw = entry['stats'];
+    if (raw is! Map<String, dynamic>) return null;
+    final stats = LocalAllStats.fromJson(raw);
+    final sessions = (stats.audioCompleted ?? const <LocalAudioCompleted>[])
+        .where(
+          (session) =>
+              session.id != TypeConstants.streakFreeze &&
+              !session.id.startsWith('dummy-track'),
+        )
+        .length;
+    if (sessions == 0) return null;
+    return PreVerificationSummary(
+      sessions: sessions,
+      minutes: stats.totalTimeListened ~/ Duration.millisecondsPerMinute,
+    );
   }
 
   /// Adds the listening time of a repeated play-through without recording a
@@ -682,14 +1138,19 @@ class StatsManager {
       await initialize();
     }
     await _ensureStatsLoaded();
-    if (generation != _clearGeneration) return;
-
-    final change = StatsChange.repeat(duration);
-    _allStats = change.apply(
-      _allStats!,
-      _getCurrentDate().millisecondsSinceEpoch,
-    );
-    await _saveLocalChange(change: change);
+    final saved = await _transaction(() async {
+      if (generation != _clearGeneration) return false;
+      _allStats ??= _loadLocalAllStats();
+      final change = StatsChange.repeat(duration);
+      _allStats = change.apply(
+        _allStats!,
+        _getCurrentDate().millisecondsSinceEpoch,
+      );
+      await _commitLocalChange(change: change);
+      return true;
+    });
+    if (!saved || generation != _clearGeneration) return;
+    await flushPendingPost();
     _updateHomeWidget();
   }
 
@@ -701,35 +1162,50 @@ class StatsManager {
     final generation = _clearGeneration;
     return _postsInFlight.putIfAbsent(
       generation,
-      () => _postPendingChanges(generation).whenComplete(() {
-        _postsInFlight.remove(generation);
-      }),
+      // El envío vive fuera del candado: solo sus escrituras lo toman.
+      () =>
+          runZoned(
+            () => _postPendingChanges(generation),
+            zoneValues: {_lockZoneKey: null},
+          ).whenComplete(() {
+            _postsInFlight.remove(generation);
+          }),
     );
   }
 
   Future<void> _postPendingChanges(int generation) async {
     var retried = false;
     while (generation == _clearGeneration && _dirty) {
-      await _localWrite;
-      if (generation != _clearGeneration) return;
       if (_synced == null || _needsResync) {
         final startedSeq = _localSeq;
         final remote = await _statsService.fetchAllStats();
         if (generation != _clearGeneration) return;
         if (startedSeq != _localSeq) continue;
         if (remote == null) return;
-        await _rebasePendingChanges(remote);
+        final rebased = await _transaction(() async {
+          if (generation != _clearGeneration || startedSeq != _localSeq) {
+            return false;
+          }
+          await _rebasePendingChanges(remote);
+          return true;
+        });
         if (generation != _clearGeneration) return;
+        if (!rebased) continue;
       }
 
-      final sent = _allStats!;
-      final seq = _localSeq;
-      final changeCount = _changes.length;
-      // Si se pierde la respuesta, el GET puede identificar el envío exacto.
-      _attempt = (seq: seq, changes: changeCount, digest: _statsDigest(sent));
-      _needsResync = true;
-      await _saveLocalAllStatsToSharedPrefs();
-      if (generation != _clearGeneration) return;
+      final attempt = await _transaction(() async {
+        if (generation != _clearGeneration) return null;
+        final sent = _allStats!;
+        final seq = _localSeq;
+        final changeCount = _changes.length;
+        // Si se pierde la respuesta, el GET puede identificar el envío exacto.
+        _attempt = (seq: seq, changes: changeCount, digest: _statsDigest(sent));
+        _needsResync = true;
+        await _saveLocalAllStatsToSharedPrefs();
+        return (sent: sent, seq: seq, changeCount: changeCount);
+      });
+      if (attempt == null || generation != _clearGeneration) return;
+      final (:sent, :seq, :changeCount) = attempt;
 
       StatsPostResult? result;
       try {
@@ -746,17 +1222,22 @@ class StatsManager {
       }
       if (result.clientSeq < seq) return;
 
-      _synced = (stats: sent, clientSeq: result.clientSeq);
-      _attempt = null;
-      _needsResync = false;
-      _changes.removeRange(0, changeCount);
-      _dirty = seq != _localSeq;
-      _legacyPending = null;
-      if (result.clientSeq >= _localSeq) {
-        _localSeq = result.clientSeq + (_dirty ? 1 : 0);
-      }
-      await _saveLocalAllStatsToSharedPrefs();
-      if (generation != _clearGeneration) return;
+      final accepted = result;
+      final saved = await _transaction(() async {
+        if (generation != _clearGeneration) return false;
+        _synced = (stats: sent, clientSeq: accepted.clientSeq);
+        _attempt = null;
+        _needsResync = false;
+        _changes.removeRange(0, changeCount);
+        _dirty = seq != _localSeq;
+        _legacyPending = null;
+        if (accepted.clientSeq >= _localSeq) {
+          _localSeq = accepted.clientSeq + (_dirty ? 1 : 0);
+        }
+        await _saveLocalAllStatsToSharedPrefs();
+        return true;
+      });
+      if (!saved || generation != _clearGeneration) return;
       _lastSyncedAt = _getCurrentDate();
       await _saveLastSyncedAt();
     }
@@ -767,6 +1248,7 @@ class StatsManager {
     return sha256.convert(utf8.encode(jsonEncode(wire.toJson()))).toString();
   }
 
+  // Se llama dentro del candado.
   Future<void> _rebasePendingChanges(StatsSnapshot remote) async {
     final attempt = _attempt;
     if (attempt != null &&
@@ -805,42 +1287,51 @@ class StatsManager {
   Future<void> restoreFromBackup(LocalAllStats snapshot) async {
     final generation = _clearGeneration;
     if (!_isInitialized) await initialize();
-    if (generation != _clearGeneration) return;
-
-    PracticeHistory.read(
-      _allStats ?? _loadLocalAllStats(),
-      prefs: _prefs,
-      now: _getCurrentDate(),
-      offset: _dayBoundaryOffset,
-    );
-    final change = StatsChange.restore(snapshot);
-    _allStats = change.apply(
-      snapshot,
-      _getCurrentDate().millisecondsSinceEpoch,
-    );
-    await _saveLocalChange(change: change, score: _updateDerivedStats());
+    final saved = await _transaction(() async {
+      if (generation != _clearGeneration) return false;
+      PracticeHistory.read(
+        _allStats ?? _loadLocalAllStats(),
+        prefs: _prefs,
+        now: _getCurrentDate(),
+        offset: _dayBoundaryOffset,
+      );
+      final change = StatsChange.restore(snapshot);
+      _allStats = change.apply(
+        snapshot,
+        _getCurrentDate().millisecondsSinceEpoch,
+      );
+      await _commitLocalChange(change: change, score: _updateDerivedStats());
+      return true;
+    });
+    if (!saved || generation != _clearGeneration) return;
+    await flushPendingPost();
     _updateHomeWidget();
   }
 
   Future<void> removeAudioCompleted(LocalAudioCompleted session) async {
     final generation = _clearGeneration;
     await _ensureStatsLoaded();
-    if (generation != _clearGeneration) return;
-
-    PracticeHistory.read(
-      _allStats!,
-      prefs: _prefs,
-      now: _getCurrentDate(),
-      offset: _dayBoundaryOffset,
-    );
-    final change = StatsChange.remove(session);
-    final updated = change.apply(
-      _allStats!,
-      _getCurrentDate().millisecondsSinceEpoch,
-    );
-    if (identical(updated, _allStats)) return;
-    _allStats = updated;
-    await _saveLocalChange(change: change, score: _updateDerivedStats());
+    final saved = await _transaction(() async {
+      if (generation != _clearGeneration) return false;
+      _allStats ??= _loadLocalAllStats();
+      PracticeHistory.read(
+        _allStats!,
+        prefs: _prefs,
+        now: _getCurrentDate(),
+        offset: _dayBoundaryOffset,
+      );
+      final change = StatsChange.remove(session);
+      final updated = change.apply(
+        _allStats!,
+        _getCurrentDate().millisecondsSinceEpoch,
+      );
+      if (identical(updated, _allStats)) return false;
+      _allStats = updated;
+      await _commitLocalChange(change: change, score: _updateDerivedStats());
+      return true;
+    });
+    if (!saved || generation != _clearGeneration) return;
+    await flushPendingPost();
     _updateHomeWidget();
   }
 
@@ -855,16 +1346,21 @@ class StatsManager {
   }) async {
     final generation = _clearGeneration;
     await _ensureStatsLoaded();
-    if (generation != _clearGeneration) return;
-
-    final change = StatsChange.check(ids, checked);
-    final updated = change.apply(
-      _allStats!,
-      _getCurrentDate().millisecondsSinceEpoch,
-    );
-    if (identical(updated, _allStats)) return;
-    _allStats = updated;
-    await _saveLocalChange(change: change);
+    final saved = await _transaction(() async {
+      if (generation != _clearGeneration) return false;
+      _allStats ??= _loadLocalAllStats();
+      final change = StatsChange.check(ids, checked);
+      final updated = change.apply(
+        _allStats!,
+        _getCurrentDate().millisecondsSinceEpoch,
+      );
+      if (identical(updated, _allStats)) return false;
+      _allStats = updated;
+      await _commitLocalChange(change: change);
+      return true;
+    });
+    if (!saved || generation != _clearGeneration) return;
+    await flushPendingPost();
   }
 
   Future<void> removeTrackChecked(String trackId) =>
@@ -873,78 +1369,81 @@ class StatsManager {
   Future<void> acceptServerUser(String userId) async {
     final generation = _clearGeneration;
     await initialize();
-    if (generation != _clearGeneration ||
-        _prefs.getBool(SharedPreferenceConstants.isLoggedIn) != true ||
-        !_uuidPattern.hasMatch(userId) ||
-        _verifiedUserId == userId) {
-      return;
-    }
+    final accepted = await _transaction(() async {
+      if (generation != _clearGeneration ||
+          _prefs.getBool(SharedPreferenceConstants.isLoggedIn) != true ||
+          !_uuidPattern.hasMatch(userId) ||
+          _verifiedUserId == userId) {
+        return null;
+      }
 
-    final active = _archiveActiveStats();
-    final owners = _pendingOwners();
-    // Solo /me puede confirmar el UUID de una copia guardada.
-    final matching = owners
-        .where((owner) => owner[_ownerKey] == userId)
-        .firstOrNull;
-    final transition = ++_clearGeneration;
-    _verifiedUserId = userId;
-    _allStats = matching == null
-        ? LocalAllStats.empty()
-        : LocalAllStats.fromJson(matching['stats'] as Map<String, dynamic>);
-    _loadRecordState(matching);
-    // Los registros de la versión anterior solo se guardaban si había cambios.
-    if (matching != null && !matching.containsKey(_pendingSyncKey)) {
-      _dirty = true;
-    }
-    _lastSyncedAt = null;
+      final active = _archiveActiveStats();
+      final owners = _pendingOwners();
+      // Solo /me puede confirmar el UUID de una copia guardada.
+      final matching = owners
+          .where((owner) => owner[_ownerKey] == userId)
+          .firstOrNull;
+      final transition = ++_clearGeneration;
+      _verifiedUserId = userId;
+      _allStats = matching == null
+          ? LocalAllStats.empty()
+          : LocalAllStats.fromJson(matching['stats'] as Map<String, dynamic>);
+      _loadRecordState(matching);
+      // Los registros de la versión anterior solo se guardaban si había cambios.
+      if (matching != null && !matching.containsKey(_pendingSyncKey)) {
+        _dirty = true;
+      }
+      _lastSyncedAt = null;
 
-    if (active != null) {
-      owners.removeWhere(
-        (owner) =>
-            active[_ownerKey] != null && active[_ownerKey] == owner[_ownerKey],
-      );
-      owners.add(active);
-      await _savePendingOwners(owners);
-    }
-    if (transition != _clearGeneration) return;
+      if (active != null) {
+        final next = _withPendingOwner(owners, active);
+        owners
+          ..clear()
+          ..addAll(next);
+        await _savePendingOwners(owners);
+      }
+      if (transition != _clearGeneration) return null;
 
-    _localWrite = _saveLocalAllStatsToSharedPrefs();
-    await _localWrite;
-    if (transition != _clearGeneration) return;
-    await _prefs.setString(SharedPreferenceConstants.serverUserId, userId);
-    if (transition != _clearGeneration) return;
-    if (matching != null) {
-      owners.remove(matching);
-      await _savePendingOwners(owners);
+      await _saveLocalAllStatsToSharedPrefs();
+      if (transition != _clearGeneration) return null;
+      await _prefs.setString(SharedPreferenceConstants.serverUserId, userId);
+      if (transition != _clearGeneration) return null;
+      if (matching != null) {
+        owners.removeWhere((owner) => owner[_ownerKey] == userId);
+        await _savePendingOwners(owners);
+      }
+      await _saveLastSyncedAt();
+      return transition;
+    });
+    if (accepted != null && accepted == _clearGeneration) {
+      flushPendingPost().ignore();
     }
-    await _saveLastSyncedAt();
-    if (transition == _clearGeneration) flushPendingPost().ignore();
   }
 
   Future<void> clearAllStats({bool preservePending = true}) async {
     await initialize();
-    _clearGeneration++;
-    final active = preservePending ? _archiveActiveStats() : null;
-    _verifiedUserId = null;
-    _allStats = LocalAllStats.empty();
-    _loadRecordState(null);
-    _lastSyncedAt = null;
-    if (active != null) {
-      final others = _pendingOwners().where(
-        (owner) =>
-            active[_ownerKey] == null || active[_ownerKey] != owner[_ownerKey],
-      );
-      await _savePendingOwners([active, ...others]);
-    }
+    await _transaction(() async {
+      _clearGeneration++;
+      final active = preservePending ? _archiveActiveStats() : null;
+      _verifiedUserId = null;
+      _allStats = LocalAllStats.empty();
+      _loadRecordState(null);
+      _lastSyncedAt = null;
+      if (active != null) {
+        await _savePendingOwners(_withPendingOwner(_pendingOwners(), active));
+      }
 
-    _localWrite = _saveLocalAllStatsToSharedPrefs();
-    await _localWrite;
-    if (!preservePending) await _savePendingOwners([]);
-    await _prefs.remove(SharedPreferenceConstants.serverUserId);
-    await _saveLastSyncedAt();
+      await _saveLocalAllStatsToSharedPrefs();
+      if (!preservePending) await _savePendingOwners([]);
+      await _prefs.remove(SharedPreferenceConstants.serverUserId);
+      await _saveLastSyncedAt();
+    });
   }
 
   bool get isInitialized => _isInitialized;
+
+  /// Cuenta verificada dueña del historial activo, o null sin verificar.
+  String? get verifiedUserId => _verifiedUserId;
 
   int get localGeneration => _clearGeneration;
 
@@ -1075,6 +1574,12 @@ class StatsManager {
   }
 
   @visibleForTesting
+  void setPrefsForTesting(SharedPreferences prefs) {
+    _prefs = prefs;
+    _confirmedOwners = null;
+  }
+
+  @visibleForTesting
   void setStatsServiceForTesting(StatsService service) {
     _statsService = service;
   }
@@ -1107,10 +1612,13 @@ class StatsManager {
 
     if (!changed || _allStats == null) return;
 
-    _allStats = calculateStreak(_allStats!);
-    final newConsistencyScore = calculateConsistencyScore(_allStats!);
-    _allStats = _allStats!.copyWith(consistencyScore: newConsistencyScore);
-    await _saveLocalChange(skipPost: true);
+    await _transaction(() async {
+      if (_allStats == null) return;
+      _allStats = calculateStreak(_allStats!);
+      final newConsistencyScore = calculateConsistencyScore(_allStats!);
+      _allStats = _allStats!.copyWith(consistencyScore: newConsistencyScore);
+      await _commitLocalChange();
+    });
   }
 
   void _loadDayBoundaryOffset(SharedPreferences prefs) {
@@ -1142,7 +1650,8 @@ class StatsManager {
     _verifiedUserId = null;
     _loadRecordState(null);
     _postsInFlight.clear();
-    _localWrite = null;
+    _writeQueue = Future.value();
+    _confirmedOwners = null;
     _dayBoundaryOffset = Duration.zero;
   }
 

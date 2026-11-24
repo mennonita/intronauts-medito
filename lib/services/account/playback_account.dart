@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:medito/providers/player/player_provider.dart';
 import 'package:medito/services/audio/session_bell_preview.dart';
+import 'package:medito/services/timer/ios_timer_run_store.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
 import 'package:medito/utils/logger.dart';
 
@@ -68,6 +69,8 @@ class PlaybackAccount {
         }),
         Future.sync(stop),
         AudioSessionTracker.instance.discard(),
+        // Después del cambio de generación: ninguna escritura vieja vuelve (R82).
+        if (Platform.isIOS) IosTimerRunStore.instance.clear(),
       ]);
     } finally {
       _discarding--;

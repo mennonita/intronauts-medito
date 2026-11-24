@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
+import '../timer/timer_end_backup.dart';
 import '../../models/background_sounds/background_sounds_model.dart';
 import '../../models/timer/timer_bell_settings.dart';
 import '../../utils/logger.dart';
@@ -9,7 +11,7 @@ import 'timer_bell_schedule.dart';
 
 class IosSessionBells {
   IosSessionBells(this.primary, {AudioPlayer Function()? createPlayer})
-    : _createPlayer = createPlayer ?? AudioPlayer.new {
+    : _createPlayer = createPlayer ?? _newBellPlayer {
     primary.positionStream.listen((_) => _update());
     primary.playerStateStream.listen((_) => _update());
     primary.positionDiscontinuityStream.listen((event) {
@@ -32,8 +34,30 @@ class IosSessionBells {
     });
   }
 
+  // El controlador único de interrupciones pausa y reanuda las campanas; si
+  // just_audio también lo hiciera, competiría con él.
+  static AudioPlayer _newBellPlayer() =>
+      AudioPlayer(handleInterruptions: false);
+
+  /// Tiempo máximo de espera al final del archivo para que suenen completas
+  /// las campanas que ya empezaron o están en fila (R53).
+  static const drainTimeout = Duration(seconds: 60);
+
   final AudioPlayer primary;
   final AudioPlayer Function() _createPlayer;
+
+  /// Se llama cuando empieza la campana final, antes de su sonido.
+  void Function()? onEndCueStarted;
+
+  /// Respaldo del final que se cancela al empezar la campana final.
+  TimerEndBackup? endBackup;
+  final _timerQueue = <TimerBellCue>[];
+  StreamSubscription<ProcessingState>? _activeDone;
+  String _output = 'sound';
+  double _duck = 1;
+  bool _draining = false;
+  bool _activeRinging = false;
+  Completer<void>? _drained;
   final _schedule = SessionBellSchedule();
   final _timerPlayers = <String, AudioPlayer>{};
   AudioPlayer? _trackBell;
@@ -58,10 +82,13 @@ class IosSessionBells {
     required List<TimerBellCue>? cues,
     required bool enabled,
     required double volume,
+    String output = 'sound',
   }) async {
     if (cues == null && _timerSchedule == null) return;
     final stopping = disable();
     final generation = _generation;
+    _output = output;
+    _duck = 1;
     _timerSchedule = cues == null ? null : TimerBellSchedule(cues);
     _timerInstalling = cues != null;
     _enabled = cues != null && enabled;
@@ -89,7 +116,7 @@ class IosSessionBells {
     try {
       await player.setAsset(asset);
       if (generation != _generation) return false;
-      await player.setVolume(_volume);
+      await player.setVolume(_volume * _duck);
       if (generation != _generation) return false;
       return true;
     } catch (error) {
@@ -143,10 +170,34 @@ class IosSessionBells {
 
   void setVolume(double volume) {
     _volume = volume;
-    unawaited(_trackBell?.setVolume(volume));
+    unawaited(_trackBell?.setVolume(volume * _duck));
     for (final player in _timerPlayers.values) {
-      unawaited(player.setVolume(volume));
+      unawaited(player.setVolume(volume * _duck));
     }
+  }
+
+  /// Baja las campanas mientras otra app pide bajar el volumen.
+  void duck(bool ducked) {
+    _duck = ducked ? 0.2 : 1;
+    setVolume(_volume);
+  }
+
+  /// Pausa la campana que suena sin perder la fila (interrupción).
+  Future<void> pauseForInterruption() async {
+    await Future.wait([
+      if (_activeBell case final bell?) bell.pause(),
+      if (_trackBell case final bell?) bell.pause(),
+    ]);
+  }
+
+  /// Al final del archivo deja sonar completas la campana activa y las de la
+  /// fila (como máximo [timeout]) antes de soltar los reproductores.
+  Future<void> waitTimerBells({Duration timeout = drainTimeout}) async {
+    if (_timerSchedule == null || _timerStopped) return;
+    _draining = true;
+    final drained = _drained ??= Completer<void>();
+    _pumpTimer();
+    await drained.future.timeout(timeout, onTimeout: () {});
   }
 
   void seekTimer(Duration position) {
@@ -166,6 +217,7 @@ class IosSessionBells {
 
   Future<void> disable() async {
     _generation++;
+    _draining = false;
     _timerInstalling = false;
     _enabled = false;
     _trackReady = false;
@@ -187,8 +239,12 @@ class IosSessionBells {
   Future<void> _clearTimerBell() async {
     _ringGeneration++;
     _pendingEnd = false;
+    _timerQueue.clear();
+    unawaited(_activeDone?.cancel());
+    _activeDone = null;
     final bell = _activeBell;
     _activeBell = null;
+    _completeDrain();
     final subscription = _endPosition;
     _endPosition = null;
     final previous = _clearingBell;
@@ -217,25 +273,74 @@ class IosSessionBells {
     }
     if (_timerStopped || _timerInstalling) return;
     if (primary.processingState == ProcessingState.completed) {
-      unawaited(_clearTimerBell());
+      // Al final del archivo una campana que suena nunca se corta.
+      _timerQueue.addAll(_dueCues(timer, primary.position.inMilliseconds));
+      _pumpTimer();
       return;
     }
     if (!_primaryPlaying) {
       unawaited(_activeBell?.pause());
       return;
     }
-    final cue = timer.update(
-      primary.position.inMilliseconds,
-      enabled: _enabled,
-    );
-    if (cue != null) {
-      unawaited(_ringTimer(cue));
-    } else if (_activeBell case final bell?
-        when _enabled &&
-            bell.processingState == ProcessingState.ready &&
-            !bell.playing) {
-      unawaited(bell.play());
+    _timerQueue.addAll(_dueCues(timer, primary.position.inMilliseconds));
+    _pumpTimer();
+  }
+
+  /// Campanas que tocan ahora. W1-MODEL cambia `update` para devolver una
+  /// lista (varias atrasadas en orden); esto acepta las dos formas.
+  List<TimerBellCue> _dueCues(TimerBellSchedule timer, int positionMs) {
+    final Object? due = timer.update(positionMs, enabled: _enabled);
+    if (due is List<TimerBellCue>) return due;
+    if (due is TimerBellCue) return [due];
+    return const [];
+  }
+
+  bool get _atEnd =>
+      _draining || primary.processingState == ProcessingState.completed;
+
+  /// Toca la siguiente campana de la fila solo cuando terminó la anterior.
+  void _pumpTimer() {
+    if (_timerStopped || _timerInstalling) return;
+    final active = _activeBell;
+    if (active != null) {
+      if (_activeRinging &&
+          active.processingState == ProcessingState.completed) {
+        _bellFinished(active);
+        return;
+      }
+      if (_enabled &&
+          (_primaryPlaying || _atEnd) &&
+          active.processingState == ProcessingState.ready &&
+          !active.playing) {
+        unawaited(active.play());
+      }
+      return;
     }
+    if (_timerQueue.isEmpty) {
+      if (_atEnd) _completeDrain();
+      return;
+    }
+    if (!_primaryPlaying && !_atEnd) return;
+    unawaited(_ringTimer(_timerQueue.removeAt(0)));
+  }
+
+  void _bellFinished(AudioPlayer bell) {
+    if (!identical(_activeBell, bell)) return;
+    unawaited(_activeDone?.cancel());
+    _activeDone = null;
+    _activeBell = null;
+    _pumpTimer();
+  }
+
+  void _completeDrain() {
+    final drained = _drained;
+    _drained = null;
+    if (drained != null && !drained.isCompleted) drained.complete();
+  }
+
+  void _endCueStarted() {
+    unawaited((endBackup ?? TimerEndBackup.instance).cancel());
+    onEndCueStarted?.call();
   }
 
   bool get _primaryPlaying =>
@@ -274,28 +379,58 @@ class IosSessionBells {
   }
 
   Future<void> _ringTimer(TimerBellCue cue) async {
-    final clearing = _clearTimerBell();
+    // Voz en iOS: pendiente (sin motor TTS en Dart).
+    if (cue.kind.name == 'spoken') {
+      _pumpTimer();
+      return;
+    }
     final generation = _ringGeneration;
+    final isEnd = cue.kind == TimerBellKind.end;
+    final vibrate = _output == 'vibration' || _output == 'soundAndVibration';
+    if (_output == 'vibration') {
+      // «Solo vibración» nunca toca audio.
+      if (isEnd) {
+        _endStarted = true;
+        _endCueStarted();
+      }
+      unawaited(HapticFeedback.vibrate());
+      _pumpTimer();
+      return;
+    }
     final bell =
         _timerPlayers[cue.assetKey] ?? _timerPlayers[kSessionBellAsset];
+    if (bell == null) {
+      _pumpTimer();
+      return;
+    }
+    _activeBell = bell;
+    _activeRinging = false;
     try {
-      await clearing;
-      if (bell == null || generation != _ringGeneration) return;
       await bell.seek(Duration.zero);
-      if (generation != _ringGeneration || !_enabled || !_primaryPlaying) {
-        return;
-      }
-      _activeBell = bell;
-      if (cue.kind == TimerBellKind.end) {
+      if (generation != _ringGeneration || !_enabled) return;
+      // Escucha el final solo después de rebobinar: antes el reproductor aún
+      // dice «completado» por el toque anterior.
+      _activeRinging = true;
+      _activeDone = bell.processingStateStream.listen((state) {
+        if (state == ProcessingState.completed &&
+            generation == _ringGeneration) {
+          _bellFinished(bell);
+        }
+      });
+      if (isEnd) {
         _pendingEnd = true;
         _endPosition = bell.positionStream.listen((position) {
           if (generation == _ringGeneration) _checkEndStarted(position);
         });
+        _endCueStarted();
       }
+      if (!_primaryPlaying && !_atEnd) return;
+      if (vibrate) unawaited(HapticFeedback.vibrate());
       await bell.play();
     } catch (error, stack) {
       if (generation == _ringGeneration) {
         AppLogger.e('BELLS', 'No se pudo tocar la campana', error, stack);
+        _bellFinished(bell);
       }
     }
   }

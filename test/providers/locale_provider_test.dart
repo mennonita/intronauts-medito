@@ -23,16 +23,16 @@ void main() {
   });
 
   test('con «sistema» guardado, la app queda en español', () async {
-    final c = await _container(
-      {SharedPreferenceConstants.localePreference: 'system'},
-    );
+    final c = await _container({
+      SharedPreferenceConstants.localePreference: 'system',
+    });
     expect(c.read(localeProvider), const Locale('es'));
   });
 
   test('un idioma elegido a mano se respeta', () async {
-    final c = await _container(
-      {SharedPreferenceConstants.localePreference: 'en'},
-    );
+    final c = await _container({
+      SharedPreferenceConstants.localePreference: 'en',
+    });
     expect(c.read(localeProvider), const Locale('en'));
     await c.read(localeProvider.notifier).setLocale('de');
     expect(c.read(localeProvider), const Locale('de'));

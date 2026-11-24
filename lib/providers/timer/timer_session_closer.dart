@@ -8,14 +8,19 @@ class TimerCloseResult {
     this.stopped = true,
     this.endCueRang = false,
     this.completionPersisted = false,
+    this.saved = true,
   });
 
+  /// Tiempo meditado: sin la preparación y con el límite del modo (§4.1).
   final Duration elapsed;
   final bool stopped;
   final bool endCueRang;
   final bool completionPersisted;
 
-  bool get recorded => stopped && elapsed >= kMinRecordedTimerSession;
+  /// Falso en «Salir sin guardar»: la sesión se detiene sin registrarse.
+  final bool saved;
+
+  bool get recorded => stopped && saved && elapsed >= kMinRecordedTimerSession;
 }
 
 class TimerSessionCloser {
@@ -56,7 +61,9 @@ class TimerSessionCloser {
     }
     if (isCurrent?.call() == false) {
       _closing = null;
-      result.complete(TimerCloseResult(stopped.elapsed, stopped: false));
+      result.complete(
+        TimerCloseResult(stopped.elapsed, stopped: false, saved: stopped.saved),
+      );
       return;
     }
     if (!stopped.stopped) {

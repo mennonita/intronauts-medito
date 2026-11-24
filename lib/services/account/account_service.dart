@@ -55,6 +55,8 @@ const _accountPrefKeys = [
   SharedPreferenceConstants.upNextPackId,
   SharedPreferenceConstants.upNextReturnPackId,
   SharedPreferenceConstants.incompleteAudioSession,
+  // Sesiones del temporizador de iOS en curso o por guardar (R76).
+  SharedPreferenceConstants.iosTimerRuns,
   // Track completions still waiting to be posted as stats.
   CompletedTracksStorage.completedTracksKey,
   // Legacy keys no current code writes: the v3.x plaintext API token and the
