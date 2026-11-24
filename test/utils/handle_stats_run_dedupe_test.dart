@@ -23,6 +23,11 @@ class _Prefs extends Fake implements SharedPreferences {
   // Como SharedPreferences: la caché cambia aunque el disco falle.
   bool cacheThenFail = false;
   Completer<void>? gate;
+  // Falla después de esperar la compuerta: la escritura queda pendiente y
+  // luego no se guarda.
+  bool failAfterGate = false;
+  // Decide por clave si esta escritura falla (simula que el proceso muere).
+  bool Function(String key)? failWhen;
   final statsWrites = <String>[];
 
   @override
@@ -30,12 +35,14 @@ class _Prefs extends Fake implements SharedPreferences {
     if (key == SharedPreferenceConstants.localAllStatsKey ||
         key == 'stats_pending_owner') {
       if (failStats) return false;
+      if (failWhen?.call(key) ?? false) return false;
       if (cacheThenFail) {
         await real.setString(key, value);
         return false;
       }
       final waiting = gate;
       if (waiting != null) await waiting.future;
+      if (failAfterGate) return false;
       if (key == SharedPreferenceConstants.localAllStatsKey) {
         statsWrites.add(value);
       }
@@ -154,7 +161,7 @@ void main() {
       TimerRecordResult.accepted,
     );
     expect(stats.currentStats!.audioCompleted, hasLength(1));
-    expect(stats.healthPendingRuns(), isEmpty);
+    expect(await stats.healthPendingRuns(), isEmpty);
     expect(await stats.preVerificationSummary(), isNull);
   });
 
@@ -218,14 +225,14 @@ void main() {
           },
         },
       ]);
-      final pending = stats.healthPendingRuns().single;
+      final pending = (await stats.healthPendingRuns()).single;
       expect(pending.runId, 'a');
       expect(pending.accountId, _account);
 
       expect(await stats.clearHealthPending('a'), isTrue);
-      expect(stats.healthPendingRuns(), isEmpty);
+      expect(await stats.healthPendingRuns(), isEmpty);
       await open();
-      expect(stats.healthPendingRuns(), isEmpty);
+      expect(await stats.healthPendingRuns(), isEmpty);
       expect(
         await stats.recordTimerRun(_run('a')),
         TimerRecordResult.duplicate,
@@ -241,7 +248,7 @@ void main() {
       prefs.failStats = true;
       expect(await stats.recordTimerRun(_run('a')), TimerRecordResult.failed);
       expect(identical(stats.currentStats, before), isTrue);
-      expect(stats.healthPendingRuns(), isEmpty);
+      expect(await stats.healthPendingRuns(), isEmpty);
       expect(await handleStats(_run('a')), isFalse);
 
       prefs.failStats = false;
@@ -367,6 +374,78 @@ void main() {
     expect(runs, hasLength(200));
     expect(runs.first, 'salud');
     expect(runs, isNot(contains('r0')));
-    expect(stats.healthPendingRuns().single.runId, 'salud');
+    expect((await stats.healthPendingRuns()).single.runId, 'salud');
   });
+
+  test(
+    'la marca de Salud no se ve mientras el guardado sigue pendiente (TIMER-03)',
+    () async {
+      await stats.localAllStats;
+      prefs.gate = Completer<void>();
+      prefs.failAfterGate = true;
+      final writing = stats.recordTimerRun(_run('a'));
+      await pumpEventQueue();
+      // Un envío a Salud al volver a la app lee las marcas en este momento.
+      final reading = stats.healthPendingRuns();
+      prefs.gate!.complete();
+      prefs.gate = null;
+      expect(await writing, TimerRecordResult.failed);
+      expect(await reading, isEmpty);
+      expect(await stats.healthPendingRuns(), isEmpty);
+
+      prefs.failAfterGate = false;
+      expect(await stats.recordTimerRun(_run('a')), TimerRecordResult.accepted);
+      expect((await stats.healthPendingRuns()).single.runId, 'a');
+    },
+  );
+
+  test(
+    'repetir la verificación cortada no suma dos veces los minutos (REV-09)',
+    () async {
+      await open(verified: false);
+      expect(
+        await stats.recordTimerRun(_run('a', ownerId: '', minutes: 12)),
+        TimerRecordResult.accepted,
+      );
+      // El archivado se guarda y el proceso muere antes de reemplazar el
+      // historial activo.
+      var archived = false;
+      prefs.failWhen = (key) {
+        if (key == 'stats_pending_owner') {
+          archived = true;
+          return false;
+        }
+        return archived;
+      };
+      await expectLater(stats.acceptServerUser(_account), throwsStateError);
+      expect(archived, isTrue);
+      prefs.failWhen = null;
+
+      // Al volver a abrir, el historial sin verificar sigue activo y suma
+      // otra sesión antes del siguiente intento.
+      await open(verified: false);
+      expect(stats.verifiedUserId, isNull);
+      expect(
+        await stats.recordTimerRun(_run('b', ownerId: '', minutes: 5)),
+        TimerRecordResult.accepted,
+      );
+      await stats.acceptServerUser(_account);
+      expect(stats.verifiedUserId, _account);
+      final summary = await stats.preVerificationSummary();
+      expect(summary?.sessions, 2);
+      expect(summary?.minutes, 17);
+
+      // Un tercer archivado del mismo historial tampoco cambia el total.
+      await open(verified: false);
+      final raw =
+          jsonDecode(prefs.real.getString('stats_pending_owner')!)
+              as Map<String, dynamic>;
+      expect(
+        LocalAllStats.fromJson(
+          raw['stats'] as Map<String, dynamic>,
+        ).totalTimeListened,
+        17 * 60000,
+      );
+    },
+  );
 }

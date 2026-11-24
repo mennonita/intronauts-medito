@@ -165,4 +165,62 @@ class TimerEndBackupTest {
         assertTrue(TimerEndBackupDecision.vibrates("vibration"))
         assertTrue(TimerEndBackupDecision.vibrates("soundAndVibration"))
     }
+
+    // ---- REV-08: borrar o cambiar de cuenta invalida la alarma ----
+
+    private class MemoryRunState : TimerRunStateStorage {
+        var runId: String? = null
+        var ended = true
+        var failClear = false
+        override fun runId() = runId
+        override fun ended() = ended
+        override fun write(runId: String?, ended: Boolean): Boolean {
+            this.runId = runId
+            this.ended = ended
+            return true
+        }
+        override fun clear(): Boolean {
+            if (failClear) return false
+            runId = null
+            ended = true
+            return true
+        }
+    }
+
+    @Test fun anInvalidatedRunNeverPostsAfterTheAccountChanged() {
+        val storage = MemoryRunState()
+        val state = TimerRunState(storage)
+        state.write("run-1", ended = false)
+        val (beforeId, beforeEnded) = state.read()
+        assertEquals(
+            TimerBackupAction.POST,
+            TimerEndBackupDecision.decide("run-1", false, null, beforeId, beforeEnded, canNotify = true)
+        )
+
+        assertTrue(state.invalidate())
+        val (storedId, storedEnded) = state.read()
+        assertNull(storedId)
+        assertTrue(storedEnded)
+        // El proceso anterior murió: la alarma de la cuenta vieja ya no avisa ni restaura.
+        assertEquals(
+            TimerBackupAction.IGNORE,
+            TimerEndBackupDecision.decide("run-1", false, null, storedId, storedEnded, canNotify = true)
+        )
+        assertEquals(
+            TimerBackupAction.IGNORE,
+            TimerEndBackupDecision.decide("run-1", false, null, storedId, storedEnded, canNotify = false)
+        )
+        // Marcar terminada la sesión vieja no la revive.
+        assertTrue(state.markEnded("run-1"))
+        assertNull(state.read().first)
+    }
+
+    @Test fun aFailedInvalidationIsReported() {
+        val storage = MemoryRunState()
+        val state = TimerRunState(storage)
+        state.write("run-1", ended = false)
+        storage.failClear = true
+        assertFalse(state.invalidate())
+        assertEquals("run-1", state.read().first)
+    }
 }

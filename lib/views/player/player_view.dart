@@ -53,7 +53,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   bool _endScreenOpened = false;
   bool _isClosing = false;
   bool _timerStopped = false;
-  StreamSubscription<TimerCloseResult>? _timerCloseSubscription;
+  StreamSubscription<TimerRunCloseResult>? _timerCloseSubscription;
 
   /// La sesión de esta pantalla, tomada una sola vez al abrirla (R31). Un
   /// temporizador solo cierra, guarda o abre el resumen de su propio `runId`.
@@ -380,15 +380,21 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
         }
       },
       child: isTimer
-          ? TimerSessionLayout(
-              request: currentlyPlayingTrack,
-              isPlaying: isPlaying,
-              isAudioLoading: isAudioLoading,
-              isBackgroundSoundSelected: isBackgroundSoundSelected,
-              onPlayPausePressed: onPlayPausePressed,
-              onClosePressed: () => unawaited(_requestTimerExit()),
-              onEndSession: () => unawaited(_onTimerEndPressed()),
-              isClosing: () => _isClosing,
+          ? TimerBackSwipe(
+              // iOS: con canPop en false el sistema apaga su gesto lateral;
+              // este gesto abre la misma salida que ✕ y «atrás» (TIMER-08).
+              enabled: Theme.of(context).platform == TargetPlatform.iOS,
+              onBackSwipe: () => unawaited(_requestTimerExit()),
+              child: TimerSessionLayout(
+                request: currentlyPlayingTrack,
+                isPlaying: isPlaying,
+                isAudioLoading: isAudioLoading,
+                isBackgroundSoundSelected: isBackgroundSoundSelected,
+                onPlayPausePressed: onPlayPausePressed,
+                onClosePressed: () => unawaited(_requestTimerExit()),
+                onEndSession: () => unawaited(_onTimerEndPressed()),
+                isClosing: () => _isClosing,
+              ),
             )
           : PlayerScreenLayout(
               currentlyPlayingTrack: currentlyPlayingTrack,
@@ -465,6 +471,14 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       _timerDialogOpen = false;
     }
     if (!mounted || _timerBusy) return;
+    if (choice == TimerExitChoice.keepMeditating) return;
+    // El diálogo esperó a la persona: la corrida activa pudo cambiar. Esta
+    // pantalla nunca cierra ni descarta otra (TIMER-05).
+    if (!_ownsCurrentRun) {
+      _timerStopped = true;
+      _handleClose();
+      return;
+    }
     switch (choice) {
       case TimerExitChoice.keepMeditating:
         return;
@@ -484,7 +498,10 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     _dismissPlayerOverlays();
     TimerCloseResult? result;
     try {
-      result = await ref.read(playerProvider.notifier).closeTimer(save: false);
+      // Solo la corrida de esta pantalla (TIMER-05).
+      result = await ref
+          .read(playerProvider.notifier)
+          .closeTimer(runId: _ownRunId, save: false);
     } catch (error, stack) {
       AppLogger.e('TIMER', 'No se pudo salir sin guardar', error, stack);
       result = const TimerCloseResult(
@@ -527,7 +544,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       } finally {
         _timerDialogOpen = false;
       }
-      if (!confirmed || !mounted || _timerBusy) return;
+      if (!confirmed || !mounted || _timerBusy || !_ownsCurrentRun) return;
       _timerEndConfirmed = true;
     }
     await _endTimerSession();
@@ -536,7 +553,9 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   Future<void> _endTimerSession() async {
     if (_endScreenOpened || _isClosing || _timerStopped) return;
     try {
-      final result = await ref.read(playerProvider.notifier).closeTimer();
+      final result = await ref
+          .read(playerProvider.notifier)
+          .closeTimer(runId: _ownRunId);
       if (result?.stopped == false) {
         _timerEndConfirmed = false;
         _showTimerStopError();
@@ -556,10 +575,10 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     ).showSnackBar(SnackBar(content: Text(l10n.timerStopError)));
   }
 
-  void _onTimerClosed(TimerCloseResult result) {
+  void _onTimerClosed(TimerRunCloseResult result) {
     if (!mounted || _endScreenOpened || _isClosing) return;
-    // Solo el cierre de la corrida de esta pantalla (R31).
-    if (!_ownsCurrentRun) return;
+    // Solo el cierre de la corrida de esta pantalla (R31, TIMER-05).
+    if (result.runId != _ownRunId || !_ownsCurrentRun) return;
     _timerStopped = true;
     if (result.recorded) {
       _openEndScreen(timerElapsed: result.elapsed);
@@ -1074,6 +1093,75 @@ class _FadingNetworkImageState extends State<_FadingNetworkImage> {
               }
               return child;
             },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Gesto lateral de iOS para un temporizador. La ruta no se puede cerrar
+/// directamente (`PopScope(canPop: false)`), así que iOS desactiva su propio
+/// gesto; este lo reemplaza con un deslizamiento desde el borde izquierdo
+/// que llama a [onBackSwipe] (TIMER-08).
+@visibleForTesting
+class TimerBackSwipe extends StatefulWidget {
+  const TimerBackSwipe({
+    super.key,
+    required this.enabled,
+    required this.onBackSwipe,
+    required this.child,
+  });
+
+  final bool enabled;
+  final VoidCallback onBackSwipe;
+  final Widget child;
+
+  /// Ancho del borde donde empieza el gesto, como el de iOS.
+  static const edgeWidth = 20.0;
+
+  /// Distancia o velocidad que confirman el gesto.
+  static const minDistance = 60.0;
+  static const minVelocity = 300.0;
+
+  @override
+  State<TimerBackSwipe> createState() => _TimerBackSwipeState();
+}
+
+class _TimerBackSwipeState extends State<TimerBackSwipe> {
+  double _distance = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled) return widget.child;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return Stack(
+      // Las mismas medidas que la pantalla tendría sin el gesto.
+      fit: StackFit.passthrough,
+      children: [
+        widget.child,
+        PositionedDirectional(
+          start: 0,
+          top: 0,
+          bottom: 0,
+          width: TimerBackSwipe.edgeWidth,
+          child: GestureDetector(
+            // Los toques siguen llegando a lo que está debajo.
+            behavior: HitTestBehavior.translucent,
+            excludeFromSemantics: true,
+            onHorizontalDragStart: (_) => _distance = 0,
+            onHorizontalDragUpdate: (details) =>
+                _distance += rtl ? -details.delta.dx : details.delta.dx,
+            onHorizontalDragEnd: (details) {
+              final velocity = details.velocity.pixelsPerSecond.dx;
+              final forward = rtl ? -velocity : velocity;
+              if (_distance >= TimerBackSwipe.minDistance ||
+                  forward >= TimerBackSwipe.minVelocity) {
+                widget.onBackSwipe();
+              }
+              _distance = 0;
+            },
+            onHorizontalDragCancel: () => _distance = 0,
           ),
         ),
       ],

@@ -356,4 +356,77 @@ class TimerRunStoreTest {
         assertFalse(store.discard("a", gate.generation))
         assertEquals(TimerCloseResult.SAVED, store.finish("a", 10 * minute, "timer-600", 1, gate.generation))
     }
+
+    // ---- REV-03: el registro se confirma antes de arrancar el reloj ----
+
+    @Test fun openFailsWhenTheFirstWriteFailsSoTheStartFails() {
+        val storage = MemoryStorage()
+        val gate = FakeGate()
+        val store = TimerRunStore(storage, gate)
+        storage.failNext = true
+        assertEquals(TimerRunOpen.FAILED, store.open(run("a"), gate.generation))
+        // Nada quedó guardado: la sesión no existe para nadie.
+        storage.reopen()
+        assertNull(TimerRunStore(storage, gate).active())
+        // Sin cuenta ligada tampoco se puede abrir.
+        gate.bound = false
+        assertEquals(TimerRunOpen.FAILED, store.open(run("b"), gate.generation))
+    }
+
+    @Test fun openReportsARecoveredRunToDeliver() {
+        val storage = MemoryStorage()
+        val gate = FakeGate()
+        val store = TimerRunStore(storage, gate)
+        assertEquals(TimerRunOpen.OPENED, store.open(run("a", position = 5 * minute), gate.generation))
+        assertTrue(store.update("a", 5 * minute, false, 10_000, gate.generation, nextSeq()))
+        assertEquals(TimerRunOpen.OPENED_WITH_RECOVERY, store.open(run("b"), gate.generation))
+        assertEquals("b", store.active()?.runId)
+        assertEquals(listOf("a"), store.pending().map { it.runId })
+    }
+
+    // ---- REV-04: el intervalo de escrituras usa el reloj desde el arranque ----
+
+    private class FakeElapsed : ElapsedClock {
+        var now = 100_000L
+        override fun elapsedRealtime() = now
+    }
+
+    @Test fun throttleIgnoresTheWallClockAndUsesElapsedTime() {
+        val clock = FakeElapsed()
+        val throttle = TimerStoreThrottle(3_000L, clock)
+        assertTrue(throttle.due())
+        throttle.markWritten()
+        clock.now += 1_000L
+        assertFalse(throttle.due())
+        // La hora del teléfono puede retroceder una hora: este reloj sigue avanzando.
+        clock.now += 2_000L
+        assertTrue(throttle.due())
+        throttle.markWritten()
+        throttle.reset()
+        assertTrue(throttle.due())
+    }
+
+    // ---- REV-07: el id del historial sale de la duración registrada ----
+
+    @Test fun naturalCloseWithExtraTimeUsesTheRecordedDurationId() {
+        // Planeada de 10 min con 4 min de tiempo extra: el historial dice 14.
+        assertEquals("timer-840", TimerFinishedRun.naturalTrackId(true, 14 * minute, "timer-600", 10 * minute))
+        // Sin tiempo extra se conserva el id planeado del archivo.
+        assertEquals("timer-600", TimerFinishedRun.naturalTrackId(false, 10 * minute, "timer-600", 10 * minute))
+        assertEquals("timer-600", TimerFinishedRun.naturalTrackId(false, 10 * minute, null, 10 * minute))
+    }
+
+    @Test fun naturalCloseWithExtraTimeIsSavedUnderTheRecordedId() {
+        val storage = MemoryStorage()
+        val gate = FakeGate()
+        val store = TimerRunStore(storage, gate)
+        val planned = 10 * minute
+        assertTrue(store.start(run("a", planned = planned), gate.generation))
+        val duration = 14 * minute
+        val trackId = TimerFinishedRun.naturalTrackId(true, duration, "timer-600", planned)
+        assertEquals(TimerCloseResult.SAVED, store.finish("a", duration, trackId, 1, gate.generation))
+        val saved = store.pending().single()
+        assertEquals("timer-840", saved.trackId)
+        assertEquals(duration, saved.durationMs)
+    }
 }

@@ -11,7 +11,6 @@ import 'package:medito/providers/background_sounds/background_sounds_notifier.da
 import 'package:medito/providers/player/audio_state_provider.dart';
 import 'package:medito/providers/player/player_provider.dart';
 import 'package:medito/providers/shared_preference/shared_preference_provider.dart';
-import 'package:medito/providers/timer/timer_session_closer.dart';
 import 'package:medito/services/account/playback_account.dart';
 import 'package:medito/services/audio/session_bell_preview.dart';
 import 'package:medito/services/timer/timer_device_channel.dart';
@@ -45,7 +44,7 @@ void main() {
   late _BackgroundSounds sound;
   late Completer<void> serviceStarted;
   late int playCalls;
-  late List<TimerCloseResult> closes;
+  late List<TimerRunCloseResult> closes;
   late ProviderContainer container;
 
   Future<ProviderContainer> open({
@@ -178,7 +177,8 @@ void main() {
               assetKey: 'assets/audio/session_bell_v2.wav',
             ),
             BellCue(
-              offsetMs: 180000, // La campana final suena justo al terminar (TECH-10).
+              offsetMs:
+                  180000, // La campana final suena justo al terminar (TECH-10).
               kind: 'end',
               assetKey: 'assets/audio/bells/p8-kalimba.mp3',
             ),
@@ -195,7 +195,7 @@ void main() {
     final starting = player.play(request);
     await serviceStarted.future;
     await pumpEventQueue();
-    final result = await player.closeTimer();
+    final result = await player.closeTimer(runId: request.timerRunId);
     await starting;
     expect(result?.stopped, isTrue);
     expect(result?.elapsed, Duration.zero);
@@ -217,10 +217,10 @@ void main() {
       });
       await player.play(request);
       expect(playCalls, 1);
-      final failed = await player.closeTimer();
+      final failed = await player.closeTimer(runId: request.timerRunId);
       expect(failed?.stopped, isFalse);
       expect(closes, isEmpty);
-      final stopped = await player.closeTimer();
+      final stopped = await player.closeTimer(runId: request.timerRunId);
       expect(stopped?.stopped, isTrue);
       expect(stopped?.elapsed, const Duration(seconds: 42));
       expect(closes, [stopped]);
@@ -244,7 +244,7 @@ void main() {
           return report.future;
         });
         await player.play(request);
-        final close = player.closeTimer();
+        final close = player.closeTimer(runId: request.timerRunId);
         await stopping.future;
         if (switchAccount) {
           await PlaybackAccount.bind('cliente', userId: 'nuevo');
@@ -256,7 +256,7 @@ void main() {
         );
         expect(await close, isNull);
         expect(closes, isEmpty);
-        expect(await player.closeTimer(), isNull);
+        expect(await player.closeTimer(runId: request.timerRunId), isNull);
       },
     );
   }
@@ -280,7 +280,10 @@ void main() {
       );
       await player.play(request);
       verify(preview.stop).called(1);
-      expect((await player.closeTimer())?.recorded, isTrue);
+      expect(
+        (await player.closeTimer(runId: request.timerRunId))?.recorded,
+        isTrue,
+      );
       await sounded.future.timeout(const Duration(seconds: 2));
       verify(() => preview.play(any(), assetKey: selected)).called(1);
     },
@@ -323,7 +326,10 @@ void main() {
       );
     });
     await player.play(request);
-    final result = await player.closeTimer(save: false);
+    final result = await player.closeTimer(
+      runId: request.timerRunId,
+      save: false,
+    );
     expect(result?.stopped, isFalse);
     expect(result?.saved, isFalse);
     expect(result?.recorded, isFalse);
@@ -341,7 +347,10 @@ void main() {
       );
     });
     await player.play(request);
-    final result = await player.closeTimer(save: false);
+    final result = await player.closeTimer(
+      runId: request.timerRunId,
+      save: false,
+    );
     expect(result?.stopped, isTrue);
     expect(result?.recorded, isFalse);
     expect(closes, isEmpty);
@@ -362,7 +371,7 @@ void main() {
           TimerStopReport(positionMs: 90000, stopped: true, endCueRang: false),
     );
     await player.play(prepared);
-    final result = await player.closeTimer();
+    final result = await player.closeTimer(runId: prepared.timerRunId);
     expect(result?.elapsed, const Duration(seconds: 60));
     expect(result?.recorded, isTrue);
   });
@@ -383,7 +392,7 @@ void main() {
     );
     await player.play(request);
     expect(player.reserveStart('otra'), isFalse);
-    await player.closeTimer();
+    await player.closeTimer(runId: request.timerRunId);
     expect(player.reserveStart('otra'), isTrue);
   });
 
@@ -517,7 +526,10 @@ void main() {
           TimerStopReport(positionMs: 90000, stopped: true, endCueRang: false),
     );
     await player.play(silent);
-    expect((await player.closeTimer())?.recorded, isTrue);
+    expect(
+      (await player.closeTimer(runId: silent.timerRunId))?.recorded,
+      isTrue,
+    );
     await vibrated.future.timeout(const Duration(seconds: 2));
     expect(vibrations, [
       {'repeats': 1},
@@ -555,4 +567,174 @@ void main() {
     expect(player.hasActiveSession, isFalse);
     expect(player.reserveStart('de-la-cuenta-nueva'), isTrue);
   });
+
+  test(
+    'cerrar con el runId de otra corrida no toca la activa (TIMER-05)',
+    () async {
+      final stops = <Object?>[];
+      audioHost('stopTimerPlayback', (message) {
+        stops.add(message);
+        return TimerStopReport(
+          positionMs: 90000,
+          stopped: true,
+          endCueRang: false,
+        );
+      });
+      await player.play(request);
+      expect(await player.closeTimer(runId: 'otra-corrida'), isNull);
+      expect(await player.closeTimer(runId: '', save: false), isNull);
+      expect(stops, isEmpty);
+      expect(player.hasActiveSession, isTrue);
+
+      final result = await player.closeTimer(runId: request.timerRunId);
+      expect(result?.runId, request.timerRunId);
+      expect(result?.recorded, isTrue);
+      expect(stops, [
+        [42, true],
+      ]);
+      expect(closes.single.runId, request.timerRunId);
+    },
+  );
+
+  test(
+    'el reporte nativo de otra corrida no cierra la activa (TIMER-05)',
+    () async {
+      await player.play(request);
+      await player.timerStopped(
+        42,
+        TimerStopReport(
+          positionMs: 90000,
+          stopped: true,
+          endCueRang: false,
+          runId: 'otra-corrida',
+        ),
+      );
+      expect(closes, isEmpty);
+      expect(player.hasActiveSession, isTrue);
+
+      await player.timerStopped(
+        42,
+        TimerStopReport(
+          positionMs: 90000,
+          stopped: true,
+          endCueRang: false,
+          runId: request.timerRunId,
+        ),
+      );
+      expect(closes.single.runId, request.timerRunId);
+    },
+  );
+
+  group('esperar el foco durante una llamada (REV-06)', () {
+    void waitingForFocus({int position = 0}) {
+      container
+          .read(audioStateProvider.notifier)
+          .updatePlaybackState(
+            PlaybackState(
+              isPlaying: false,
+              isBuffering: false,
+              isSeeking: false,
+              isCompleted: false,
+              position: position,
+              duration: request.duration,
+              speed: Speed(speed: 1),
+              volume: 100,
+              track: Track(
+                id: request.trackId,
+                title: request.title,
+                fileId: request.fileId,
+                description: '',
+                imageUrl: '',
+              ),
+              runId: request.timerRunId,
+              waitingForFocus: true,
+            ),
+          );
+    }
+
+    Future<void> openWith(Duration timeout) async {
+      container = await open(startConfirmTimeout: timeout);
+      player = container.read(playerProvider.notifier);
+      expect(player.reserveStart(request.timerRunId), isTrue);
+      audioHost(
+        'stopTimerPlayback',
+        (_) => TimerStopReport(positionMs: 0, stopped: true, endCueRang: false),
+      );
+    }
+
+    test('la espera no vence el plazo; al colgar la sesión empieza', () async {
+      await openWith(const Duration(milliseconds: 1500));
+      await player.play(request);
+      waitingForFocus();
+      // La llamada dura más que el plazo de inicio.
+      await Future<void>.delayed(const Duration(milliseconds: 1700));
+      expect(player.timerStartFailed.value, isNull);
+      expect(player.hasActiveSession, isTrue);
+
+      // Se cuelga: el reloj avanza y el inicio se confirma.
+      playing(request, position: 500);
+      await pumpEventQueue();
+      expect(player.timerStartFailed.value, isNull);
+      expect(player.hasActiveSession, isTrue);
+    });
+
+    test('el plazo vuelve a contar cuando el reloj puede avanzar', () async {
+      await openWith(const Duration(milliseconds: 1500));
+      await player.play(request);
+      waitingForFocus();
+      await Future<void>.delayed(const Duration(milliseconds: 1700));
+      expect(player.timerStartFailed.value, isNull);
+      // Ya suena, pero la posición nunca avanza: es un fallo de verdad.
+      playing(request, position: 0);
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+      expect(player.timerStartFailed.value, isNull);
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      expect(player.timerStartFailed.value, request.timerRunId);
+      expect(player.hasActiveSession, isFalse);
+    });
+
+    test('la espera de otra corrida no detiene el plazo', () async {
+      await openWith(const Duration(milliseconds: 1500));
+      await player.play(request);
+      container
+          .read(audioStateProvider.notifier)
+          .updatePlaybackState(
+            container
+                .read(audioStateProvider)
+                .copyWith(runId: 'otra-corrida', waitingForFocus: true),
+          );
+      await Future<void>.delayed(const Duration(milliseconds: 1700));
+      expect(player.timerStartFailed.value, request.timerRunId);
+    });
+  });
+
+  test(
+    'una guiada que pide «No molestar» manda el nombre de la regla (REV-12)',
+    () {
+      final track = Track(
+        id: 'guiada',
+        title: 'Guiada',
+        fileId: 'archivo',
+        description: '',
+        imageUrl: '',
+      );
+      final asked = PlayerProvider.guidedAudioData(
+        'file:///tmp/guiada.mp3',
+        track,
+        dndRequested: true,
+        dndRuleName: 'Temporizador de meditación',
+      );
+      expect(asked.dndRequested, isTrue);
+      expect(asked.timerDndRuleName, 'Temporizador de meditación');
+      expect(asked.timerSeed, isNull);
+
+      final notAsked = PlayerProvider.guidedAudioData(
+        'file:///tmp/guiada.mp3',
+        track,
+        dndRequested: false,
+        dndRuleName: 'Temporizador de meditación',
+      );
+      expect(notAsked.timerDndRuleName, isNull);
+    },
+  );
 }

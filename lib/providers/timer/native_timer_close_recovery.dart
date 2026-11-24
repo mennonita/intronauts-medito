@@ -138,7 +138,10 @@ class NativeTimerCloseRecovery {
     } on Object {
       return false;
     }
-    // El mismo inicio de día que usó el historial al guardar la sesión.
+    // El historial guarda con la hora de inicio la sesión que cruza el
+    // inicio del día. Una versión anterior usaba la medianoche y hoy se usa
+    // el inicio de día de la persona: un cierre viejo pudo quedar con la hora
+    // de fin o con la de inicio, y se reconocen las dos (TIMER-06).
     var offsetHours = 0;
     try {
       offsetHours =
@@ -146,17 +149,22 @@ class NativeTimerCloseRecovery {
     } on Object {
       offsetHours = 0;
     }
-    final crossedMidnight = AudioCompletionTracker.checkTrackCrossedMidnight(
-      endTimestamp: completion.timestamp,
-      duration: completion.duration,
-      dayBoundaryOffset: Duration(hours: offsetHours),
-    );
-    final timestamp = crossedMidnight
-        ? completion.timestamp - completion.duration
-        : completion.timestamp;
+    bool crosses(Duration offset) =>
+        AudioCompletionTracker.checkTrackCrossedMidnight(
+          endTimestamp: completion.timestamp,
+          duration: completion.duration,
+          dayBoundaryOffset: offset,
+        );
+    final startedAt = completion.timestamp - completion.duration;
+    final candidates = {
+      completion.timestamp,
+      if (crosses(Duration(hours: offsetHours)) || crosses(Duration.zero))
+        startedAt,
+    };
     return stats.audioCompleted?.any(
           (entry) =>
-              entry.id == completion.trackId && entry.timestamp == timestamp,
+              entry.id == completion.trackId &&
+              candidates.contains(entry.timestamp),
         ) ??
         false;
   }

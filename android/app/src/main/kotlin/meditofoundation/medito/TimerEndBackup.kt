@@ -86,6 +86,38 @@ internal class TimerEndBackupScheduler(
     }
 }
 
+/** Guardado crudo del estado de la sesión que lee el receptor. */
+internal interface TimerRunStateStorage {
+    fun runId(): String?
+    fun ended(): Boolean
+    fun write(runId: String?, ended: Boolean): Boolean
+    fun clear(): Boolean
+}
+
+/**
+ * Estado de la sesión para la alarma de respaldo (`intronauts_timer_run`). Al
+ * borrar o cambiar de cuenta se invalida: el receptor ya no encuentra la
+ * sesión y no avisa nada de la cuenta anterior (REV-08).
+ */
+internal class TimerRunState(private val storage: TimerRunStateStorage) {
+    fun write(runId: String?, ended: Boolean): Boolean = storage.write(runId, ended)
+
+    /** Marca terminada la sesión [runId] (sólo si sigue siendo la guardada). */
+    fun markEnded(runId: String?): Boolean {
+        if (runId == null || storage.runId() != runId) return true
+        return storage.write(runId, ended = true)
+    }
+
+    /** Sin sesión guardada se lee como terminada. */
+    fun read(): Pair<String?, Boolean> {
+        val runId = storage.runId() ?: return null to true
+        return runId to storage.ended()
+    }
+
+    /** Cambio o borrado de cuenta: ninguna sesión anterior queda viva. */
+    fun invalidate(): Boolean = storage.clear()
+}
+
 /** Qué hace el receptor cuando suena la alarma. */
 internal enum class TimerBackupAction {
     /** La sesión sigue viva: nada que avisar; se reprograma desde el reproductor. */
@@ -134,8 +166,6 @@ internal object TimerEndBackup {
     const val SILENT_CHANNEL_ID = "timer_end_backup_silent"
     const val SOUND_VIBRATION_CHANNEL_ID = "timer_end_backup_vibrate"
     const val RUN_PREFS = "intronauts_timer_run"
-    private const val KEY_RUN_ID = "runId"
-    private const val KEY_ENDED = "ended"
     const val EXTRA_RUN_ID = "runId"
     const val EXTRA_TITLE = "title"
     const val EXTRA_BODY = "body"
@@ -147,14 +177,15 @@ internal object TimerEndBackup {
     fun scheduler(context: Context): TimerEndBackupScheduler =
         TimerEndBackupScheduler(AndroidAlarmBackend(context.applicationContext), ElapsedClock { SystemClock.elapsedRealtime() })
 
+    internal fun runState(context: Context): TimerRunState =
+        TimerRunState(PrefsRunStateStorage(context.applicationContext ?: context))
+
     /** Estado de la sesión que lee el receptor aunque Flutter no esté corriendo. */
     fun writeRunState(context: Context, runId: String?, ended: Boolean) {
         try {
-            val saved = context.getSharedPreferences(RUN_PREFS, Context.MODE_PRIVATE).edit()
-                .putString(KEY_RUN_ID, runId)
-                .putBoolean(KEY_ENDED, ended)
-                .commit()
-            if (!saved) Log.e(TAG, "No se pudo guardar el estado de la sesión")
+            if (!runState(context).write(runId, ended)) {
+                Log.e(TAG, "No se pudo guardar el estado de la sesión")
+            }
         } catch (error: Exception) {
             Log.e(TAG, "No se pudo guardar el estado de la sesión", error)
         }
@@ -162,15 +193,29 @@ internal object TimerEndBackup {
 
     /** Marca terminada la sesión [runId] (sólo si sigue siendo la guardada). */
     fun markEnded(context: Context, runId: String?) {
-        if (runId == null) return
-        val prefs = context.getSharedPreferences(RUN_PREFS, Context.MODE_PRIVATE)
-        if (prefs.getString(KEY_RUN_ID, null) != runId) return
-        writeRunState(context, runId, ended = true)
+        try {
+            if (!runState(context).markEnded(runId)) {
+                Log.e(TAG, "No se pudo marcar terminada la sesión")
+            }
+        } catch (error: Exception) {
+            Log.e(TAG, "No se pudo marcar terminada la sesión", error)
+        }
     }
 
-    internal fun readRunState(context: Context): Pair<String?, Boolean> {
-        val prefs = context.getSharedPreferences(RUN_PREFS, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_RUN_ID, null) to prefs.getBoolean(KEY_ENDED, true)
+    internal fun readRunState(context: Context): Pair<String?, Boolean> = runState(context).read()
+
+    /**
+     * Al borrar o cambiar de cuenta: cancela la alarma pendiente y borra el
+     * estado de la sesión, para que el receptor de un proceso muerto no avise
+     * después (REV-08). Falla con ruido si no se pudo borrar.
+     */
+    fun invalidateForAccountChange(context: Context) {
+        try {
+            AndroidAlarmBackend(context.applicationContext ?: context).cancel()
+        } catch (error: Exception) {
+            Log.e(TAG, "No se pudo cancelar la alarma de respaldo", error)
+        }
+        check(runState(context).invalidate()) { "No se pudo invalidar la alarma de respaldo" }
     }
 
     internal fun pendingIntent(context: Context, request: TimerBackupRequest?, create: Boolean): PendingIntent? {
@@ -257,6 +302,21 @@ internal object TimerEndBackup {
     }
 }
 
+private class PrefsRunStateStorage(context: Context) : TimerRunStateStorage {
+    private val prefs = context.getSharedPreferences(TimerEndBackup.RUN_PREFS, Context.MODE_PRIVATE)
+
+    override fun runId(): String? = prefs.getString(KEY_RUN_ID, null)
+    override fun ended(): Boolean = prefs.getBoolean(KEY_ENDED, true)
+    override fun write(runId: String?, ended: Boolean): Boolean =
+        prefs.edit().putString(KEY_RUN_ID, runId).putBoolean(KEY_ENDED, ended).commit()
+    override fun clear(): Boolean = prefs.edit().clear().commit()
+
+    private companion object {
+        const val KEY_RUN_ID = "runId"
+        const val KEY_ENDED = "ended"
+    }
+}
+
 private class AndroidAlarmBackend(private val context: Context) : AlarmBackend {
     private val manager = context.getSystemService(AlarmManager::class.java)
 
@@ -289,6 +349,8 @@ private class AndroidAlarmBackend(private val context: Context) : AlarmBackend {
 class TimerEndBackupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val runId = intent.getStringExtra(TimerEndBackup.EXTRA_RUN_ID)
+        // Tras borrar o cambiar de cuenta el estado quedó vacío: la alarma de la
+        // cuenta anterior se ignora (REV-08).
         val (storedRunId, storedEnded) = TimerEndBackup.readRunState(context)
         val action = TimerEndBackupDecision.decide(
             runId = runId,

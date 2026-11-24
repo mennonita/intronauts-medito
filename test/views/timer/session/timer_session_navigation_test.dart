@@ -11,7 +11,6 @@ import 'package:medito/models/me/me_model.dart';
 import 'package:medito/models/player/playback_request.dart';
 import 'package:medito/models/stripe/paywall_config_model.dart';
 import 'package:medito/models/timer/timer_session.dart';
-import 'package:medito/providers/timer/timer_session_closer.dart';
 import 'package:medito/services/timer/timer_device_channel.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/providers/donation/donation_page_provider.dart';
@@ -64,11 +63,13 @@ class _Player extends PlayerProvider {
   VoidCallback? onStop;
   Object? playError;
   final saves = <bool>[];
+  // `runId` que pidió cerrar cada llamada (TIMER-05).
+  final closedRuns = <String>[];
   VoidCallback? onClose;
   Completer<void>? closeGate;
   Duration closeElapsed = const Duration(seconds: 90);
   bool discardFails = false;
-  final _closes = StreamController<TimerCloseResult>.broadcast();
+  final _closes = StreamController<TimerRunCloseResult>.broadcast();
 
   @override
   PlaybackRequest build() => request;
@@ -86,23 +87,38 @@ class _Player extends PlayerProvider {
   }
 
   @override
-  Stream<TimerCloseResult> get timerCloses => _closes.stream;
+  Stream<TimerRunCloseResult> get timerCloses => _closes.stream;
 
   @override
-  Future<TimerCloseResult?> closeTimer({bool save = true}) async {
+  Future<TimerRunCloseResult?> closeTimer({
+    required String runId,
+    bool save = true,
+  }) async {
+    closedRuns.add(runId);
+    // Como el proveedor real: otra corrida no se toca.
+    if (runId != state?.timerRunId) return null;
     saves.add(save);
     onClose?.call();
     await closeGate?.future;
     if (!save && discardFails) {
-      return TimerCloseResult(closeElapsed, stopped: false, saved: false);
+      return TimerRunCloseResult(
+        runId,
+        closeElapsed,
+        stopped: false,
+        saved: false,
+      );
     }
-    final result = TimerCloseResult(closeElapsed, saved: save);
+    final result = TimerRunCloseResult(runId, closeElapsed, saved: save);
     if (result.saved) _closes.add(result);
     return result;
   }
 
+  /// Otra corrida ocupa el reproductor (por ejemplo, desde un enlace).
+  void replaceRun(PlaybackRequest other) => state = other;
+
   /// Cierre que llega sin diálogo (por ejemplo, desde la notificación).
-  void systemClose(Duration elapsed) => _closes.add(TimerCloseResult(elapsed));
+  void systemClose(Duration elapsed, {String? runId}) =>
+      _closes.add(TimerRunCloseResult(runId ?? request.timerRunId, elapsed));
 }
 
 class _Sounds extends BackgroundSoundsNotifier {
@@ -334,6 +350,101 @@ void main() {
       expect(h.player.stops, 0);
     });
   }
+
+  testWidgets(
+    'iOS: el gesto lateral abre la misma salida con tres opciones (TIMER-08)',
+    (tester) async {
+      final h = await _openPlayer(tester);
+      _update(h.container, _request, positionMs: 90000);
+      await tester.pump();
+      // El gesto real de iOS: arrastrar desde el borde izquierdo.
+      await tester.dragFrom(const Offset(4, 300), const Offset(320, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('¿Salir de la sesión?'), findsOneWidget);
+      for (final label in [
+        'Seguir meditando',
+        'Salir sin guardar',
+        'Guardar y salir',
+      ]) {
+        expect(find.text(label), findsOneWidget);
+      }
+      // La pantalla sigue ahí: el gesto nunca la cierra sin preguntar.
+      expect(find.byType(TimerSessionLayout), findsOneWidget);
+
+      await tester.tap(find.text('Seguir meditando'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TimerSessionLayout), findsOneWidget);
+      expect(h.player.saves, isEmpty);
+
+      await tester.dragFrom(const Offset(4, 300), const Offset(320, 0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Salir sin guardar'));
+      await tester.pumpAndSettle();
+      expect(h.player.saves, [false]);
+      expect(find.byType(PlayerView), findsNothing);
+      expect(find.byKey(_home), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'iOS: «Guardar y salir» desde el gesto lateral guarda (TIMER-08)',
+    (tester) async {
+      final h = await _openPlayer(tester);
+      _update(h.container, _request, positionMs: 90000);
+      await tester.pump();
+      await tester.dragFrom(const Offset(4, 300), const Offset(320, 0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guardar y salir'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(h.player.saves, [true]);
+      expect(find.byType(EndScreenView), findsOneWidget);
+      await _disposeEndScreen(tester);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'si otra corrida ocupa el reproductor durante el diálogo, no se cierra (TIMER-05)',
+    (tester) async {
+      final h = await _openPlayer(tester);
+      _update(h.container, _request, positionMs: 90000);
+      await tester.pump();
+      await tester.tap(find.byTooltip('Salir'));
+      await tester.pumpAndSettle();
+      expect(find.text('¿Salir de la sesión?'), findsOneWidget);
+      // Mientras el diálogo espera, empieza otra corrida.
+      h.player.replaceRun(_long);
+      await tester.tap(find.text('Salir sin guardar'));
+      await tester.pumpAndSettle();
+      expect(h.player.closedRuns, isEmpty);
+      expect(h.player.saves, isEmpty);
+      expect(h.player.stops, 0);
+      expect(find.byType(PlayerView), findsNothing);
+    },
+  );
+
+  testWidgets('cada cierre pide el runId de esta pantalla (TIMER-05)', (
+    tester,
+  ) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 90000);
+    await tester.pump();
+    // El cierre de otra corrida no abre el resumen de esta.
+    h.player.systemClose(const Duration(minutes: 2), runId: 'otra-corrida');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(EndScreenView), findsNothing);
+    expect(find.byType(TimerSessionLayout), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Salir sin guardar'));
+    await tester.pumpAndSettle();
+    expect(h.player.closedRuns, [_request.timerRunId]);
+  });
 
   testWidgets('«Guardar y salir» guarda y abre el resumen', (tester) async {
     final h = await _openPlayer(tester);

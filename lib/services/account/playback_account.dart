@@ -5,6 +5,7 @@ import 'package:medito/providers/player/player_provider.dart';
 import 'package:medito/services/audio/session_bell_preview.dart';
 import 'package:medito/services/timer/ios_timer_run_store.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
+import 'package:medito/utils/health_sync_queue.dart';
 import 'package:medito/utils/logger.dart';
 
 class PlaybackAccount {
@@ -71,6 +72,8 @@ class PlaybackAccount {
         AudioSessionTracker.instance.discard(),
         // Después del cambio de generación: ninguna escritura vieja vuelve (R82).
         if (Platform.isIOS) IosTimerRunStore.instance.clear(),
+        // Los envíos a Salud de la cuenta anterior no salen (TIMER-01).
+        HealthSyncQueue.invalidate(),
       ]);
     } finally {
       _discarding--;

@@ -193,11 +193,13 @@ extension PlaybackStateExt on PlaybackState {
     int? volume,
     Track? track,
     Object? runId = _keepRunId,
+    bool? waitingForFocus,
   }) {
     return PlaybackState(
       backgroundSound: backgroundSound,
       endCueRang: endCueRang,
       runId: identical(runId, _keepRunId) ? this.runId : runId as String?,
+      waitingForFocus: waitingForFocus ?? this.waitingForFocus,
       position: position ?? this.position,
       isPlaying: isPlaying ?? this.isPlaying,
       isBuffering: isBuffering ?? this.isBuffering,
