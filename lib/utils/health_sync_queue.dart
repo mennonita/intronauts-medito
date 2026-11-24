@@ -63,6 +63,12 @@ class HealthSyncEntry {
       );
 }
 
+/// Escritura en Salud. [stillAllowed] dice si la entrada sigue siendo de la
+/// cuenta actual, con su permiso y en la misma generación de la cola; quien
+/// escribe lo revisa después de cada espera y justo antes de enviar (TMR-01).
+typedef HealthWrite =
+    Future<bool> Function(HealthSyncEntry entry, bool Function() stillAllowed);
+
 /// Lo que la cola necesita del resto de la app. Las pruebas lo reemplazan.
 class HealthSyncDependencies {
   HealthSyncDependencies({
@@ -70,7 +76,11 @@ class HealthSyncDependencies {
     Future<void> Function()? ready,
     String Function(SharedPreferences prefs)? currentAccountId,
     bool? isIOS,
+    // Escritura que no revisa nada por su cuenta (pruebas). La cola igual
+    // revisa justo antes de llamarla.
     Future<bool> Function(HealthSyncEntry entry)? write,
+    HealthWrite? guardedWrite,
+    void Function()? invalidateWrites,
     Future<void> Function(int endMs)? markSynced,
     Future<bool> Function()? healthAvailable,
     Future<List<HealthPendingRun>> Function()? pendingRuns,
@@ -80,7 +90,12 @@ class HealthSyncDependencies {
        ready = ready ?? _statsReady,
        currentAccountId = currentAccountId ?? _verifiedAccountId,
        isIOS = isIOS ?? Platform.isIOS,
-       write = write ?? _writeToHealth,
+       write =
+           guardedWrite ??
+           (write == null ? _writeToHealth : (entry, _) => write(entry)),
+       invalidateWrites =
+           invalidateWrites ??
+           (() => HealthKitManager().invalidatePendingWrites()),
        markSynced =
            markSynced ??
            ((endMs) => HealthKitManager().markSessionAsSynced(endMs)),
@@ -103,7 +118,10 @@ class HealthSyncDependencies {
   /// como dueño (`ownerId`).
   final String Function(SharedPreferences prefs) currentAccountId;
   final bool isIOS;
-  final Future<bool> Function(HealthSyncEntry entry) write;
+  final HealthWrite write;
+
+  /// Suelta las escrituras que esperan en el puente nativo de Salud.
+  final void Function() invalidateWrites;
   final Future<void> Function(int endMs) markSynced;
   final Future<bool> Function() healthAvailable;
   final Future<List<HealthPendingRun>> Function() pendingRuns;
@@ -143,11 +161,15 @@ class HealthSyncDependencies {
     return stats.healthPendingRuns();
   }
 
-  static Future<bool> _writeToHealth(HealthSyncEntry entry) {
+  static Future<bool> _writeToHealth(
+    HealthSyncEntry entry,
+    bool Function() stillAllowed,
+  ) {
     return HealthKitManager().writeMindfulnessData(
       DateTime.fromMillisecondsSinceEpoch(entry.startMs),
       DateTime.fromMillisecondsSinceEpoch(entry.endMs),
       clientRecordId: entry.key,
+      stillAllowed: stillAllowed,
     );
   }
 }
@@ -180,11 +202,21 @@ class HealthSyncQueue {
   // empezó con otra generación ya no escribe ni guarda nada.
   static int _generation = 0;
 
+  // También suelta la escritura que espera en el puente nativo (TMR-01).
+  static void _bumpGeneration() {
+    _generation++;
+    try {
+      _d.invalidateWrites();
+    } catch (error) {
+      AppLogger.e(_tag, 'No se pudo soltar la escritura pendiente', error);
+    }
+  }
+
   /// Invalida los envíos pendientes y vacía la cola bajo su propio bloqueo.
   /// Se llama al cambiar de cuenta o eliminarla: un envío en curso no manda
   /// la siguiente sesión ni vuelve a guardar la lista.
   static Future<void> invalidate() {
-    _generation++;
+    _bumpGeneration();
     return _locked(() async {
       final prefs = await _d.prefs();
       if (!await _save(prefs, const [])) {
@@ -225,7 +257,7 @@ class HealthSyncQueue {
   static Future<void> setConsent(bool on) async {
     // Antes de cualquier espera: el envío en curso se detiene ya, no al
     // terminar toda la cola.
-    if (!on) _generation++;
+    if (!on) _bumpGeneration();
     await _d.ready();
     final prefs = await _d.prefs();
     if (!on) {
@@ -480,7 +512,9 @@ class HealthSyncQueue {
         }
         // Sin ninguna espera entre esta revisión y la llamada a Salud.
         if (!maySend(entry)) return;
-        final written = await _tryWrite(entry);
+        // La misma revisión viaja con la escritura: el gestor de Salud la
+        // repite tras consultar permisos y justo antes de enviar (TMR-01).
+        final written = await _tryWrite(entry, () => maySend(entry));
         if (!written) {
           if (_d.isIOS) {
             // No se escribió nada: se puede reintentar después.
@@ -506,9 +540,12 @@ class HealthSyncQueue {
   static bool _maySend(SharedPreferences prefs, HealthSyncEntry entry) =>
       hasConsent(prefs) && _d.currentAccountId(prefs) == entry.accountId;
 
-  static Future<bool> _tryWrite(HealthSyncEntry entry) async {
+  static Future<bool> _tryWrite(
+    HealthSyncEntry entry,
+    bool Function() stillAllowed,
+  ) async {
     try {
-      return await _d.write(entry);
+      return await _d.write(entry, stillAllowed);
     } catch (error) {
       AppLogger.e(_tag, 'Falló la escritura de ${entry.key}', error);
       return false;

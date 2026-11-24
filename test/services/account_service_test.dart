@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/constants/http/http_constants.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
@@ -6,6 +8,7 @@ import 'package:medito/repositories/auth/auth_repository.dart';
 import 'package:medito/services/account/account_service.dart';
 import 'package:medito/services/secure_storage_service.dart';
 import 'package:medito/services/stats_backup_service.dart';
+import 'package:medito/services/timer/mantra_counter_store.dart';
 import 'package:medito/utils/completed_tracks_storage.dart';
 import 'package:medito/utils/stats_manager.dart';
 import 'package:mockito/mockito.dart';
@@ -282,4 +285,93 @@ void main() {
     await expectLater(service.deleteAccount(), throwsException);
     expect(auth.signOutLocallyCalls, 0);
   });
+
+  group('cerrar sesión (MANTRA-01)', () {
+    late List<String> steps;
+    late bool wipeFails;
+
+    AccountService signOutService() {
+      steps = [];
+      wipeFails = false;
+      auth.signOutCalls = 0;
+      return AccountService(
+        httpApiService: http,
+        authRepository: _StepAuth(auth, () => steps.add('signOut')),
+        preferences: prefs,
+        statsManager: stats,
+        clearFavorites: () async => steps.add('favorites'),
+        clearMantraCounter: () async {
+          steps.add('mantras');
+          if (wipeFails) throw StateError('sin confirmar');
+        },
+        retryDelay: Duration.zero,
+      );
+    }
+
+    test('borra el contador de mantras antes de cerrar la sesión', () async {
+      final service = signOutService();
+
+      await service.signOut();
+
+      expect(steps, ['mantras', 'signOut', 'favorites']);
+      expect(stats.clearCalls, 1);
+    });
+
+    test('si el borrado del contador no se confirma, la sesión sigue '
+        'abierta y se avisa', () async {
+      final service = signOutService();
+      wipeFails = true;
+
+      await expectLater(service.signOut(), throwsStateError);
+
+      expect(steps, ['mantras']);
+      expect(stats.clearCalls, 0);
+    });
+
+    test('por defecto usa el contador de mantras real', () async {
+      final saved = {
+        'owner': 'old-client-id',
+        'count': 9,
+        'rounds': 1,
+        'totalEnabled': false,
+        'total': 0,
+      };
+      await prefs.setString(
+        SharedPreferenceConstants.mantraCounter,
+        jsonEncode(saved),
+      );
+      final service = AccountService(
+        httpApiService: http,
+        authRepository: auth,
+        preferences: prefs,
+        statsManager: stats,
+      );
+      MantraCounterStore.instance = MantraCounterStore(
+        prefs: () async => prefs,
+      );
+      addTearDown(MantraCounterStore.resetForTesting);
+
+      await service.signOut();
+
+      expect(prefs.getString(SharedPreferenceConstants.mantraCounter), isNull);
+      expect(auth.signOutCalls, 1);
+    });
+  });
+}
+
+/// Anota cuándo se cierra la sesión.
+class _StepAuth implements AuthRepository {
+  _StepAuth(this._inner, this._onSignOut);
+
+  final _FakeAuthRepository _inner;
+  final void Function() _onSignOut;
+
+  @override
+  Future<bool> signOut() async {
+    _onSignOut();
+    return _inner.signOut();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }

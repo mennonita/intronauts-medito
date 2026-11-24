@@ -95,4 +95,105 @@ void main() {
       });
     });
   });
+
+  group('borrar la cuenta mientras se vincula (TMR-05)', () {
+    List<String> methodsAfterClear() {
+      final i = calls.indexWhere((c) => c.method == 'clear');
+      return [for (final c in calls.skip(i + 1)) c.method];
+    }
+
+    test('un intento que esperaba las preferencias no vuelve a vincular la '
+        'identidad anterior', () async {
+      SharedPreferences.setMockInitialValues({
+        SharedPreferenceConstants.userId: 'cliente-viejo',
+      });
+
+      // Sin preferencias dadas: el intento espera a leerlas.
+      final ensuring = expectLater(
+        PlaybackAccount.ensureBound(),
+        throwsStateError,
+      );
+      await PlaybackAccount.clear();
+      await ensuring;
+      await pumpEventQueue();
+
+      expect(calls.map((c) => c.method), contains('clear'));
+      expect(methodsAfterClear(), isEmpty);
+      expect(PlaybackAccount.isBound, isFalse);
+    });
+
+    test(
+      'un intento que esperaba guardar la identidad nueva se descarta',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+
+        final ensuring = expectLater(
+          PlaybackAccount.ensureBound(prefs: prefs),
+          throwsStateError,
+        );
+        await PlaybackAccount.clear();
+        await ensuring;
+        await pumpEventQueue();
+
+        expect(methodsAfterClear(), isEmpty);
+        expect(PlaybackAccount.isBound, isFalse);
+      },
+    );
+
+    test('un intento que repetía la vinculación de la cuenta anterior no la '
+        'deja vinculada', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(SharedPreferenceConstants.userId, 'cliente');
+      var fail = true;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            if (fail && call.method == 'bind') {
+              throw PlatformException(code: 'PLAYBACK_ACCOUNT');
+            }
+            return null;
+          });
+      await expectLater(
+        PlaybackAccount.bind('cliente'),
+        throwsA(isA<PlatformException>()),
+      );
+      fail = false;
+
+      // Sin preferencias dadas: espera antes de repetir con la misma cuenta.
+      final ensuring = expectLater(
+        PlaybackAccount.ensureBound(),
+        throwsStateError,
+      );
+      await PlaybackAccount.clear();
+      await ensuring;
+      await pumpEventQueue();
+
+      expect(methodsAfterClear(), isEmpty);
+      expect(PlaybackAccount.isBound, isFalse);
+    });
+
+    test('mientras la eliminación borra las preferencias, una vinculación '
+        'nueva no toma la identidad borrada', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(SharedPreferenceConstants.userId, 'cliente-viejo');
+      await PlaybackAccount.bind('cliente-viejo');
+      await PlaybackAccount.clear();
+
+      // La eliminación aún no quita `userId`.
+      await expectLater(
+        PlaybackAccount.ensureBound(prefs: prefs),
+        throwsStateError,
+      );
+      expect(methodsAfterClear(), isEmpty);
+
+      // Ya sin la identidad borrada, se crea una nueva.
+      await prefs.remove(SharedPreferenceConstants.userId);
+      await PlaybackAccount.ensureBound(prefs: prefs);
+      final fresh = prefs.getString(SharedPreferenceConstants.userId);
+      expect(fresh, isNot('cliente-viejo'));
+      expect(methodsAfterClear(), ['bind']);
+      expect((calls.last.arguments as Map)['clientId'], fresh);
+      expect(PlaybackAccount.isBound, isTrue);
+    });
+  });
 }

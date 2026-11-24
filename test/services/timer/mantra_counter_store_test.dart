@@ -166,6 +166,7 @@ void main() {
       final store = await loaded(
         initial: {
           _key: jsonEncode({
+            'owner': '',
             'count': 40,
             'rounds': 3,
             'totalEnabled': true,
@@ -184,6 +185,7 @@ void main() {
       final store = await loaded(
         initial: {
           _key: jsonEncode({
+            'owner': '',
             'count': 80,
             'rounds': 1,
             'totalEnabled': false,
@@ -242,6 +244,7 @@ void main() {
         expect(saved(), isNull);
         async.elapse(const Duration(milliseconds: 200));
         expect(saved(), {
+          'owner': '',
           'count': 2,
           'rounds': 0,
           'totalEnabled': false,
@@ -293,6 +296,7 @@ void main() {
       fakeAsync((async) {
         SharedPreferences.setMockInitialValues({
           _key: jsonEncode({
+            'owner': '',
             'count': 7,
             'rounds': 2,
             'totalEnabled': true,
@@ -388,4 +392,135 @@ void main() {
       expect(store.count, 0);
     });
   });
+
+  group('dueño del contador (MANTRA-01)', () {
+    String counts({required String? owner, int count = 40, int total = 900}) =>
+        jsonEncode({
+          'owner': ?owner,
+          'count': count,
+          'rounds': 3,
+          'totalEnabled': true,
+          'total': total,
+        });
+
+    test('lo guardado lleva la identidad de este teléfono', () async {
+      final store = await loaded(
+        initial: {SharedPreferenceConstants.userId: 'cliente-a'},
+      );
+      tap(store);
+      await store.flush();
+      expect(saved()?['owner'], 'cliente-a');
+      expect(saved()?['count'], 1);
+    });
+
+    test('lo guardado de otra identidad se borra al leer, aunque el cambio '
+        'pasó con la app cerrada', () async {
+      // Nadie llamó al borrado: la primera vinculación tras reiniciar no lo
+      // hace. Solo el dueño guardado lo detecta.
+      final store = await loaded(
+        initial: {
+          SharedPreferenceConstants.userId: 'cliente-b',
+          _key: counts(owner: 'cliente-a'),
+        },
+      );
+      expect(store.isLoaded, isTrue);
+      expect(store.count, 0);
+      expect(store.rounds, 0);
+      expect(store.total, 0);
+      expect(store.totalEnabled, isFalse);
+      expect(saved(), isNull);
+      // Lo nuevo ya es de la cuenta actual.
+      tap(store);
+      await store.flush();
+      expect(saved()?['owner'], 'cliente-b');
+      expect(saved()?['count'], 1);
+    });
+
+    test('lo guardado sin dueño cuenta como ajeno y se borra', () async {
+      final store = await loaded(
+        initial: {
+          SharedPreferenceConstants.userId: 'cliente-a',
+          _key: counts(owner: null),
+        },
+      );
+      expect(store.count, 0);
+      expect(store.total, 0);
+      expect(saved(), isNull);
+    });
+
+    test('la misma identidad retoma lo suyo', () async {
+      final store = await loaded(
+        initial: {
+          SharedPreferenceConstants.userId: 'cliente-a',
+          _key: counts(owner: 'cliente-a'),
+        },
+      );
+      expect(store.count, 40);
+      expect(store.total, 900);
+    });
+
+    test('si la identidad cambia con la pantalla ya cargada, lo de memoria '
+        'no se guarda a nombre de la nueva', () async {
+      final store = await loaded(
+        initial: {
+          SharedPreferenceConstants.userId: 'cliente-a',
+          _key: counts(owner: 'cliente-a'),
+        },
+      );
+      tap(store);
+      await prefs.setString(SharedPreferenceConstants.userId, 'cliente-b');
+      await store.flush();
+      expect(saved(), isNull);
+      expect(store.count, 0);
+      expect(store.total, 0);
+
+      // Y una nueva lectura con la pantalla abierta tampoco lo muestra.
+      final other = await loaded(
+        initial: {
+          SharedPreferenceConstants.userId: 'cliente-a',
+          _key: counts(owner: 'cliente-a'),
+        },
+      );
+      expect(other.count, 40);
+      await prefs.setString(SharedPreferenceConstants.userId, 'cliente-b');
+      await other.load();
+      expect(other.count, 0);
+      expect(other.total, 0);
+      expect(saved(), isNull);
+    });
+
+    test('el borrado lanza si el teléfono no lo confirma', () async {
+      SharedPreferences.setMockInitialValues({_key: counts(owner: '')});
+      final real = await SharedPreferences.getInstance();
+      prefs = real;
+      final store = MantraCounterStore(
+        clock: () => now,
+        prefs: () async => _UnconfirmedRemove(real),
+      );
+      MantraCounterStore.instance = store;
+      await expectLater(
+        MantraCounterStore.clearForAccountChange(),
+        throwsA(isA<StateError>()),
+      );
+      // La memoria igual quedó en cero.
+      expect(store.count, 0);
+      expect(store.total, 0);
+    });
+  });
+}
+
+/// Preferencias cuyo borrado el disco no confirma.
+class _UnconfirmedRemove implements SharedPreferences {
+  _UnconfirmedRemove(this._real);
+
+  final SharedPreferences _real;
+
+  @override
+  String? getString(String key) => _real.getString(key);
+
+  @override
+  Future<bool> remove(String key) async => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

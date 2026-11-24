@@ -24,6 +24,13 @@ class PlaybackAccount {
   // La última vinculación con el servicio nativo terminó bien y sigue vigente.
   static bool _bound = false;
   static Future<void>? _ensuring;
+  // Sube con cada clear(): un ensureBound que empezó antes ya no vincula
+  // nada al volver de una espera (TMR-05).
+  static int _clearEpoch = 0;
+  // Identidad que clear() retiró. Mientras la eliminación borra las
+  // preferencias, ensureBound no la vuelve a tomar de ahí; solo un bind()
+  // explícito la acepta otra vez.
+  static String? _retiredClientId;
 
   /// Android: el servicio nativo guarda las colas y las sesiones por cuenta.
   /// Las pruebas lo activan para ver las llamadas al canal.
@@ -38,6 +45,7 @@ class PlaybackAccount {
   static bool get isBound => _bound && _clientId != null;
 
   static Future<void> bind(String clientId, {String? userId}) async {
+    _retiredClientId = null;
     final changed =
         _clientId != null &&
         (_clientId != clientId ||
@@ -69,35 +77,61 @@ class PlaybackAccount {
   /// aún no existe ninguna, crea y GUARDA una identidad local persistente: es
   /// la misma que el inicio de sesión anónimo reutiliza después, así que el
   /// historial sin dueño de esta instalación no se borra al iniciar sesión.
+  ///
+  /// Si la cuenta se borra ([clear]) mientras tanto, el intento se descarta
+  /// con [StateError] y no vuelve a vincular la identidad anterior (TMR-05).
   static Future<void> ensureBound({SharedPreferences? prefs}) {
     if (isBound) return Future.value();
-    return _ensuring ??= _ensureBound(
-      prefs,
-    ).whenComplete(() => _ensuring = null);
+    final running = _ensuring;
+    if (running != null) return running;
+    late final Future<void> attempt;
+    attempt = _ensureBound(prefs, _clearEpoch).whenComplete(() {
+      // Un clear() ya pudo haber soltado este intento y empezado otro.
+      if (identical(_ensuring, attempt)) _ensuring = null;
+    });
+    _ensuring = attempt;
+    return attempt;
   }
 
-  static Future<void> _ensureBound(SharedPreferences? prefs) async {
+  static Future<void> _ensureBound(SharedPreferences? prefs, int epoch) async {
+    // Después de CADA espera: si se borró la cuenta, este intento ya no es
+    // de nadie y no vincula nada.
+    void checkEpoch() {
+      if (epoch != _clearEpoch) {
+        throw StateError('La cuenta se borró mientras se vinculaba');
+      }
+    }
+
     final store = prefs ?? await SharedPreferences.getInstance();
+    checkEpoch();
     if (isBound) return;
     final current = _clientId;
     if (current != null) {
       // Una vinculación anterior no se confirmó: se repite con la misma cuenta.
       await bind(current, userId: _userId);
+      checkEpoch();
       return;
     }
     var clientId = store.getString(SharedPreferenceConstants.userId);
+    if (clientId != null && clientId == _retiredClientId) {
+      // La eliminación aún no termina de borrar las preferencias.
+      throw StateError('La identidad guardada es de la cuenta que se borró');
+    }
     if (clientId == null) {
       clientId = newLocalClientId();
       if (!await store.setString(SharedPreferenceConstants.userId, clientId)) {
         throw StateError('No se pudo guardar la identidad local');
       }
+      checkEpoch();
     }
     // Otra ruta pudo vincular mientras se leía: no se pisa su cuenta.
     if (_clientId != null) {
       if (!isBound) await bind(_clientId!, userId: _userId);
+      checkEpoch();
       return;
     }
     await bind(clientId);
+    checkEpoch();
   }
 
   /// Mismo formato que el identificador del inicio de sesión anónimo.
@@ -115,6 +149,11 @@ class PlaybackAccount {
   }
 
   static Future<void> clear() {
+    // Antes de soltar la identidad: ningún ensureBound en curso la vuelve a
+    // vincular, y uno nuevo no se une al intento anterior (TMR-05).
+    _clearEpoch++;
+    _ensuring = null;
+    _retiredClientId = _clientId ?? _retiredClientId;
     _clientId = null;
     _userId = null;
     _bound = false;
@@ -133,6 +172,7 @@ class PlaybackAccount {
     _userId = null;
     _bound = false;
     _ensuring = null;
+    _retiredClientId = null;
     bindsNatively = Platform.isAndroid;
   }
 
