@@ -143,72 +143,9 @@ class DeepLinkService {
       // Extract and store UTM parameters before navigation
       await _storeUtmParameters(uri);
 
-      final timerLaunch = TimerLaunch.fromUri(uri);
-      if (timerLaunch != null) {
-        unawaited(
-          _navigateWhenReady(() => routes.openTimerLaunch(timerLaunch)),
-        );
-        return true;
-      }
-
-      var pathSegments = <String>[];
-
-      if (uri.scheme == 'org.meditofoundation') {
-        // For custom scheme, if host is "medito", use pathSegments directly
-        // Otherwise, treat host as first path segment (e.g., org.meditofoundation://tracks/123)
-        if (uri.host == 'medito') {
-          pathSegments = uri.pathSegments;
-        } else {
-          pathSegments = [uri.host, ...uri.pathSegments];
-        }
-      } else if (uri.scheme == 'https' &&
-          uri.host == FourthwallService.shopDomain) {
-        unawaited(
-          _navigateWhenReady(
-            () => handleNavigation(
-              TypeConstants.url,
-              [uri.toString()],
-              context,
-              ref: ref,
-            ),
-          ),
-        );
-        return true;
-      } else if (uri.scheme == 'https' && uri.host == 'medito.app') {
-        pathSegments = uri.pathSegments;
-      } else {
-        if (context.mounted) {
-          final localizations = AppLocalizations.of(context);
-          if (localizations != null) {
-            showSnackBar(context, localizations.invalidDeepLink);
-          }
-        }
-        return false;
-      }
-
-      // If no path segments, just open the app (e.g., for UTM-only links from Apple Ads)
-      if (pathSegments.isEmpty) {
-        AppLogger.d(
-          'DEEPLINK',
-          'No path segments, opening app (UTM parameters already processed)',
-        );
-        return false;
-      }
-
-      // Handle OTP links
-      if (pathSegments[0] == 'otp' ||
-          (pathSegments.length > 1 && pathSegments[1] == 'otp')) {
-        return false;
-      }
-
-      // Handle other navigation links
-      final path = pathSegments[0];
-      final id = pathSegments.length > 1 ? pathSegments[1] : '';
-      unawaited(
-        _navigateWhenReady(
-          () => handleNavigation(path, [id], context, ref: ref),
-        ),
-      );
+      final navigate = _resolveNavigation(uri);
+      if (navigate == null) return false;
+      unawaited(_navigateWhenReady(navigate));
       return true;
     } catch (e) {
       AppLogger.e('DEEPLINK', 'Error handling deep link', e);
@@ -220,6 +157,68 @@ class DeepLinkService {
       }
       return false;
     }
+  }
+
+  // La decisión de arranque usa la misma acción que se ejecuta al navegar.
+  Future<void> Function()? _resolveNavigation(Uri uri) {
+    final timerLaunch = TimerLaunch.fromUri(uri);
+    if (timerLaunch != null) return () => routes.openTimerLaunch(timerLaunch);
+
+    final segments = switch ((uri.scheme, uri.host)) {
+      ('org.meditofoundation', 'medito') ||
+      ('https', 'medito.app') => uri.pathSegments,
+      ('org.meditofoundation', _) => [uri.host, ...uri.pathSegments],
+      ('https', FourthwallService.shopDomain) => [
+        TypeConstants.url,
+        uri.toString(),
+      ],
+      _ => null,
+    };
+    if (segments == null) {
+      if (context.mounted) {
+        final l10n = AppLocalizations.of(context);
+        if (l10n != null) showSnackBar(context, l10n.invalidDeepLink);
+      }
+      return null;
+    }
+    if (segments.isEmpty) return null;
+
+    final type = segments.first;
+    final id = segments.length > 1 ? segments[1] : '';
+    if (id == 'otp') return null;
+
+    final destination = switch (type) {
+      'tracks' || TypeConstants.track when id.isNotEmpty => TypeConstants.track,
+      'packs' || TypeConstants.pack when id.isNotEmpty => TypeConstants.pack,
+      'settings' => 'settings',
+      TypeConstants.account || 'signup' => TypeConstants.account,
+      RouteConstants.shop || RouteConstants.donation => type,
+      TypeConstants.url || TypeConstants.link
+          when Uri.tryParse(id)?.hasScheme == true =>
+        TypeConstants.url,
+      TypeConstants.email when id.isNotEmpty => TypeConstants.email,
+      TypeConstants.flow when id == TypeConstants.downloads =>
+        TypeConstants.flow,
+      TypeConstants.route => switch (id) {
+        TypeConstants.customiseHomeLayout ||
+        RouteConstants.analytics ||
+        RouteConstants.donation ||
+        RouteConstants.shop ||
+        RouteConstants.stats ||
+        RouteConstants.timer ||
+        TypeConstants.account ||
+        'signup' => TypeConstants.route,
+        _
+            when id.startsWith('${RouteConstants.shop}:') ||
+                id.startsWith('${RouteConstants.stats}:') ||
+                timerLaunchForRoute(TypeConstants.route, [id]) != null =>
+          TypeConstants.route,
+        _ => null,
+      },
+      _ => null,
+    };
+    if (destination == null) return null;
+    return () => handleNavigation(destination, [id], context, ref: ref);
   }
 
   void _logIfHomeWidgetTap(Uri uri) {

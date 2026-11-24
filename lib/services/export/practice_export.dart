@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/local_audio_completed.dart';
 import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/stats_manager.dart';
 import 'package:medito/utils/stats_updater.dart';
 import 'package:path_provider/path_provider.dart';
@@ -59,6 +60,66 @@ final _formulaStart = RegExp(r'^[-=+@]');
 final _csvSpecialCharacter = RegExp(r'[,"\r\n]');
 bool _sharingPracticeCsv = false;
 
+class PracticeExport {
+  static const _folderPrefix = 'practice-export-';
+  static const _retention = Duration(hours: 1);
+  static final _fileName = RegExp(
+    r'^mi-practica-\d{4}-\d{2}-\d{2}(?:-[a-zA-Z0-9_-]+)?\.csv$',
+  );
+  static int _generation = 0;
+
+  static Future<void> cleanupExpiredCopies() => _cleanup(expiredOnly: true);
+
+  static Future<void> clearForAccountChange() {
+    _generation++;
+    return _cleanup();
+  }
+
+  static Future<void> _cleanup({
+    bool expiredOnly = false,
+    Directory? temp,
+  }) async {
+    final before = expiredOnly ? DateTime.now().subtract(_retention) : null;
+    try {
+      final cache = temp ?? await getTemporaryDirectory();
+      await for (final entry in cache.list(followLinks: false)) {
+        if (entry is! Directory) continue;
+        final name = entry.uri.pathSegments.where((s) => s.isNotEmpty).last;
+        final isExportFolder = name.startsWith(_folderPrefix);
+        if (!isExportFolder && name != 'share_plus') continue;
+        var canRemoveFolder =
+            before == null || (await entry.stat()).modified.isBefore(before);
+        await for (final file in entry.list(followLinks: false)) {
+          if (file is File && _fileName.hasMatch(file.uri.pathSegments.last)) {
+            final modified = (await file.stat()).modified;
+            if (before == null || modified.isBefore(before)) {
+              await _deleteIfPresent(file);
+              canRemoveFolder = true;
+            }
+          }
+        }
+        if (isExportFolder && canRemoveFolder && await entry.list().isEmpty) {
+          await _deleteIfPresent(entry);
+        }
+      }
+    } catch (error) {
+      if (!expiredOnly) rethrow;
+      AppLogger.w(
+        'EXPORT',
+        'No se pudo limpiar la caché de exportación: $error',
+      );
+    }
+  }
+}
+
+Future<void> _deleteIfPresent(FileSystemEntity entry) async {
+  try {
+    await entry.delete();
+  } on PathNotFoundException {
+    // El sistema pudo limpiar la caché antes.
+  }
+}
+
 String _escapeCell(String value) {
   final guarded = _formulaStart.hasMatch(value) ? "'$value" : value;
   if (!_csvSpecialCharacter.hasMatch(guarded)) return guarded;
@@ -70,13 +131,18 @@ Future<void> sharePracticeCsv(BuildContext context) async {
   final l10n = AppLocalizations.of(context)!;
   final stats = StatsManager();
   final generation = stats.localGeneration;
+  final exportGeneration = PracticeExport._generation;
   _sharingPracticeCsv = true;
   try {
+    final temp = await getTemporaryDirectory();
+    await PracticeExport._cleanup(expiredOnly: true, temp: temp);
     // Carga el historial local antes de pedirlo para evitar la sincronización.
     await stats.hasLocalStats();
     final owner = stats.verifiedUserId;
     bool sameAccount() =>
-        stats.localGeneration == generation && stats.verifiedUserId == owner;
+        PracticeExport._generation == exportGeneration &&
+        stats.localGeneration == generation &&
+        stats.verifiedUserId == owner;
     final account = (await stats.localAllStats).audioCompleted ?? const [];
     final device = await stats.preVerificationCompletions();
     if (!context.mounted) return;
@@ -98,11 +164,19 @@ Future<void> sharePracticeCsv(BuildContext context) async {
       toLocal: DateTime.fromMillisecondsSinceEpoch,
     );
     final date = DateFormat('yyyy-MM-dd', 'en_US').format(DateTime.now());
-    final name = 'mi-practica-$date.csv';
-    final temp = await getTemporaryDirectory();
-    final folder = await temp.createTemp('practice-export-');
+    final folder = await temp.createTemp(PracticeExport._folderPrefix);
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final folderName = folder.uri.pathSegments.where((s) => s.isNotEmpty).last;
+    final suffix = folderName.substring(PracticeExport._folderPrefix.length);
+    final name = android
+        ? 'mi-practica-$date-$suffix.csv'
+        : 'mi-practica-$date.csv';
+    final file = File('${folder.path}/$name');
+    // Android copia el archivo a una carpeta propia y conserva solo el nombre.
+    final sharedCopy = android ? File('${temp.path}/share_plus/$name') : file;
+    var keepCopy = false;
     try {
-      final file = File('${folder.path}/$name');
+      if (!sameAccount()) return;
       await file.writeAsBytes(utf8.encode('\uFEFF$csv'));
       if (!context.mounted) return;
       if (!sameAccount()) {
@@ -112,27 +186,20 @@ Future<void> sharePracticeCsv(BuildContext context) async {
       final origin = box != null && box.hasSize
           ? box.localToGlobal(Offset.zero) & box.size
           : null;
-      // En Android, share_plus 12.0.2 entrega esta copia al destino.
-      final sharedCopy = defaultTargetPlatform == TargetPlatform.android
-          ? File('${temp.path}/share_plus/$name')
-          : null;
-      try {
-        await SharePlus.instance.share(
-          ShareParams(
-            files: [XFile(file.path, mimeType: 'text/csv')],
-            subject: l10n.exportShareSubject,
-            sharePositionOrigin: origin,
-          ),
-        );
-      } finally {
-        try {
-          await sharedCopy?.delete();
-        } on PathNotFoundException {
-          // La copia pudo no crearse o Android pudo limpiar la caché.
-        }
-      }
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'text/csv')],
+          subject: l10n.exportShareSubject,
+          sharePositionOrigin: origin,
+        ),
+      );
+      keepCopy = result.status != ShareResultStatus.dismissed && sameAccount();
     } finally {
-      await folder.delete(recursive: true);
+      if (android || !keepCopy) {
+        await _deleteIfPresent(file);
+        await _deleteIfPresent(folder);
+      }
+      if (android && !keepCopy) await _deleteIfPresent(sharedCopy);
     }
   } catch (_) {
     if (!context.mounted) return;

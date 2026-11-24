@@ -186,6 +186,53 @@ void main() {
     expect(find.byType(SplashView), findsNothing);
   });
 
+  testWidgets('an unknown initial route keeps opening on the timer', (
+    tester,
+  ) async {
+    DeepLinkService.resetInitialLinkForTesting();
+    final messenger = tester.binding.defaultBinaryMessenger;
+    const messages = MethodChannel('com.llfbandit.app_links/messages');
+    const events = MethodChannel('com.llfbandit.app_links/events');
+    messenger.setMockMethodCallHandler(messages, (call) async {
+      return call.method == 'getInitialLink'
+          ? 'https://medito.app/no-existe'
+          : null;
+    });
+    messenger.setMockMethodCallHandler(events, (_) async => null);
+    final originalReady = appReadyCompleter;
+    appReadyCompleter = Completer<void>();
+    addTearDown(() {
+      appReadyCompleter = originalReady;
+      messenger.setMockMethodCallHandler(messages, null);
+      messenger.setMockMethodCallHandler(events, null);
+    });
+
+    DeepLinkService? links;
+    addTearDown(() => links?.dispose());
+    final navigator = await _pumpApp(
+      tester,
+      home: Consumer(
+        builder: (context, ref, _) {
+          links ??= DeepLinkService(ref: ref, context: context)..initialize();
+          return const Scaffold(key: _firstScreen);
+        },
+      ),
+    );
+    await StartupTimerRoute.runOnce(
+      navigator,
+      migrateReminders: () async {},
+      takeReminderLaunch: () async => null,
+    );
+    appReadyCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(DeepLinkService.hadInitialLink, isFalse);
+    expect(
+      tester.widget<TimerView>(find.byType(TimerView)).source,
+      AnalyticsEventConstants.sourceTimerOnly,
+    );
+  });
+
   testWidgets('failed account init opens the timer above downloads', (
     tester,
   ) async {
