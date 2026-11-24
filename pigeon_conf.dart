@@ -180,7 +180,9 @@ abstract class MeditoAudioServiceApi {
 
   TimerStopReport stopTimerPlayback(int sessionSeed, bool save);
 
-  void playBackgroundSound();
+  // Confirma que el reproductor pudo preparar el archivo.
+  @async
+  bool playBackgroundSound();
 
   void pauseBackgroundSound();
 }

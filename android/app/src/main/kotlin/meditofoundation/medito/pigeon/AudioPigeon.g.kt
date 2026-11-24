@@ -1151,7 +1151,7 @@ interface MeditoAudioServiceApi {
   fun setSessionBells(enabled: Boolean)
   fun setBellCues(useTrackSchedule: Boolean, cues: List<BellCue>)
   fun stopTimerPlayback(sessionSeed: Long, save: Boolean): TimerStopReport
-  fun playBackgroundSound()
+  fun playBackgroundSound(callback: (Result<Boolean>) -> Unit)
   fun pauseBackgroundSound()
 
   companion object {
@@ -1409,13 +1409,15 @@ interface MeditoAudioServiceApi {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.medito.MeditoAudioServiceApi.playBackgroundSound$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            val wrapped: List<Any?> = try {
-              api.playBackgroundSound()
-              listOf(null)
-            } catch (exception: Throwable) {
-              AudioPigeonPigeonUtils.wrapError(exception)
+            api.playBackgroundSound{ result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(AudioPigeonPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(AudioPigeonPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
