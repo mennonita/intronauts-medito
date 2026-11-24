@@ -2137,7 +2137,7 @@
       }
     }
   },
-  "timerBellEvery": "Every {minutes} minutes",
+  "timerBellEvery": "{minutes, plural, =1{Every 1 minute} other{Every {minutes} minutes}}",
   "@timerBellEvery": {
     "placeholders": {
       "minutes": {

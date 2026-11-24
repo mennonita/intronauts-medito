@@ -103,11 +103,18 @@ void main() {
       final expiredIos = File(
         '${temp.path}/practice-export-expired/mi-practica-2026-11-25.csv',
       );
-      final fresh = File(
+      final freshLegacy = File(
         '${pluginCache.path}/mi-practica-2026-11-25-fresh.csv',
       );
+      final fresh = File('${pluginCache.path}/mi-practica-2026-11-25.csv');
       final unrelated = File('${pluginCache.path}/quote.png');
-      for (final file in [expiredAndroid, expiredIos, fresh, unrelated]) {
+      for (final file in [
+        expiredAndroid,
+        expiredIos,
+        freshLegacy,
+        fresh,
+        unrelated,
+      ]) {
         await file.create(recursive: true);
       }
       final expired = DateTime.now().subtract(const Duration(minutes: 61));
@@ -118,10 +125,12 @@ void main() {
       await PracticeExport.cleanupExpiredCopies();
       expect(expiredAndroid.existsSync(), isFalse);
       expect(expiredIos.parent.existsSync(), isFalse);
+      expect(freshLegacy.existsSync(), isTrue);
       expect(fresh.existsSync(), isTrue);
       expect(unrelated.existsSync(), isTrue);
 
       await PracticeExport.clearForAccountChange();
+      expect(freshLegacy.existsSync(), isFalse);
       expect(fresh.existsSync(), isFalse);
       expect(unrelated.existsSync(), isTrue);
     },
@@ -193,7 +202,8 @@ void main() {
               '${cache.path}/${file.uri.pathSegments.last}',
             );
           }
-          offeredPaths.add(sharedFile.path);
+          offeredPaths.add(file.path);
+          expect(sharedFile.uri.pathSegments.last, file.uri.pathSegments.last);
           offeredBytes = sharedFile.readAsBytesSync();
           return switch (shareResult) {
             'completed' => 'com.example/.ShareReceiver',
@@ -234,11 +244,7 @@ void main() {
         expect(csv, isNot(contains('another-account-track')));
         expect(
           file.uri.pathSegments.last,
-          matches(
-            isAndroid
-                ? r'^mi-practica-\d{4}-\d{2}-\d{2}-[a-zA-Z0-9_-]+\.csv$'
-                : r'^mi-practica-\d{4}-\d{2}-\d{2}\.csv$',
-          ),
+          matches(r'^mi-practica-\d{4}-\d{2}-\d{2}\.csv$'),
         );
         expect(args['mimeTypes'], ['text/csv']);
         expect(args['subject'], _es.exportShareSubject);

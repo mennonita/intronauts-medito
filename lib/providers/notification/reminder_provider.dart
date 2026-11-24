@@ -343,18 +343,16 @@ class ReminderProvider {
   }
 }
 
-const androidNotificationChannelId = 'medito_reminder_channel';
-const androidNotificationChannelName = 'Reminders';
+const androidNotificationChannelId = 'intronauts_reminders_channel';
+const androidNotificationChannelName = 'Recordatorios';
 const androidNotificationIcon = 'logo';
-const androidNotificationChannelDescription =
-    'Notification for meditation reminders';
+const androidNotificationChannelDescription = 'Recordatorios para meditar';
 const dailyNotificationId = 10101024;
 
 const reminderSeriesBaseId = 10102000;
 const reminderSeriesCount = 15;
 
-/// Detalles de cada aviso de la serie: mismo canal, importancia e ícono de
-/// siempre, más los botones «Sentarme 3 min» y «Hoy no».
+/// Configura el aviso con sonido y los botones «Sentarme 3 min» y «Hoy no».
 NotificationDetails reminderNotificationDetails(ScheduledReminder item) =>
     NotificationDetails(
       android: AndroidNotificationDetails(
@@ -362,8 +360,9 @@ NotificationDetails reminderNotificationDetails(ScheduledReminder item) =>
         androidNotificationChannelName,
         channelDescription: androidNotificationChannelDescription,
         icon: androidNotificationIcon,
-        importance: Importance.max,
+        importance: Importance.high,
         priority: Priority.high,
+        playSound: true,
         actions: [
           AndroidNotificationAction(
             kReminderActionSit3,

@@ -138,9 +138,11 @@ void main() {
         ]);
         for (final item in items) {
           final android = item.details.android!;
-          expect(android.channelId, androidNotificationChannelId);
+          expect(android.channelId, 'intronauts_reminders_channel');
+          expect(android.channelName, 'Recordatorios');
           expect(android.icon, androidNotificationIcon);
-          expect(android.importance, Importance.max);
+          expect(android.importance, Importance.high);
+          expect(android.playSound, isTrue);
           final actions = android.actions!;
           expect(actions.map((a) => a.id), [
             kReminderActionSit3,

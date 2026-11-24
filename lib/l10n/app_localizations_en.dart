@@ -2864,7 +2864,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String timerBellEvery(int minutes) {
-    return 'Every $minutes minutes';
+    String _temp0 = intl.Intl.pluralLogic(
+      minutes,
+      locale: localeName,
+      other: 'Every $minutes minutes',
+      one: 'Every 1 minute',
+    );
+    return '$_temp0';
   }
 
   @override

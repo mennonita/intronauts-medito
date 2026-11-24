@@ -2479,7 +2479,7 @@ class AudioPlayerService : MediaSessionService(), Player.Listener, MeditoAudioSe
     }
 
     companion object {
-        const val CHANNEL_ID = "medito_reminder_channel"
+        const val CHANNEL_ID = "intronauts_playback_channel"
         const val NOTIFICATION_ID = 101011
         const val TIMER_ALERTS_CHANNEL_ID = "timer_alerts"
         const val TIMER_ALERT_NOTIFICATION_ID = 101012

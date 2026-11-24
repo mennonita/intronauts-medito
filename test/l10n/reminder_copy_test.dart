@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:medito/l10n/app_localizations_es.dart';
 
 const _locales = ['es', 'en', 'de'];
 
@@ -87,6 +88,10 @@ bool _isTitleKey(String key) => key.contains('Title');
 
 void main() {
   final keys = _reminderKeys();
+
+  test('el botón de permiso dice Ahora no', () {
+    expect(AppLocalizationsEs().notNow, 'Ahora no');
+  });
 
   test('la lista cubre las 60 claves de avisos', () {
     expect(keys.length, 60);

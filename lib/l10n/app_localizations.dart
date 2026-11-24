@@ -5239,7 +5239,7 @@ abstract class AppLocalizations {
   /// No description provided for @timerBellEvery.
   ///
   /// In en, this message translates to:
-  /// **'Every {minutes} minutes'**
+  /// **'{minutes, plural, =1{Every 1 minute} other{Every {minutes} minutes}}'**
   String timerBellEvery(int minutes);
 
   /// No description provided for @timerBellInterval.

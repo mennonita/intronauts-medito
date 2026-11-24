@@ -69,6 +69,18 @@ Finder _dropdownFor(String label) => find.descendant(
 );
 
 void main() {
+  test('el intervalo distingue un minuto de varios en los tres idiomas', () {
+    for (final (locale, singular, plural) in [
+      ('es', 'Cada 1 minuto', 'Cada 5 minutos'),
+      ('en', 'Every 1 minute', 'Every 5 minutes'),
+      ('de', 'Jede Minute', 'Alle 5 Minuten'),
+    ]) {
+      final l10n = lookupAppLocalizations(Locale(locale));
+      expect(l10n.timerBellEvery(1), singular);
+      expect(l10n.timerBellEvery(5), plural);
+    }
+  });
+
   test('resume las campanas en español y toma el primer sonido activo', () {
     final l10n = AppLocalizationsEs();
     const all = TimerBellSettings(
@@ -152,6 +164,10 @@ void main() {
     expect(find.text('Decir el tiempo que queda'), findsNothing);
     expect(find.textContaining('Sonido:'), findsNothing);
     expect(find.text('Veces que suena'), findsNothing);
+
+    await _tap(tester, _dropdownFor('Campana cada…'));
+    await _tap(tester, find.text('Cada 1 minuto').hitTestable().last);
+    expect(find.text('Cada 1 min · Campana clásica'), findsOne);
 
     await _tap(tester, _dropdownFor('Campana cada…'));
     await _tap(tester, find.text('Cada 5 minutos').hitTestable().last);

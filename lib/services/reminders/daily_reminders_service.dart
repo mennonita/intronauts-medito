@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -47,6 +48,9 @@ DateTime anchorPreferringSavedTime(
 /// Pref que marca que los avisos pendientes ya traen los textos y botones
 /// nuevos (migración al actualizar la app).
 const reminderSeriesCopyV2Key = 'reminder_series_copy_v2';
+
+/// Marca que los avisos de Android ya usan el canal con sonido.
+const reminderSeriesSoundChannelKey = 'reminder_series_sound_channel_v3';
 
 /// Ancla de la migración, guardada antes de tocar los avisos para que un
 /// reintento use la misma fecha (hora local, sin zona).
@@ -198,6 +202,10 @@ class DailyRemindersScheduler {
 
   DailyRemindersScheduler({required this.prefs, required this.reminders});
 
+  String get _migrationKey => defaultTargetPlatform == TargetPlatform.android
+      ? reminderSeriesSoundChannelKey
+      : reminderSeriesCopyV2Key;
+
   /// Programa la serie desde [anchorLocal]. Con [fromIndex] solo programa
   /// los avisos de ese índice en adelante (0–14 diarios, 15 el del día 30),
   /// cada uno en su mismo día de siempre respecto al ancla. Cada aviso
@@ -221,7 +229,7 @@ class DailyRemindersScheduler {
     DateTime anchorLocal, {
     AppLocalizations? l10n,
   }) async {
-    final migrating = prefs.getBool(reminderSeriesCopyV2Key) != true;
+    final migrating = prefs.getBool(_migrationKey) != true;
     final replacedIds = {
       if (migrating)
         for (var i = 0; i <= reminderSeriesCount; i++) reminderSeriesBaseId + i,
@@ -355,7 +363,7 @@ class DailyRemindersScheduler {
   });
 
   /// Migración al actualizar (una vez): los avisos ya programados conservan
-  /// los textos y botones con que se programaron. Reprograma desde el aviso
+  /// el canal, los textos y los botones originales. Reprograma desde el aviso
   /// pendiente más cercano para que el siguiente suene a la próxima hora
   /// guardada y los demás conserven su día.
   ///
@@ -369,7 +377,7 @@ class DailyRemindersScheduler {
   }) => serializeReminderChange(() => _migrate(now(), l10n));
 
   Future<void> _migrate(DateTime now, AppLocalizations? l10n) async {
-    if (prefs.getBool(reminderSeriesCopyV2Key) == true) return;
+    if (prefs.getBool(_migrationKey) == true) return;
     if (!remindersActive(prefs)) return;
     final hour = prefs.getInt(SharedPreferenceConstants.savedHours);
     final minute = prefs.getInt(SharedPreferenceConstants.savedMinutes);
@@ -465,7 +473,7 @@ class DailyRemindersScheduler {
       AppLogger.w('REMINDER', 'Reminder migration incomplete; will retry');
       return;
     }
-    final saved = await prefs.setBool(reminderSeriesCopyV2Key, true);
+    final saved = await prefs.setBool(_migrationKey, true);
     if (!saved) throw StateError('Could not finish reminder migration');
     await _clearMigrationAnchor(prefs);
     await prefs.remove(_migrationPendingIdsKey);
