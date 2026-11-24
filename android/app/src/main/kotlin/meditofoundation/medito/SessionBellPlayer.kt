@@ -2,8 +2,14 @@
 package meditofoundation.medito
 
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -21,6 +27,13 @@ internal class SessionBellPlayer(
     companion object {
         const val URI = "medito://session-bells"
         private const val LEGACY_ASSET = "assets/audio/session_bell_v2.wav"
+        const val OUTPUT_SOUND = "sound"
+        const val OUTPUT_VIBRATION = "vibration"
+        const val OUTPUT_SOUND_AND_VIBRATION = "soundAndVibration"
+        private const val KIND_END = "end"
+        private const val KIND_SPOKEN = "spoken"
+        private const val VIBRATION_PULSE_MS = 400L
+        private const val VIBRATION_SLOT_MS = 1000L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -35,7 +48,27 @@ internal class SessionBellPlayer(
     private var timerStopped = false
     private var onPrepared: (() -> Unit)? = null
     private var volume = 1f
+    private var duck = 1f
     private var enabled = false
+    private var output = OUTPUT_SOUND
+    private var vibrationToken = 0
+    // Una vibración de la fila quedó a medias por una pausa; se termina al reanudar.
+    private var vibrationPaused = false
+    private var timerPaused = false
+    private var drain: TimerBellDrain? = null
+    private var onDrained: (() -> Unit)? = null
+    private val speech by lazy { TimerSpeech(context) }
+    private var speechCreated = false
+    private val queue = TimerBellQueue(object : TimerBellRinger {
+        override fun ring(cue: BellCue): Boolean = startCue(cue)
+    })
+
+    /** Avisa cuando empieza la campana final (antes de su sonido). */
+    var onEndCueStarted: (() -> Unit)? = null
+
+    /** True sólo cuando la campana final de ESTE temporizador de verdad empezó a sonar. */
+    val endCueStarted: Boolean get() = endStarted
+
     private val tick = object : Runnable {
         override fun run() {
             update()
@@ -45,16 +78,32 @@ internal class SessionBellPlayer(
 
     init { primary.addListener(this) }
 
-    fun configure(cues: List<BellCue>?, timerEnabled: Boolean, volume: Float) {
+    fun configure(
+        cues: List<BellCue>?,
+        timerEnabled: Boolean,
+        volume: Float,
+        output: String? = null,
+        languageTag: String? = null
+    ) {
         if (cues == null && timerSchedule == null) return
         disable()
         timerSchedule = cues?.let(::TimerBellSchedule)
         endStarted = false
         timerStopped = false
+        timerPaused = false
+        vibrationPaused = false
+        duck = 1f
+        this.output = output ?: OUTPUT_SOUND
         if (cues == null) return
 
+        if (cues.any { it.kind == KIND_SPOKEN }) {
+            speechCreated = true
+            speech.setLanguage(languageTag)
+        }
         setVolume(volume)
-        val assets = cues.map { it.assetKey }.toSet()
+        // Los avisos hablados no tienen archivo; en «Solo vibración» no se carga audio.
+        val assets = if (this.output == OUTPUT_VIBRATION) emptySet()
+        else cues.filter { it.kind != KIND_SPOKEN }.map { it.assetKey }.toSet()
         preload = TimerBellPreload(assets, LEGACY_ASSET)
         for (asset in assets) loadTimerAsset(asset)
         enabled = timerEnabled
@@ -65,7 +114,7 @@ internal class SessionBellPlayer(
         setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).build(), false)
         setHandleAudioBecomingNoisy(true)
         setWakeMode(C.WAKE_MODE_LOCAL)
-        volume = this@SessionBellPlayer.volume
+        volume = this@SessionBellPlayer.volume * duck
     }
 
     private fun loadTimerAsset(asset: String) {
@@ -81,13 +130,24 @@ internal class SessionBellPlayer(
                     preload?.ready(asset)
                     notifyPrepared()
                 }
+                // La campana terminó completa: suena la siguiente de la fila.
+                if (playbackState == Player.STATE_ENDED && activeBell === bell) {
+                    activeBell = null
+                    pendingEnd = false
+                    queue.finished()
+                    checkDrained()
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
                 if (timerPlayers[asset] !== bell) return
                 Log.e("BELLS", "No se pudo cargar o tocar la campana", error)
                 timerPlayers.remove(asset)
-                if (activeBell === bell) clearActiveBell()
+                if (activeBell === bell) {
+                    activeBell = null
+                    pendingEnd = false
+                    queue.finished()
+                }
                 bell.release()
                 preload?.failed(asset)?.let(::loadTimerAsset)
                 notifyPrepared()
@@ -145,7 +205,13 @@ internal class SessionBellPlayer(
     fun setVolume(volume: Float) {
         this.volume = volume
         trackBell?.volume = volume
-        for (bell in timerPlayers.values) bell.volume = volume
+        for (bell in timerPlayers.values) bell.volume = volume * duck
+    }
+
+    /** Baja las campanas del temporizador (1 = volumen normal, 0.2 = agachado). */
+    fun setDuck(factor: Float) {
+        duck = factor
+        for (bell in timerPlayers.values) bell.volume = volume * duck
     }
 
     fun disable() {
@@ -159,6 +225,10 @@ internal class SessionBellPlayer(
         timerPlayers.clear()
         for (bell in players) bell.release()
         trackBell?.stop()
+        if (speechCreated) speech.stop()
+        // Una espera de fin pendiente se descarta: quien apaga ya cerró la sesión.
+        onDrained = null
+        drain = null
     }
 
     fun reset() {
@@ -171,6 +241,9 @@ internal class SessionBellPlayer(
         val previous = activeBell
         activeBell = null
         pendingEnd = false
+        vibrationToken++
+        vibrationPaused = false
+        queue.clear()
         previous?.pause()
     }
 
@@ -180,15 +253,103 @@ internal class SessionBellPlayer(
         pendingEnd = false
     }
 
-    private fun ringTimer(cue: BellCue) {
-        clearActiveBell()
-        val bell = timerPlayers[cue.assetKey] ?: timerPlayers[LEGACY_ASSET] ?: return
-        if (bell.playbackState == Player.STATE_IDLE) return
+    /**
+     * Empieza una campana de la fila. Devuelve true si sigue sonando y avisará
+     * al terminar; false si fue instantánea (voz) o no se pudo tocar.
+     */
+    private fun startCue(cue: BellCue): Boolean {
+        val isEnd = cue.kind == KIND_END
+        // El respaldo se cancela ANTES del sonido: una campana larga no se encima con el aviso.
+        if (isEnd) onEndCueStarted?.invoke()
+        if (cue.kind == KIND_SPOKEN) {
+            if (output != OUTPUT_VIBRATION) {
+                speechCreated = true
+                speech.speak(cue.assetKey.removePrefix("spoken:"))
+            }
+            return false
+        }
+        val vibrate = output == OUTPUT_VIBRATION || output == OUTPUT_SOUND_AND_VIBRATION
+        // El fin «sonó» sólo si la salida elegida de verdad se dio (R109).
+        val vibrated = vibrate && vibratePulse()
+        if (output == OUTPUT_VIBRATION) {
+            if (isEnd && vibrated) endStarted = true
+            // Un pulso de 400 ms más 600 ms de pausa antes de la siguiente.
+            scheduleVibrationSlot(cue)
+            return true
+        }
+        val bell = timerPlayers[cue.assetKey] ?: timerPlayers[LEGACY_ASSET]
+        if (bell == null || bell.playbackState == Player.STATE_IDLE) {
+            if (isEnd && vibrated) endStarted = true
+            return false
+        }
+        if (isEnd && vibrated) endStarted = true
         activeBell = bell
-        pendingEnd = cue.kind == "end"
+        pendingEnd = isEnd
         bell.seekTo(0)
         bell.play()
         if (bell.isPlaying) markEndStarted()
+        return true
+    }
+
+    private fun scheduleVibrationSlot(cue: BellCue) {
+        val token = ++vibrationToken
+        handler.postDelayed({
+            if (token == vibrationToken && queue.active === cue) {
+                queue.finished()
+                checkDrained()
+            }
+        }, VIBRATION_SLOT_MS)
+    }
+
+    /** Devuelve true sólo si el teléfono vibró de verdad. */
+    private fun vibratePulse(): Boolean {
+        try {
+            val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+            } else {
+                context.getSystemService(Vibrator::class.java)
+            }
+            if (vibrator == null || !vibrator.hasVibrator()) return false
+            val effect = VibrationEffect.createOneShot(VIBRATION_PULSE_MS, VibrationEffect.DEFAULT_AMPLITUDE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                vibrator.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(
+                    effect,
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                        .build()
+                )
+            }
+            return true
+        } catch (error: Exception) {
+            Log.e("BELLS", "No se pudo vibrar", error)
+            return false
+        }
+    }
+
+    /**
+     * Al terminar el archivo: espera a que suene completa cada campana empezada
+     * o pendiente (máximo 60 s) y luego ejecuta [action] una sola vez (R53).
+     */
+    fun drainThen(action: () -> Unit) {
+        if (timerSchedule == null || timerStopped) {
+            action()
+            return
+        }
+        onDrained = action
+        drain = TimerBellDrain().also { it.begin(SystemClock.elapsedRealtime()) }
+        update()
+    }
+
+    private fun checkDrained() {
+        val gate = drain ?: return
+        if (!gate.ready(SystemClock.elapsedRealtime(), queue.busy)) return
+        val action = onDrained
+        onDrained = null
+        drain = null
+        action?.invoke()
     }
 
     private fun update() {
@@ -199,16 +360,37 @@ internal class SessionBellPlayer(
             return
         }
         if (primary.playbackState == Player.STATE_ENDED) {
-            clearActiveBell()
+            // El archivo terminó: las campanas que tocaban siguen hasta el final.
+            val due = timer.update(primary.currentPosition, enabled)
+            if (due.isNotEmpty()) queue.offer(due)
+            if (enabled && activeBell?.playbackState == Player.STATE_READY && activeBell?.isPlaying == false) {
+                activeBell?.play()
+            }
+            checkDrained()
             return
         }
         if (!primary.isPlaying) {
             activeBell?.pause()
+            if (!timerPaused) {
+                // La pausa también calla la voz y detiene la fila de vibraciones (R106).
+                timerPaused = true
+                if (speechCreated) speech.stop()
+                if (output == OUTPUT_VIBRATION && queue.active != null) {
+                    vibrationToken++
+                    vibrationPaused = true
+                }
+            }
             return
         }
-        val cue = timer.update(primary.currentPosition, enabled)
-        if (cue != null) {
-            ringTimer(cue)
+        if (timerPaused) {
+            timerPaused = false
+            val active = queue.active
+            if (vibrationPaused && active != null) scheduleVibrationSlot(active)
+            vibrationPaused = false
+        }
+        val cues = timer.update(primary.currentPosition, enabled)
+        if (cues.isNotEmpty()) {
+            queue.offer(cues)
         } else if (enabled && activeBell?.playbackState == Player.STATE_READY) {
             activeBell?.play()
         }
@@ -250,6 +432,63 @@ internal class SessionBellPlayer(
         disable()
         primary.removeListener(this)
         trackBell?.release()
+        if (speechCreated) speech.release()
+    }
+}
+
+/** Avisa a la fila que una campana empezó; true si sigue sonando. */
+internal interface TimerBellRinger {
+    fun ring(cue: BellCue): Boolean
+}
+
+/**
+ * Fila de campanas: una campana nunca corta a otra. Lo que toca mientras otra
+ * suena espera y suena al terminar ella, en el orden en que llegó.
+ */
+internal class TimerBellQueue(private val ringer: TimerBellRinger) {
+    private val waiting = ArrayDeque<BellCue>()
+
+    var active: BellCue? = null
+        private set
+
+    val busy: Boolean get() = active != null || waiting.isNotEmpty()
+
+    fun offer(cues: List<BellCue>) {
+        waiting.addAll(cues)
+        if (active == null) startNext()
+    }
+
+    /** La campana activa terminó completa. */
+    fun finished() {
+        active = null
+        startNext()
+    }
+
+    fun clear() {
+        waiting.clear()
+        active = null
+    }
+
+    private fun startNext() {
+        while (active == null && waiting.isNotEmpty()) {
+            val cue = waiting.removeFirst()
+            if (ringer.ring(cue)) active = cue
+        }
+    }
+}
+
+/** Espera al final del archivo: lista cuando no hay campanas o pasaron 60 s. */
+internal class TimerBellDrain(private val timeoutMs: Long = 60_000L) {
+    private var startedAt: Long? = null
+
+    fun begin(nowMs: Long) {
+        startedAt = nowMs
+    }
+
+    fun ready(nowMs: Long, busy: Boolean): Boolean {
+        if (!busy) return true
+        val started = startedAt ?: return true
+        return nowMs - started >= timeoutMs
     }
 }
 

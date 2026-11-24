@@ -2,9 +2,20 @@ package meditofoundation.medito
 
 import meditofoundation.medito.pigeon.BellCue
 
-/** Consume las campanas cruzadas, incluso cuando están apagadas o llegan tarde. */
+/**
+ * Consume las campanas cruzadas, incluso cuando están apagadas o llegan tarde.
+ * Las obligatorias (inicio, fin, etapa) suenan aunque lleguen tarde; de las
+ * opcionales (intervalo, aleatoria, hablada) sólo la más nueva con menos de 2 s.
+ */
 internal class TimerBellSchedule(cues: List<BellCue>) {
-    private val cues = cues.toList()
+    companion object {
+        const val LATE_LIMIT_MS = 2000L
+        private val mandatoryKinds = setOf("start", "end", "stage")
+
+        fun isMandatory(cue: BellCue): Boolean = cue.kind in mandatoryKinds
+    }
+
+    private val cues = cues.sortedBy { it.offsetMs }
     private var next = 0
 
     fun reset() {
@@ -16,12 +27,20 @@ internal class TimerBellSchedule(cues: List<BellCue>) {
         while (next < cues.size && cues[next].offsetMs <= positionMs) next++
     }
 
-    fun update(positionMs: Long, enabled: Boolean): BellCue? {
-        var ring: BellCue? = null
+    /** Devuelve las campanas que tocan ahora, de la más vieja a la más nueva. */
+    fun update(positionMs: Long, enabled: Boolean): List<BellCue> {
+        val ring = mutableListOf<BellCue>()
+        var optional: BellCue? = null
         while (next < cues.size && cues[next].offsetMs <= positionMs) {
             val cue = cues[next++]
-            if (enabled && positionMs - cue.offsetMs < 2000) ring = cue
+            if (!enabled) continue
+            if (isMandatory(cue)) {
+                ring.add(cue)
+            } else if (positionMs - cue.offsetMs < LATE_LIMIT_MS) {
+                optional = cue
+            }
         }
-        return ring
+        optional?.let(ring::add)
+        return ring.sortedBy { it.offsetMs }
     }
 }

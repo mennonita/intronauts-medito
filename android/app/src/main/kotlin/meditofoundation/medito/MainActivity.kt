@@ -375,6 +375,17 @@ class MainActivity : FlutterFragmentActivity(), MeditoAndroidAudioServiceManager
 
     private fun checkAndSendCompletionData() {
         val generation = SharedPreferencesManager.currentGeneration()
+        // Temporizadores: primero se recupera una sesión que murió con el proceso
+        // (ya con la cuenta ligada, R81) y luego se entregan los cierres en orden.
+        // Sólo exige la generación vigente, no la cuenta verificada (R77).
+        if (SharedPreferencesManager.isCurrent(generation)) {
+            TimerRunStore.recoverStale(this, AudioPlayerService.currentRunId)
+            meditoAudioApi?.let { api ->
+                TimerRunStore.forContext(this).deliverPending { completion, reply ->
+                    api.handleCompletedTrack(completion) { reply(it.getOrNull() == true) }
+                }
+            }
+        }
         if (!SharedPreferencesManager.isCurrent(generation, requireVerified = true)) return
 
         SharedPreferencesManager.getCompletionData(this)?.let { completion ->

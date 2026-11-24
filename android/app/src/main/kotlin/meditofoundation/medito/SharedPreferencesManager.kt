@@ -47,6 +47,14 @@ object SharedPreferencesManager {
         check(prefs(context).edit().clear().commit()) {
             "No se pudieron borrar las colas de audio"
         }
+        // La generación ya subió: ningún evento pendiente puede volver a escribir
+        // las sesiones de temporizador de la cuenta anterior.
+        check(
+            context.getSharedPreferences(TimerRunStore.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().clear().commit()
+        ) {
+            "No se pudieron borrar las sesiones del temporizador"
+        }
     }
 
     @Synchronized
@@ -55,6 +63,11 @@ object SharedPreferencesManager {
     @Synchronized
     fun isCurrent(value: Long, requireVerified: Boolean = false): Boolean =
         value == generation && activeClientId != null && (!requireVerified || verified)
+
+    /** Revisa la generación y ejecuta [block] bajo el mismo candado (registro de temporizador). */
+    @Synchronized
+    fun <T> ifCurrent(value: Long, block: () -> T): T? =
+        if (isCurrent(value)) block() else null
 
     @Synchronized
     fun saveCompletionData(context: Context, completionData: CompletionData, generation: Long): Boolean {

@@ -5,8 +5,27 @@ import meditofoundation.medito.pigeon.TimerEndedData
 import org.json.JSONObject
 
 internal object NativeCompletionRecord {
-    fun timerClose(fileId: String, positionMs: Long, timestamp: Long): CompletionData {
-        val elapsedSeconds = positionMs.coerceAtLeast(0L) / 1000L
+    /**
+     * Cierre de un temporizador con la regla del tiempo meditado ([TimerElapsed]).
+     * Sin [plannedMs] conserva el cálculo anterior (posición cruda), para datos viejos.
+     */
+    fun timerClose(
+        fileId: String,
+        positionMs: Long,
+        timestamp: Long,
+        prepMs: Long = 0L,
+        plannedMs: Long? = null,
+        isCountdownWithoutExtra: Boolean = false
+    ): CompletionData {
+        val isStopwatch = fileId.startsWith("timer-stopwatch-")
+        val elapsedMs = if (plannedMs == null) positionMs.coerceAtLeast(0L) else TimerElapsed.elapsedMs(
+            positionMs = positionMs,
+            prepMs = prepMs,
+            plannedMs = plannedMs,
+            extraTime = !isStopwatch && !isCountdownWithoutExtra,
+            isStopwatch = isStopwatch
+        )
+        val elapsedSeconds = elapsedMs / 1000L
         return CompletionData(
             trackId = "timer-$elapsedSeconds",
             duration = elapsedSeconds * 1000L,
@@ -15,7 +34,7 @@ internal object NativeCompletionRecord {
             timestamp = timestamp,
             timerEnded = TimerEndedData(
                 positionMs = positionMs,
-                mode = if (fileId.startsWith("timer-stopwatch-")) "stopwatch" else "countdown",
+                mode = if (isStopwatch) "stopwatch" else "countdown",
                 elapsedSeconds = elapsedSeconds,
                 recorded = elapsedSeconds >= 60L
             )
