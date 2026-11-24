@@ -1,0 +1,12 @@
+// Estos son los valores actuales de Medito. Xcode todavía no usa este archivo.
+// Cambia los valores aquí cuando existan las cuentas de Apple. Nunca inventes un ID de equipo.
+// Después ejecuta python3 scripts/ios_identity.py --apply.
+// El grupo del llavero se forma con $(AppIdentifierPrefix) y APP_BUNDLE_ID.
+
+APP_BUNDLE_ID = org.meditofoundation
+WIDGET_BUNDLE_ID = org.meditofoundation.widget
+TESTS_BUNDLE_ID = meditofoundation.medito.RunnerTests
+DEVELOPMENT_TEAM_ID = JLKV36C38P
+APP_GROUP_ID = group.org.medito.widget
+ASSOCIATED_DOMAIN = medito.app
+MERCHANT_ID = merchant.medito
