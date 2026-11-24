@@ -19,6 +19,7 @@ import 'package:medito/views/debug/debug_info_screen.dart';
 import 'package:medito/views/home/widgets/bottom_sheet/row_item_widget.dart';
 import 'package:medito/views/settings/advanced_settings_screen.dart';
 import 'package:medito/views/settings/health_sync_tile.dart';
+import 'package:medito/views/settings/timer_settings_section.dart';
 import 'package:medito/views/settings/widgets/account_section_widget.dart';
 import 'package:medito/views/settings/widgets/dnd_setting_tile.dart';
 import 'package:medito/views/settings/widgets/reminder_tile.dart';
@@ -440,6 +441,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       sliver: SliverList(
         delegate: SliverChildListDelegate([
           const ReminderTile(),
+          TimerSettingsSection(
+            buildSectionTitle: _buildSectionTitle,
+            buildSectionCard: _buildSectionCard,
+          ),
           if (!isEffectivelySignedIn && (emailLoginEnabled || hasSession)) ...[
             _buildSectionTitle(context, AppLocalizations.of(context)!.account),
             _buildSectionCard([const AccountSectionWidget(inCard: true)]),
