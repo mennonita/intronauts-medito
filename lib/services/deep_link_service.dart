@@ -29,14 +29,28 @@ class DeepLinkService {
   // for a cold-start intent, or on rapid double-taps of a home-screen widget.
   Uri? _lastHandledUri;
   DateTime? _lastHandledAt;
+  // Si ese enlace abre una pantalla: el duplicado responde lo mismo.
+  Future<bool> _lastHandledResult = Future.value(false);
   static const _dedupeWindow = Duration(milliseconds: 1500);
 
   // Completes once the initial link check finishes (hit or miss).
   // SplashView awaits this before applying stored UTM parameters to ensure
   // deferred deep links from Apple Search Ads are stored first.
-  static final Completer<void> _initialLinkCompleter = Completer<void>();
+  static Completer<void> _initialLinkCompleter = Completer<void>();
   static Future<void> get initialLinkProcessed => _initialLinkCompleter.future;
+
+  /// El enlace con que se abrió la app lleva a una pantalla. Solo entonces
+  /// gana sobre «Abrir la app en el temporizador»; un enlace que solo trae
+  /// datos de campaña (UTM) o que no se reconoce no cuenta.
   static bool hadInitialLink = false;
+
+  /// Vuelve al estado de un arranque nuevo (el completer queda atado a la
+  /// zona de la prueba que lo creó).
+  @visibleForTesting
+  static void resetInitialLinkForTesting() {
+    _initialLinkCompleter = Completer<void>();
+    hadInitialLink = false;
+  }
 
   DeepLinkService({required this.ref, required this.context});
 
@@ -59,8 +73,7 @@ class DeepLinkService {
     try {
       final initialUri = await _appLinks.getInitialLink();
       if (initialUri != null) {
-        hadInitialLink = true;
-        await handleDeepLink(initialUri);
+        hadInitialLink = await handleDeepLink(initialUri);
       }
     } catch (e) {
       AppLogger.e('DEEPLINK', 'Error checking initial link', e);
@@ -103,7 +116,8 @@ class DeepLinkService {
     _linkSubscription?.cancel();
   }
 
-  Future<void> handleDeepLink(Uri uri) async {
+  /// Devuelve true solo si el enlace abre una pantalla.
+  Future<bool> handleDeepLink(Uri uri) async {
     final now = DateTime.now();
     if (_lastHandledUri == uri &&
         _lastHandledAt != null &&
@@ -112,11 +126,14 @@ class DeepLinkService {
         'DEEPLINK',
         'Ignoring duplicate deep link within dedupe window',
       );
-      return;
+      return _lastHandledResult;
     }
     _lastHandledUri = uri;
     _lastHandledAt = now;
+    return _lastHandledResult = _handleNewDeepLink(uri);
+  }
 
+  Future<bool> _handleNewDeepLink(Uri uri) async {
     try {
       // Detect home-screen widget taps via the `source` query param so we can
       // attribute opens. Both iOS and Android widgets append
@@ -131,7 +148,7 @@ class DeepLinkService {
         unawaited(
           _navigateWhenReady(() => routes.openTimerLaunch(timerLaunch)),
         );
-        return;
+        return true;
       }
 
       var pathSegments = <String>[];
@@ -156,7 +173,7 @@ class DeepLinkService {
             ),
           ),
         );
-        return;
+        return true;
       } else if (uri.scheme == 'https' && uri.host == 'medito.app') {
         pathSegments = uri.pathSegments;
       } else {
@@ -166,7 +183,7 @@ class DeepLinkService {
             showSnackBar(context, localizations.invalidDeepLink);
           }
         }
-        return;
+        return false;
       }
 
       // If no path segments, just open the app (e.g., for UTM-only links from Apple Ads)
@@ -175,13 +192,13 @@ class DeepLinkService {
           'DEEPLINK',
           'No path segments, opening app (UTM parameters already processed)',
         );
-        return;
+        return false;
       }
 
       // Handle OTP links
       if (pathSegments[0] == 'otp' ||
           (pathSegments.length > 1 && pathSegments[1] == 'otp')) {
-        return;
+        return false;
       }
 
       // Handle other navigation links
@@ -192,6 +209,7 @@ class DeepLinkService {
           () => handleNavigation(path, [id], context, ref: ref),
         ),
       );
+      return true;
     } catch (e) {
       AppLogger.e('DEEPLINK', 'Error handling deep link', e);
       if (context.mounted) {
@@ -200,6 +218,7 @@ class DeepLinkService {
           showSnackBar(context, localizations.deepLinkError);
         }
       }
+      return false;
     }
   }
 

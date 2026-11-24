@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:medito/constants/constants.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
+import 'package:medito/services/reminders/daily_reminders_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ReminderTimeNotifier extends Notifier<TimeOfDay?> {
@@ -39,11 +40,8 @@ final reminderTimeProvider = NotifierProvider<ReminderTimeNotifier, TimeOfDay?>(
 class ReminderEnabledNotifier extends Notifier<bool> {
   @override
   bool build() {
-    final prefs = ref.read(sharedPreferencesProvider);
-    final savedHour = prefs.getInt(SharedPreferenceConstants.savedHours);
-    final savedMinute = prefs.getInt(SharedPreferenceConstants.savedMinutes);
-    return prefs.getBool(SharedPreferenceConstants.dailyReminderEnabled) ??
-        (savedHour != null && savedMinute != null);
+    // La misma regla que usan la migración y la reprogramación de avisos.
+    return remindersActive(ref.read(sharedPreferencesProvider));
   }
 
   Future<void> setEnabled(bool value) async {

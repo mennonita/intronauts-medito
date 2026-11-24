@@ -19,6 +19,7 @@ import 'package:medito/providers/providers.dart';
 import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/providers/timer/timer_content_provider.dart';
 import 'package:medito/repositories/track/track_repository.dart';
+import 'package:medito/services/account/account_service.dart';
 import 'package:medito/services/deep_link_service.dart';
 import 'package:medito/services/timer/startup_timer_route.dart';
 import 'package:medito/services/timer/timer_route_tracker.dart';
@@ -183,6 +184,54 @@ void main() {
       isTrue,
     );
     expect(find.byType(SplashView), findsNothing);
+  });
+
+  testWidgets('failed account init opens the timer above downloads', (
+    tester,
+  ) async {
+    DeepLinkService.resetInitialLinkForTesting();
+    final messenger = tester.binding.defaultBinaryMessenger;
+    const channels = [
+      MethodChannel('com.llfbandit.app_links/messages'),
+      MethodChannel('com.llfbandit.app_links/events'),
+    ];
+    for (final channel in channels) {
+      messenger.setMockMethodCallHandler(channel, (_) async => null);
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    }
+    final originalReady = appReadyCompleter;
+    appReadyCompleter = Completer<void>();
+    addTearDown(() => appReadyCompleter = originalReady);
+
+    DeepLinkService? links;
+    final navigator = await _pumpApp(
+      tester,
+      email: 'app@example.test',
+      home: Consumer(
+        builder: (context, ref, _) {
+          links ??= DeepLinkService(ref: ref, context: context)..initialize();
+          return const SplashView();
+        },
+      ),
+      overrides: [
+        // Falla la inicialización de la cuenta: SplashView sale a Descargas
+        // por su rama de error.
+        accountServiceProvider.overrideWith(
+          (_) => throw StateError('Cuenta sin inicializar'),
+        ),
+        downloadedTracksProvider.overrideWith((_) async => []),
+      ],
+    );
+    addTearDown(() => links?.dispose());
+
+    final timer = tester.widget<TimerView>(find.byType(TimerView));
+    expect(timer.source, AnalyticsEventConstants.sourceTimerOnly);
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<DownloadsView>(find.byType(DownloadsView)).isRoot,
+      isFalse,
+    );
   });
 
   for (final hasSetup in [false, true]) {

@@ -164,8 +164,12 @@ class ReminderProvider {
     }
   }
 
-  Future<void> scheduleReminderSeries(List<ScheduledReminder> items) async {
+  /// Programa cada aviso sobre su identificador (reemplaza al que había).
+  /// Devuelve los identificadores que no se pudieron programar; esos
+  /// conservan el aviso anterior.
+  Future<Set<int>> scheduleReminderSeries(List<ScheduledReminder> items) async {
     await _initFuture;
+    final failed = <int>{};
     AppLogger.d(
       'XXXX',
       'scheduleReminderSeries called with ${items.length} items',
@@ -199,6 +203,7 @@ class ReminderProvider {
             'Successfully scheduled reminder ID=${item.id} at ${item.scheduledDate}',
           );
         } catch (e, s) {
+          failed.add(item.id);
           AppLogger.e(
             'REMINDER',
             'Error scheduling reminder ${item.id} at ${item.scheduledDate}: $e',
@@ -231,6 +236,7 @@ class ReminderProvider {
           'Pending notification: ID=${notification.id}, payload=${notification.payload}',
         );
       }
+      return failed;
     } catch (e, s) {
       AppLogger.e('REMINDER', 'Error scheduling daily reminder series: $e', s);
       AppLogger.e('XXXX', 'Error scheduling daily reminder series: $e');
