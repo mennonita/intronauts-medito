@@ -5422,12 +5422,6 @@ abstract class AppLocalizations {
   /// **'Name'**
   String get timerPresetName;
 
-  /// No description provided for @timerDefaultPresetName.
-  ///
-  /// In en, this message translates to:
-  /// **'My timer'**
-  String get timerDefaultPresetName;
-
   /// No description provided for @timerPresetSave.
   ///
   /// In en, this message translates to:
@@ -5457,12 +5451,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'You have 20 timers. Delete one to save another.'**
   String get timerPresetLimit;
-
-  /// No description provided for @timerBellsDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Timer bells follow your settings'**
-  String get timerBellsDescription;
 
   /// No description provided for @timerPresetWriteError.
   ///
@@ -5584,12 +5572,6 @@ abstract class AppLocalizations {
   /// **'Sound: {name}'**
   String bellSoundSelection(String name);
 
-  /// No description provided for @bellSoundPremium.
-  ///
-  /// In en, this message translates to:
-  /// **'Premium'**
-  String get bellSoundPremium;
-
   /// No description provided for @bellSoundPreview.
   ///
   /// In en, this message translates to:
@@ -5668,11 +5650,11 @@ abstract class AppLocalizations {
   /// **'Get ready'**
   String get timerPrepLabel;
 
-  /// No description provided for @timerTimeLeftSemantics.
+  /// Screen reader sentence for the remaining time. form is 'one' when the first unit is 1 (Spanish says «Queda»).
   ///
   /// In en, this message translates to:
-  /// **'{time} left'**
-  String timerTimeLeftSemantics(String time);
+  /// **'{form, select, one{{time} left} other{{time} left}}'**
+  String timerTimeLeftSemantics(String form, String time);
 
   /// No description provided for @timerTimeElapsedSemantics.
   ///
