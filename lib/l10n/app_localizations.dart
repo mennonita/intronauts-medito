@@ -5059,7 +5059,7 @@ abstract class AppLocalizations {
   /// Body of the card explaining Stopwatch mode on the Timer screen
   ///
   /// In en, this message translates to:
-  /// **'The time counts up from zero. Tap stop when you\'re done and the session is saved.'**
+  /// **'The clock counts up from zero, for up to 5 hours. Tap “End session” when you\'re done and your session is saved.'**
   String get timerStopwatchCaption;
 
   /// Timer screen primary button
@@ -5239,31 +5239,31 @@ abstract class AppLocalizations {
   /// No description provided for @timerBellEvery.
   ///
   /// In en, this message translates to:
-  /// **'Every {minutes} min'**
+  /// **'Every {minutes} minutes'**
   String timerBellEvery(int minutes);
 
   /// No description provided for @timerBellInterval.
   ///
   /// In en, this message translates to:
-  /// **'Interval'**
+  /// **'Bell every…'**
   String get timerBellInterval;
 
   /// No description provided for @timerBellsOff.
   ///
   /// In en, this message translates to:
-  /// **'Off'**
+  /// **'None'**
   String get timerBellsOff;
 
   /// No description provided for @timerRandomBells.
   ///
   /// In en, this message translates to:
-  /// **'Random'**
+  /// **'Random bells'**
   String get timerRandomBells;
 
   /// No description provided for @timerRandomBellCount.
   ///
   /// In en, this message translates to:
-  /// **'{count} at random'**
+  /// **'{count, plural, =1{1 bell} other{{count} bells}}'**
   String timerRandomBellCount(int count);
 
   /// No description provided for @timerExtraTime.
@@ -5275,7 +5275,7 @@ abstract class AppLocalizations {
   /// No description provided for @timerExtraTimeDescription.
   ///
   /// In en, this message translates to:
-  /// **'When the timer ends, it keeps counting until you stop.'**
+  /// **'When the time is up, the clock keeps counting. Tap “End session” to finish.'**
   String get timerExtraTimeDescription;
 
   /// No description provided for @timerExtraTimeElapsed.
@@ -5287,7 +5287,7 @@ abstract class AppLocalizations {
   /// No description provided for @timerBackgroundTitle.
   ///
   /// In en, this message translates to:
-  /// **'Background'**
+  /// **'Screen'**
   String get timerBackgroundTitle;
 
   /// No description provided for @timerBackgroundAnimation.
@@ -5299,19 +5299,19 @@ abstract class AppLocalizations {
   /// No description provided for @timerBackgroundImage.
   ///
   /// In en, this message translates to:
-  /// **'Image'**
+  /// **'Gradients'**
   String get timerBackgroundImage;
 
   /// No description provided for @timerBackgroundColor.
   ///
   /// In en, this message translates to:
-  /// **'Color'**
+  /// **'Colors'**
   String get timerBackgroundColor;
 
   /// No description provided for @timerBackgroundNone.
   ///
   /// In en, this message translates to:
-  /// **'No background'**
+  /// **'Black'**
   String get timerBackgroundNone;
 
   /// No description provided for @timerBackgroundBreathing.
@@ -5407,13 +5407,13 @@ abstract class AppLocalizations {
   /// No description provided for @timerSavedPresets.
   ///
   /// In en, this message translates to:
-  /// **'Your timers'**
+  /// **'Your saved timers'**
   String get timerSavedPresets;
 
   /// No description provided for @timerSavePreset.
   ///
   /// In en, this message translates to:
-  /// **'Save this timer'**
+  /// **'Save these settings'**
   String get timerSavePreset;
 
   /// No description provided for @timerPresetName.
@@ -5479,7 +5479,7 @@ abstract class AppLocalizations {
   /// No description provided for @bellSoundActual.
   ///
   /// In en, this message translates to:
-  /// **'Current bell'**
+  /// **'Classic bell'**
   String get bellSoundActual;
 
   /// No description provided for @bellSoundTibetanBowl.
@@ -5595,6 +5595,630 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Preview {name}'**
   String bellSoundPreview(String name);
+
+  /// No description provided for @timerExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit'**
+  String get timerExit;
+
+  /// No description provided for @timerEndConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'End the session?'**
+  String get timerEndConfirmTitle;
+
+  /// No description provided for @timerEndConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve meditated {minutes} min.'**
+  String timerEndConfirmBody(int minutes);
+
+  /// No description provided for @timerShortSessionWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve meditated less than a minute. Sessions under a minute aren\'t saved.'**
+  String get timerShortSessionWarning;
+
+  /// No description provided for @timerEndConfirmAction.
+  ///
+  /// In en, this message translates to:
+  /// **'End'**
+  String get timerEndConfirmAction;
+
+  /// No description provided for @timerKeepMeditating.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep meditating'**
+  String get timerKeepMeditating;
+
+  /// No description provided for @timerExitConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave the session?'**
+  String get timerExitConfirmTitle;
+
+  /// No description provided for @timerExitConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve meditated {minutes} min. Do you want to save them?'**
+  String timerExitConfirmBody(int minutes);
+
+  /// No description provided for @timerSaveAndExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Save and exit'**
+  String get timerSaveAndExit;
+
+  /// No description provided for @timerExitWithoutSaving.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit without saving'**
+  String get timerExitWithoutSaving;
+
+  /// No description provided for @timerPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get timerPaused;
+
+  /// No description provided for @timerPrepLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Get ready'**
+  String get timerPrepLabel;
+
+  /// No description provided for @timerTimeLeftSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} left'**
+  String timerTimeLeftSemantics(String time);
+
+  /// No description provided for @timerTimeElapsedSemantics.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} so far'**
+  String timerTimeElapsedSemantics(String time);
+
+  /// No description provided for @timerSpokenHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{hours, plural, =1{1 hour} other{{hours} hours}}'**
+  String timerSpokenHours(int hours);
+
+  /// No description provided for @timerSpokenMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes, plural, =1{1 minute} other{{minutes} minutes}}'**
+  String timerSpokenMinutes(int minutes);
+
+  /// No description provided for @timerSpokenSeconds.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds, plural, =1{1 second} other{{seconds} seconds}}'**
+  String timerSpokenSeconds(int seconds);
+
+  /// No description provided for @timerSpokenTimeLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes, plural, =1{1 minute left} other{{minutes} minutes left}}'**
+  String timerSpokenTimeLeft(int minutes);
+
+  /// No description provided for @timerStageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'{stage} · part {index} of {total}'**
+  String timerStageLabel(String stage, int index, int total);
+
+  /// No description provided for @timerDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get timerDone;
+
+  /// No description provided for @timerHeadphonesPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Session paused: your headphones were disconnected'**
+  String get timerHeadphonesPaused;
+
+  /// No description provided for @timerOtherAudioPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Session paused: another app started playing'**
+  String get timerOtherAudioPaused;
+
+  /// No description provided for @timerAlertsChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Timer alerts'**
+  String get timerAlertsChannel;
+
+  /// No description provided for @timerEndBackupChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Timer end'**
+  String get timerEndBackupChannel;
+
+  /// No description provided for @timerEndBackupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your meditation is over'**
+  String get timerEndBackupTitle;
+
+  /// No description provided for @timerEndBackupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your {minutes} min are up.'**
+  String timerEndBackupBody(int minutes);
+
+  /// No description provided for @timerEndBackupSilentChannel.
+  ///
+  /// In en, this message translates to:
+  /// **'Timer end (vibration only)'**
+  String get timerEndBackupSilentChannel;
+
+  /// No description provided for @timerLaunchBusy.
+  ///
+  /// In en, this message translates to:
+  /// **'You already have a session in progress. End it to start another.'**
+  String get timerLaunchBusy;
+
+  /// No description provided for @timerDndRuleName.
+  ///
+  /// In en, this message translates to:
+  /// **'Meditation timer'**
+  String get timerDndRuleName;
+
+  /// No description provided for @timerRecoveredSession.
+  ///
+  /// In en, this message translates to:
+  /// **'We saved your {minutes}-min session.'**
+  String timerRecoveredSession(int minutes);
+
+  /// No description provided for @timerPrepTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Before you start'**
+  String get timerPrepTitle;
+
+  /// No description provided for @timerPrepDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'A short countdown to settle in. It doesn\'t count as meditation time.'**
+  String get timerPrepDescription;
+
+  /// No description provided for @timerPrepOff.
+  ///
+  /// In en, this message translates to:
+  /// **'No wait'**
+  String get timerPrepOff;
+
+  /// No description provided for @timerPrepSecondsOption.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds} s'**
+  String timerPrepSecondsOption(int seconds);
+
+  /// No description provided for @timerPrepMinutesOption.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String timerPrepMinutesOption(int minutes);
+
+  /// No description provided for @timerZeroHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose at least 1 minute to start.'**
+  String get timerZeroHint;
+
+  /// No description provided for @timerStartError.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t start the timer. Please try again.'**
+  String get timerStartError;
+
+  /// No description provided for @statsBeforeSignIn.
+  ///
+  /// In en, this message translates to:
+  /// **'On this phone, before you signed in: {sessions, plural, =1{1 session} other{{sessions} sessions}}, {minutes} min.'**
+  String statsBeforeSignIn(int sessions, int minutes);
+
+  /// No description provided for @timerExitFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t leave the session. Please try again.'**
+  String get timerExitFailed;
+
+  /// No description provided for @timerVolumeZeroTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your volume is at zero'**
+  String get timerVolumeZeroTitle;
+
+  /// No description provided for @timerVolumeZeroBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You won\'t hear the bells. Turn up your media volume.'**
+  String get timerVolumeZeroBody;
+
+  /// No description provided for @timerStartAnyway.
+  ///
+  /// In en, this message translates to:
+  /// **'Start anyway'**
+  String get timerStartAnyway;
+
+  /// No description provided for @timerExtraTimeBellHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on the end bell so you know when the time is up.'**
+  String get timerExtraTimeBellHint;
+
+  /// No description provided for @timerPresetAutoName.
+  ///
+  /// In en, this message translates to:
+  /// **'{duration} · {bell}'**
+  String timerPresetAutoName(String duration, String bell);
+
+  /// No description provided for @timerManagePresets.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit saved timers'**
+  String get timerManagePresets;
+
+  /// No description provided for @timerPresetRename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get timerPresetRename;
+
+  /// No description provided for @timerPresetUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Save current settings'**
+  String get timerPresetUpdate;
+
+  /// No description provided for @timerPresetUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Changes saved'**
+  String get timerPresetUpdated;
+
+  /// No description provided for @timerPresetMoveUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Move up'**
+  String get timerPresetMoveUp;
+
+  /// No description provided for @timerPresetMoveDown.
+  ///
+  /// In en, this message translates to:
+  /// **'Move down'**
+  String get timerPresetMoveDown;
+
+  /// No description provided for @timerPresetLoaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Loaded “{name}”. Tap Start when you\'re ready.'**
+  String timerPresetLoaded(String name);
+
+  /// No description provided for @timerPresetOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Options for “{name}”'**
+  String timerPresetOptions(String name);
+
+  /// No description provided for @timerBellsSummaryNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No bells'**
+  String get timerBellsSummaryNone;
+
+  /// No description provided for @timerSummaryStart.
+  ///
+  /// In en, this message translates to:
+  /// **'at the start'**
+  String get timerSummaryStart;
+
+  /// No description provided for @timerSummaryEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'at the end'**
+  String get timerSummaryEnd;
+
+  /// No description provided for @timerSummaryInterval.
+  ///
+  /// In en, this message translates to:
+  /// **'every {minutes} min'**
+  String timerSummaryInterval(int minutes);
+
+  /// No description provided for @timerSummaryRandom.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} at random'**
+  String timerSummaryRandom(int count);
+
+  /// No description provided for @timerSummaryVibration.
+  ///
+  /// In en, this message translates to:
+  /// **'vibration'**
+  String get timerSummaryVibration;
+
+  /// No description provided for @timerBellOutputTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How they alert you'**
+  String get timerBellOutputTitle;
+
+  /// No description provided for @timerBellOutputSound.
+  ///
+  /// In en, this message translates to:
+  /// **'Sound'**
+  String get timerBellOutputSound;
+
+  /// No description provided for @timerBellOutputVibration.
+  ///
+  /// In en, this message translates to:
+  /// **'Vibration only'**
+  String get timerBellOutputVibration;
+
+  /// No description provided for @timerBellOutputBoth.
+  ///
+  /// In en, this message translates to:
+  /// **'Sound and vibration'**
+  String get timerBellOutputBoth;
+
+  /// No description provided for @timerBellOutputVibrationHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Useful when you meditate next to others. Some phones don\'t vibrate while locked.'**
+  String get timerBellOutputVibrationHint;
+
+  /// No description provided for @timerSpokenCues.
+  ///
+  /// In en, this message translates to:
+  /// **'Announce the time left'**
+  String get timerSpokenCues;
+
+  /// No description provided for @timerSpokenCuesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'A voice tells you when 10, 5 and 1 minutes are left.'**
+  String get timerSpokenCuesDescription;
+
+  /// No description provided for @timerStagesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Session in parts'**
+  String get timerStagesTitle;
+
+  /// No description provided for @timerStagesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'For example: sitting, walking, sitting. Each part starts with its own bell.'**
+  String get timerStagesDescription;
+
+  /// No description provided for @timerStageSit.
+  ///
+  /// In en, this message translates to:
+  /// **'Sitting'**
+  String get timerStageSit;
+
+  /// No description provided for @timerStageWalk.
+  ///
+  /// In en, this message translates to:
+  /// **'Walking'**
+  String get timerStageWalk;
+
+  /// No description provided for @timerStageRest.
+  ///
+  /// In en, this message translates to:
+  /// **'Rest'**
+  String get timerStageRest;
+
+  /// No description provided for @timerStageAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a part'**
+  String get timerStageAdd;
+
+  /// No description provided for @timerStageRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove part'**
+  String get timerStageRemove;
+
+  /// No description provided for @timerStagesTotal.
+  ///
+  /// In en, this message translates to:
+  /// **'Total: {duration}'**
+  String timerStagesTotal(String duration);
+
+  /// No description provided for @timerStageLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'You can have up to 6 parts.'**
+  String get timerStageLimit;
+
+  /// No description provided for @timerStageMinus.
+  ///
+  /// In en, this message translates to:
+  /// **'One minute less'**
+  String get timerStageMinus;
+
+  /// No description provided for @timerStagePlus.
+  ///
+  /// In en, this message translates to:
+  /// **'One minute more'**
+  String get timerStagePlus;
+
+  /// No description provided for @timerHoursWheelLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Hours: {value}'**
+  String timerHoursWheelLabel(int value);
+
+  /// No description provided for @timerMinutesWheelLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Minutes: {value}'**
+  String timerMinutesWheelLabel(int value);
+
+  /// No description provided for @timerCompletedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You meditated {duration}'**
+  String timerCompletedTitle(String duration);
+
+  /// No description provided for @timerSaveNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Save a note'**
+  String get timerSaveNote;
+
+  /// No description provided for @timerRepeat.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat'**
+  String get timerRepeat;
+
+  /// No description provided for @timerNoteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'What did you notice in your practice?'**
+  String get timerNoteHint;
+
+  /// No description provided for @timerNoteSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Note saved'**
+  String get timerNoteSaved;
+
+  /// No description provided for @timerNoteError.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save your note. Please try again.'**
+  String get timerNoteError;
+
+  /// No description provided for @timerClosingFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Thank you for giving yourself this time.'**
+  String get timerClosingFallback;
+
+  /// No description provided for @timerHealthCardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Save your minutes to Health'**
+  String get timerHealthCardTitle;
+
+  /// No description provided for @timerHealthCardBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your sessions are saved as mindful minutes. We only write; we never read your data.'**
+  String get timerHealthCardBody;
+
+  /// No description provided for @timerHealthCardEnable.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on'**
+  String get timerHealthCardEnable;
+
+  /// No description provided for @timerHealthCardLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get timerHealthCardLater;
+
+  /// No description provided for @timerSettingsSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Timer'**
+  String get timerSettingsSection;
+
+  /// No description provided for @timerMixWithOthersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Music from other apps'**
+  String get timerMixWithOthersTitle;
+
+  /// No description provided for @timerMixWithOthersSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Let music from other apps keep playing while you use the timer.'**
+  String get timerMixWithOthersSubtitle;
+
+  /// No description provided for @timerKeepScreenOnTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the screen on'**
+  String get timerKeepScreenOnTitle;
+
+  /// No description provided for @timerKeepScreenOnSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The screen stays on while you use the timer.'**
+  String get timerKeepScreenOnSubtitle;
+
+  /// No description provided for @mindfulnessBellsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Bells during the day'**
+  String get mindfulnessBellsTitle;
+
+  /// No description provided for @mindfulnessBellsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A gentle reminder to pause and breathe.'**
+  String get mindfulnessBellsSubtitle;
+
+  /// No description provided for @mindfulnessBellsFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'From {time}'**
+  String mindfulnessBellsFrom(String time);
+
+  /// No description provided for @mindfulnessBellsUntil.
+  ///
+  /// In en, this message translates to:
+  /// **'Until {time}'**
+  String mindfulnessBellsUntil(String time);
+
+  /// No description provided for @mindfulnessBellsEvery.
+  ///
+  /// In en, this message translates to:
+  /// **'{hours, plural, =1{Every hour} other{Every {hours} hours}}'**
+  String mindfulnessBellsEvery(int hours);
+
+  /// No description provided for @mindfulnessBellNotificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mindfulness bell'**
+  String get mindfulnessBellNotificationTitle;
+
+  /// No description provided for @mindfulnessBellNotificationBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause and take a breath.'**
+  String get mindfulnessBellNotificationBody;
+
+  /// No description provided for @mindfulnessBellsPermissionNeeded.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on notifications to get the bells.'**
+  String get mindfulnessBellsPermissionNeeded;
+
+  /// No description provided for @timerShortcutMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes}-min timer'**
+  String timerShortcutMinutes(int minutes);
+
+  /// No description provided for @timerShortcutLast.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat last timer'**
+  String get timerShortcutLast;
 }
 
 class _AppLocalizationsDelegate

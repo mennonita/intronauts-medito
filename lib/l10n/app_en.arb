@@ -2019,7 +2019,7 @@
   "@timerHoursLabel": {"description": "Label under the hours wheel on the Timer screen"},
   "timerMinutesLabel": "Minutes",
   "@timerMinutesLabel": {"description": "Label under the minutes wheel on the Timer screen"},
-  "timerStopwatchCaption": "The time counts up from zero. Tap stop when you're done and the session is saved.",
+  "timerStopwatchCaption": "The clock counts up from zero, for up to 5 hours. Tap “End session” when you're done and your session is saved.",
   "@timerStopwatchCaption": {"description": "Body of the card explaining Stopwatch mode on the Timer screen"},
   "timerStart": "Start",
   "@timerStart": {"description": "Timer screen primary button"},
@@ -2137,7 +2137,7 @@
       }
     }
   },
-  "timerBellEvery": "Every {minutes} min",
+  "timerBellEvery": "Every {minutes} minutes",
   "@timerBellEvery": {
     "placeholders": {
       "minutes": {
@@ -2145,10 +2145,10 @@
       }
     }
   },
-  "timerBellInterval": "Interval",
-  "timerBellsOff": "Off",
-  "timerRandomBells": "Random",
-  "timerRandomBellCount": "{count} at random",
+  "timerBellInterval": "Bell every…",
+  "timerBellsOff": "None",
+  "timerRandomBells": "Random bells",
+  "timerRandomBellCount": "{count, plural, =1{1 bell} other{{count} bells}}",
   "@timerRandomBellCount": {
     "placeholders": {
       "count": {
@@ -2157,7 +2157,7 @@
     }
   },
   "timerExtraTime": "Extra time",
-  "timerExtraTimeDescription": "When the timer ends, it keeps counting until you stop.",
+  "timerExtraTimeDescription": "When the time is up, the clock keeps counting. Tap “End session” to finish.",
   "timerExtraTimeElapsed": "Extra time +{time}",
   "@timerExtraTimeElapsed": {
     "placeholders": {
@@ -2166,11 +2166,11 @@
       }
     }
   },
-  "timerBackgroundTitle": "Background",
+  "timerBackgroundTitle": "Screen",
   "timerBackgroundAnimation": "Animation",
-  "timerBackgroundImage": "Image",
-  "timerBackgroundColor": "Color",
-  "timerBackgroundNone": "No background",
+  "timerBackgroundImage": "Gradients",
+  "timerBackgroundColor": "Colors",
+  "timerBackgroundNone": "Black",
   "timerBackgroundBreathing": "Breathing",
   "timerBackgroundWaves": "Waves",
   "timerBackgroundParticles": "Particles",
@@ -2191,8 +2191,8 @@
       "time": {"type": "String"}
     }
   },
-  "timerSavedPresets": "Your timers",
-  "timerSavePreset": "Save this timer",
+  "timerSavedPresets": "Your saved timers",
+  "timerSavePreset": "Save these settings",
   "timerPresetName": "Name",
   "timerDefaultPresetName": "My timer",
   "timerPresetSave": "Save",
@@ -2210,7 +2210,7 @@
   "timerBellsDescription": "Timer bells follow your settings",
   "timerPresetWriteError": "Unable to save the change. Try again.",
   "timerStopError": "Unable to stop the timer. Try again.",
-  "bellSoundActual": "Current bell",
+  "bellSoundActual": "Classic bell",
   "bellSoundTibetanBowl": "Tibetan bowl",
   "bellSoundWoodBlock": "Wood block",
   "bellSoundSmallBell": "Small bell",
@@ -2243,5 +2243,310 @@
         "type": "String"
       }
     }
-  }
+  },
+  "timerExit": "Exit",
+  "timerEndConfirmTitle": "End the session?",
+  "timerEndConfirmBody": "You've meditated {minutes} min.",
+  "@timerEndConfirmBody": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerShortSessionWarning": "You've meditated less than a minute. Sessions under a minute aren't saved.",
+  "timerEndConfirmAction": "End",
+  "timerKeepMeditating": "Keep meditating",
+  "timerExitConfirmTitle": "Leave the session?",
+  "timerExitConfirmBody": "You've meditated {minutes} min. Do you want to save them?",
+  "@timerExitConfirmBody": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerSaveAndExit": "Save and exit",
+  "timerExitWithoutSaving": "Exit without saving",
+  "timerPaused": "Paused",
+  "timerPrepLabel": "Get ready",
+  "timerTimeLeftSemantics": "{time} left",
+  "@timerTimeLeftSemantics": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "timerTimeElapsedSemantics": "{time} so far",
+  "@timerTimeElapsedSemantics": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "timerSpokenHours": "{hours, plural, =1{1 hour} other{{hours} hours}}",
+  "@timerSpokenHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "timerSpokenMinutes": "{minutes, plural, =1{1 minute} other{{minutes} minutes}}",
+  "@timerSpokenMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerSpokenSeconds": "{seconds, plural, =1{1 second} other{{seconds} seconds}}",
+  "@timerSpokenSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "timerSpokenTimeLeft": "{minutes, plural, =1{1 minute left} other{{minutes} minutes left}}",
+  "@timerSpokenTimeLeft": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerStageLabel": "{stage} · part {index} of {total}",
+  "@timerStageLabel": {
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      },
+      "index": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "timerDone": "Done",
+  "timerHeadphonesPaused": "Session paused: your headphones were disconnected",
+  "timerOtherAudioPaused": "Session paused: another app started playing",
+  "timerAlertsChannel": "Timer alerts",
+  "timerEndBackupChannel": "Timer end",
+  "timerEndBackupTitle": "Your meditation is over",
+  "timerEndBackupBody": "Your {minutes} min are up.",
+  "@timerEndBackupBody": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerEndBackupSilentChannel": "Timer end (vibration only)",
+  "timerLaunchBusy": "You already have a session in progress. End it to start another.",
+  "timerDndRuleName": "Meditation timer",
+  "timerRecoveredSession": "We saved your {minutes}-min session.",
+  "@timerRecoveredSession": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerPrepTitle": "Before you start",
+  "timerPrepDescription": "A short countdown to settle in. It doesn't count as meditation time.",
+  "timerPrepOff": "No wait",
+  "timerPrepSecondsOption": "{seconds} s",
+  "@timerPrepSecondsOption": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "timerPrepMinutesOption": "{minutes} min",
+  "@timerPrepMinutesOption": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerZeroHint": "Choose at least 1 minute to start.",
+  "timerStartError": "Couldn't start the timer. Please try again.",
+  "statsBeforeSignIn": "On this phone, before you signed in: {sessions, plural, =1{1 session} other{{sessions} sessions}}, {minutes} min.",
+  "@statsBeforeSignIn": {
+    "placeholders": {
+      "sessions": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerExitFailed": "Couldn't leave the session. Please try again.",
+  "timerVolumeZeroTitle": "Your volume is at zero",
+  "timerVolumeZeroBody": "You won't hear the bells. Turn up your media volume.",
+  "timerStartAnyway": "Start anyway",
+  "timerExtraTimeBellHint": "Turn on the end bell so you know when the time is up.",
+  "timerPresetAutoName": "{duration} · {bell}",
+  "@timerPresetAutoName": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      },
+      "bell": {
+        "type": "String"
+      }
+    }
+  },
+  "timerManagePresets": "Edit saved timers",
+  "timerPresetRename": "Rename",
+  "timerPresetUpdate": "Save current settings",
+  "timerPresetUpdated": "Changes saved",
+  "timerPresetMoveUp": "Move up",
+  "timerPresetMoveDown": "Move down",
+  "timerPresetLoaded": "Loaded “{name}”. Tap Start when you're ready.",
+  "@timerPresetLoaded": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "timerPresetOptions": "Options for “{name}”",
+  "@timerPresetOptions": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "timerBellsSummaryNone": "No bells",
+  "timerSummaryStart": "at the start",
+  "timerSummaryEnd": "at the end",
+  "timerSummaryInterval": "every {minutes} min",
+  "@timerSummaryInterval": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerSummaryRandom": "{count} at random",
+  "@timerSummaryRandom": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "timerSummaryVibration": "vibration",
+  "timerBellOutputTitle": "How they alert you",
+  "timerBellOutputSound": "Sound",
+  "timerBellOutputVibration": "Vibration only",
+  "timerBellOutputBoth": "Sound and vibration",
+  "timerBellOutputVibrationHint": "Useful when you meditate next to others. Some phones don't vibrate while locked.",
+  "timerSpokenCues": "Announce the time left",
+  "timerSpokenCuesDescription": "A voice tells you when 10, 5 and 1 minutes are left.",
+  "timerStagesTitle": "Session in parts",
+  "timerStagesDescription": "For example: sitting, walking, sitting. Each part starts with its own bell.",
+  "timerStageSit": "Sitting",
+  "timerStageWalk": "Walking",
+  "timerStageRest": "Rest",
+  "timerStageAdd": "Add a part",
+  "timerStageRemove": "Remove part",
+  "timerStagesTotal": "Total: {duration}",
+  "@timerStagesTotal": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "timerStageLimit": "You can have up to 6 parts.",
+  "timerStageMinus": "One minute less",
+  "timerStagePlus": "One minute more",
+  "timerHoursWheelLabel": "Hours: {value}",
+  "@timerHoursWheelLabel": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "timerMinutesWheelLabel": "Minutes: {value}",
+  "@timerMinutesWheelLabel": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "timerCompletedTitle": "You meditated {duration}",
+  "@timerCompletedTitle": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "timerSaveNote": "Save a note",
+  "timerRepeat": "Repeat",
+  "timerNoteHint": "What did you notice in your practice?",
+  "timerNoteSaved": "Note saved",
+  "timerNoteError": "Couldn't save your note. Please try again.",
+  "timerClosingFallback": "Thank you for giving yourself this time.",
+  "timerHealthCardTitle": "Save your minutes to Health",
+  "timerHealthCardBody": "Your sessions are saved as mindful minutes. We only write; we never read your data.",
+  "timerHealthCardEnable": "Turn on",
+  "timerHealthCardLater": "Not now",
+  "timerSettingsSection": "Timer",
+  "timerMixWithOthersTitle": "Music from other apps",
+  "timerMixWithOthersSubtitle": "Let music from other apps keep playing while you use the timer.",
+  "timerKeepScreenOnTitle": "Keep the screen on",
+  "timerKeepScreenOnSubtitle": "The screen stays on while you use the timer.",
+  "mindfulnessBellsTitle": "Bells during the day",
+  "mindfulnessBellsSubtitle": "A gentle reminder to pause and breathe.",
+  "mindfulnessBellsFrom": "From {time}",
+  "@mindfulnessBellsFrom": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "mindfulnessBellsUntil": "Until {time}",
+  "@mindfulnessBellsUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "mindfulnessBellsEvery": "{hours, plural, =1{Every hour} other{Every {hours} hours}}",
+  "@mindfulnessBellsEvery": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "mindfulnessBellNotificationTitle": "Mindfulness bell",
+  "mindfulnessBellNotificationBody": "Pause and take a breath.",
+  "mindfulnessBellsPermissionNeeded": "Turn on notifications to get the bells.",
+  "timerShortcutMinutes": "{minutes}-min timer",
+  "@timerShortcutMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "timerShortcutLast": "Repeat last timer"
 }
