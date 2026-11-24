@@ -6,24 +6,16 @@ typedef BellSoundId = String;
 const defaultBellSoundId = 'actual';
 
 class BellSound {
-  const BellSound(
-    this.id,
-    this.assetKey,
-    this.durationMs,
-    this.name, {
-    this.premium = false,
-  });
+  const BellSound(this.id, this.assetKey, this.durationMs, this.name);
 
   // Todas las campanas del temporizador son gratis (decisión del dueño).
   const BellSound._mp3(this.id, String file, this.durationMs, this.name)
-    : premium = false,
-      assetKey = 'assets/audio/bells/$file.mp3';
+    : assetKey = 'assets/audio/bells/$file.mp3';
 
   final BellSoundId id;
   final String assetKey;
   final int durationMs;
   final String Function(AppLocalizations) name;
-  final bool premium;
 
   static BellSound resolve(Object? id) =>
       _byId[id] ?? _byId[defaultBellSoundId]!;

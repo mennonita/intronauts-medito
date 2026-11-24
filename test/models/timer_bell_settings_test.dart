@@ -166,8 +166,9 @@ void main() {
     },
   );
 
+  // decisión del dueño 2026-11-24: todas las campanas del temporizador son gratis.
   test('ninguna campana del temporizador es de pago', () {
-    expect(bellSounds.where((sound) => sound.premium), isEmpty);
+    // El campo «premium» ya no existe en el catálogo.
     expect(bellSounds, hasLength(17));
   });
 
