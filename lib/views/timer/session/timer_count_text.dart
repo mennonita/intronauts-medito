@@ -117,8 +117,10 @@ class _TimerCountTextState extends ConsumerState<TimerCountText> {
     final prep = Duration(milliseconds: timeline.prepRemainingMs(position));
     label = l10n.timerPrepLabel;
     time = formatTimerClock(prep, roundUp: true);
+    final left = _ceilToSecond(prep);
     sentence = l10n.timerTimeLeftSemantics(
-      timerSpokenDuration(l10n, _ceilToSecond(prep)),
+      timerSpokenForm(left),
+      timerSpokenDuration(l10n, left),
     );
     prefixed = true;
   } else {
@@ -157,11 +159,10 @@ class _TimerCountTextState extends ConsumerState<TimerCountText> {
       );
     } else {
       final remaining = timeline.remainingMs(position) ?? 0;
+      final left = _ceilToSecond(Duration(milliseconds: remaining));
       sentence = l10n.timerTimeLeftSemantics(
-        timerSpokenDuration(
-          l10n,
-          _ceilToSecond(Duration(milliseconds: remaining)),
-        ),
+        timerSpokenForm(left),
+        timerSpokenDuration(l10n, left),
       );
     }
   }

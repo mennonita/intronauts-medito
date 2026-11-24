@@ -3027,9 +3027,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get timerPresetName => 'Name';
 
   @override
-  String get timerDefaultPresetName => 'Mein Timer';
-
-  @override
   String get timerPresetSave => 'Speichern';
 
   @override
@@ -3046,10 +3043,6 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get timerPresetLimit =>
       'Du hast 20 Timer. Lösche einen, um einen weiteren zu speichern.';
-
-  @override
-  String get timerBellsDescription =>
-      'Die Glocken richten sich nach deinen Timer-Einstellungen.';
 
   @override
   String get timerPresetWriteError =>
@@ -3116,9 +3109,6 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get bellSoundPremium => 'Premium';
-
-  @override
   String bellSoundPreview(String name) {
     return '$name anhören';
   }
@@ -3165,8 +3155,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get timerPrepLabel => 'Mach dich bereit';
 
   @override
-  String timerTimeLeftSemantics(String time) {
-    return 'Noch $time';
+  String timerTimeLeftSemantics(String form, String time) {
+    String _temp0 = intl.Intl.selectLogic(form, {
+      'one': 'Noch $time',
+      'other': 'Noch $time',
+    });
+    return '$_temp0';
   }
 
   @override

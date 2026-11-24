@@ -56,6 +56,20 @@ String formatTimerLength(Duration duration, AppLocalizations l10n) {
 /// un minuto solo dice los segundos; desde un minuto, los segundos restantes
 /// se dicen cuando no son cero (PLAN §6, fila 10). Quien llama redondea antes,
 /// igual que el reloj en pantalla.
+/// «one» si la primera unidad que se dice vale 1 («Queda 1 minuto»).
+String timerSpokenForm(Duration duration) {
+  final d = duration.isNegative ? Duration.zero : duration;
+  final int lead;
+  if (d < const Duration(minutes: 1)) {
+    lead = d.inSeconds;
+  } else if (d.inHours > 0) {
+    lead = d.inHours;
+  } else {
+    lead = d.inMinutes;
+  }
+  return lead == 1 ? 'one' : 'other';
+}
+
 String timerSpokenDuration(AppLocalizations l10n, Duration duration) {
   final d = duration.isNegative ? Duration.zero : duration;
   if (d < const Duration(minutes: 1)) {

@@ -117,6 +117,23 @@ void main() {
       expect(seconds.semantics, 'Quedan 45 segundos');
     });
 
+    test('en singular dice «Queda»', () {
+      final request = _request();
+      final minute = timerCountReading(
+        l10n,
+        request: request,
+        positionMs: 19 * _min,
+      );
+      expect(minute.semantics, 'Queda 1 minuto');
+
+      final second = timerCountReading(
+        l10n,
+        request: request,
+        positionMs: 20 * _min - 500,
+      );
+      expect(second.semantics, 'Queda 1 segundo');
+    });
+
     test('cuenta regresiva: «Quedan 12 minutos 30 segundos», igual que el '
         'reloj', () {
       final reading = timerCountReading(

@@ -2194,7 +2194,6 @@
   "timerSavedPresets": "Your saved timers",
   "timerSavePreset": "Save these settings",
   "timerPresetName": "Name",
-  "timerDefaultPresetName": "My timer",
   "timerPresetSave": "Save",
   "timerPresetCancel": "Cancel",
   "timerDeletePresetQuestion": "Delete “{name}”?",
@@ -2207,7 +2206,6 @@
   },
   "timerPresetDelete": "Delete",
   "timerPresetLimit": "You have 20 timers. Delete one to save another.",
-  "timerBellsDescription": "Timer bells follow your settings",
   "timerPresetWriteError": "Unable to save the change. Try again.",
   "timerStopError": "Unable to stop the timer. Try again.",
   "bellSoundActual": "Classic bell",
@@ -2235,7 +2233,6 @@
       }
     }
   },
-  "bellSoundPremium": "Premium",
   "bellSoundPreview": "Preview {name}",
   "@bellSoundPreview": {
     "placeholders": {
@@ -2270,9 +2267,13 @@
   "timerExitWithoutSaving": "Exit without saving",
   "timerPaused": "Paused",
   "timerPrepLabel": "Get ready",
-  "timerTimeLeftSemantics": "{time} left",
+  "timerTimeLeftSemantics": "{form, select, one{{time} left} other{{time} left}}",
   "@timerTimeLeftSemantics": {
+    "description": "Screen reader sentence for the remaining time. form is 'one' when the first unit is 1 (Spanish says «Queda»).",
     "placeholders": {
+      "form": {
+        "type": "String"
+      },
       "time": {
         "type": "String"
       }
