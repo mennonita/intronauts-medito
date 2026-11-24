@@ -7,6 +7,7 @@ import 'package:medito/constants/constants.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/models.dart';
+import 'package:medito/models/timer/last_timer_store.dart';
 import 'package:medito/models/timer/timer_launch.dart';
 import 'package:medito/models/timer/timer_preset.dart';
 import 'package:medito/models/timer/timer_session.dart';
@@ -27,7 +28,12 @@ import 'package:medito/views/player/widgets/bottom_actions/single_back_action_ba
 
 import 'widgets/timer_bell_controls.dart';
 import 'widgets/timer_duration_wheels.dart';
+import 'widgets/timer_prep_selector.dart';
+import 'widgets/timer_preset_chips.dart';
+import 'widgets/timer_preset_manager_sheet.dart';
 import 'widgets/timer_preset_name_dialog.dart';
+import 'widgets/timer_stages_editor.dart';
+import 'widgets/timer_volume_check.dart';
 
 /// The home Timer: pick a length (or an open-ended stopwatch) and a sound,
 /// then sit with the regular player. Works fully offline — the session is a
@@ -39,16 +45,41 @@ class TimerView extends ConsumerStatefulWidget {
   /// [AnalyticsEventConstants.timerOpened]).
   final String source;
 
-  // Arranque desde enlace, widget o atajo; lo usa W2-SETUP.
+  /// Arranque desde enlace, widget, atajo o «Repetir»: carga los ajustes y
+  /// empieza en cuanto se abre la pantalla.
   final TimerLaunch? launch;
+
+  /// Prepara el archivo silencioso de la sesión; las pruebas lo reemplazan.
+  @visibleForTesting
+  static Future<String> Function(Duration duration) prepareTimerFile =
+      TimerAudioFile.prepare;
+
+  /// Pantalla que se abre al empezar; las pruebas la reemplazan.
+  @visibleForTesting
+  static WidgetBuilder playerPageBuilder = (_) => const PlayerView();
 
   @override
   ConsumerState<TimerView> createState() => _TimerViewState();
 }
 
+/// Sonido de fondo que eligió un temporizador cargado o un enlace para el
+/// próximo inicio; `sound` null = sin sonido de fondo.
+typedef _AmbientChoice = ({BackgroundSoundsModel? sound});
+
+/// Ajustes y sonido de fondo que trae un arranque desde fuera.
+typedef _ResolvedLaunch = ({
+  TimerSettings settings,
+  _AmbientChoice? ambient,
+  String lengthSource,
+});
+
 class _TimerViewState extends ConsumerState<TimerView> {
   final _wheels = GlobalKey<TimerDurationWheelsState>();
   bool _starting = false;
+  bool _launchHandled = false;
+
+  /// Null = el sonido de fondo elegido en el reproductor.
+  _AmbientChoice? _ambient;
 
   /// How the countdown length was set, for timer_started: remembered or
   /// default until the user touches a chip (preset) or the wheels (wheel).
@@ -86,6 +117,12 @@ class _TimerViewState extends ConsumerState<TimerView> {
       ),
     );
     unawaited(analytics.logScreenView(screenName: 'TimerView'));
+    final launch = widget.launch;
+    if (launch != null && !launch.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_handleLaunch(launch));
+      });
+    }
   }
 
   Future<void> _loadCover() async {
@@ -108,20 +145,60 @@ class _TimerViewState extends ConsumerState<TimerView> {
     }
   }
 
-  Future<void> _start([TimerPreset? preset]) async {
-    final settings =
-        preset?.settings ?? ref.read<TimerSettings>(timerSettingsProvider);
-    if (_starting || !settings.canStart) return;
-    setState(() => _starting = true);
+  /// Sonido de fondo global (el del reproductor); «ninguno» cuenta como null.
+  BackgroundSoundsModel? _globalAmbient() {
+    final sound = _soundRepo.getSelectedBgSoundFromSharedPreferences();
+    return sound?.id == kNoneBackgroundSoundId ? null : sound;
+  }
+
+  /// Sonido de fondo con el que empezaría la próxima sesión.
+  BackgroundSoundsModel? _currentAmbient() {
+    final ambient = _ambient;
+    return ambient == null ? _globalAmbient() : ambient.sound;
+  }
+
+  void _showSnack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Empieza con los ajustes en pantalla. Reserva el reproductor antes de
+  /// cualquier espera: dos inicios seguidos (dos enlaces, un enlace y un
+  /// toque) nunca abren dos sesiones, y una sesión en curso sigue intacta.
+  Future<void> _start() async {
+    if (_starting) return;
+    final settings = ref.read(timerSettingsProvider);
+    if (!settings.canStart) return;
     final l10n = AppLocalizations.of(context)!;
+    final player = ref.read(playerProvider.notifier);
+    final runId = newTimerRunId();
+    if (!player.reserveStart(runId)) {
+      _showSnack(l10n.timerLaunchBusy);
+      return;
+    }
+    // Desde aquí la sesión es de esta cuenta, aunque cambie después (R50).
+    final ownerId = player.statsOwnerId;
+    setState(() => _starting = true);
     unawaited(HapticFeedback.mediumImpact());
 
+    var handedOff = false;
     try {
-      final duration = settings.sessionDuration;
-      final path = await TimerAudioFile.prepare(settings.fileDuration);
+      final volumeOk = await confirmTimerVolume(
+        context,
+        output: settings.bells.output,
+        stillValid: () => player.isReserved(runId),
+      );
+      // Si una meditación guiada tomó el reproductor, se detiene sin avisar.
+      if (!player.isReserved(runId) || !mounted || !volumeOk) return;
+      final path = await TimerView.prepareTimerFile(settings.fileDuration);
+      if (!player.isReserved(runId) || !mounted) return;
+
+      final ambient = _ambient;
       final request = timerPlaybackRequest(
         mode: settings.mode,
-        duration: duration,
+        duration: settings.sessionDuration,
         filePath: path,
         title: settings.mode == TimerMode.stopwatch
             ? l10n.timerModeStopwatch
@@ -129,105 +206,233 @@ class _TimerViewState extends ConsumerState<TimerView> {
         coverUrl: _coverUrl,
         bells: settings.bells,
         extraTime: settings.hasExtraTime,
+        runId: runId,
+        ownerId: ownerId,
         stopLabel: l10n.timerEndSession,
-        overrideBackgroundSound: preset != null,
-        backgroundSound: preset?.sound,
+        overrideBackgroundSound: ambient != null,
+        backgroundSound: ambient?.sound,
+        prepMs: settings.prepSeconds * 1000,
+        stages: settings.isMultiStage ? settings.stages : const [],
+        spokenText: (minutes) => l10n.timerSpokenTimeLeft(minutes),
       );
+      final startedAmbient = request.resolveBackgroundSound(_globalAmbient());
       unawaited(
         FirebaseAnalyticsService().logEvent(
           name: AnalyticsEventConstants.timerStarted,
           parameters: {
             AnalyticsEventConstants.paramTimerMode: settings.mode.name,
             AnalyticsEventConstants.paramDurationMinutes:
-                settings.mode == TimerMode.stopwatch ? 0 : settings.minutes,
+                settings.mode == TimerMode.stopwatch
+                ? 0
+                : settings.plannedDuration.inMinutes,
             if (settings.mode == TimerMode.countdown)
-              AnalyticsEventConstants.paramLengthSource: preset == null
-                  ? _lengthSource
-                  : 'preset',
+              AnalyticsEventConstants.paramLengthSource: _lengthSource,
             // Ambient sound and bells, as last left in the player.
             AnalyticsEventConstants.paramSoundId:
-                request
-                    .resolveBackgroundSound(
-                      preset == null
-                          ? _soundRepo.getSelectedBgSoundFromSharedPreferences()
-                          : null,
-                    )
-                    ?.id ??
-                kNoneBackgroundSoundId,
+                startedAmbient?.id ?? kNoneBackgroundSoundId,
             AnalyticsEventConstants.paramSessionBells:
                 _soundRepo.getSessionBellsEnabled(forTimer: true) ? 1 : 0,
           },
         ),
       );
-      if (!mounted) return;
-      ref.read(playerProvider.notifier).prepare(request);
+      // Solo se prepara: PlayerProvider lo guarda como «último temporizador»
+      // cuando esta sesión de verdad empieza a sonar.
+      LastTimerStore.stage(
+        runId,
+        LastTimerSnapshot(
+          settings: settings.toSnapshotJson(),
+          backgroundSoundId: startedAmbient?.id,
+          savedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+      player.prepare(request);
+      handedOff = true;
       unawaited(
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => const PlayerView()),
+          MaterialPageRoute(builder: TimerView.playerPageBuilder),
         ),
       );
     } catch (e, st) {
       AppLogger.e('TIMER', 'Failed to start timer', e, st);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l10n.unableToLoadAudio)));
-      }
+      if (player.isReserved(runId)) _showSnack(l10n.timerStartError);
     } finally {
+      // Toda salida antes de abrir el reproductor suelta la reserva.
+      if (!handedOff) player.releaseStart(runId);
       if (mounted) setState(() => _starting = false);
     }
   }
 
+  /// Arranque desde fuera: una sesión en curso nunca se reemplaza; si el
+  /// arranque no se puede resolver la pantalla queda como está, sin error.
+  Future<void> _handleLaunch(TimerLaunch launch) async {
+    if (_launchHandled) return;
+    _launchHandled = true;
+    final l10n = AppLocalizations.of(context)!;
+    if (ref.read(playerProvider.notifier).hasActiveSession) {
+      _showSnack(l10n.timerLaunchBusy);
+      return;
+    }
+    final resolved = _resolveLaunch(launch);
+    if (resolved == null) return;
+    setState(() => _starting = true);
+    var applied = false;
+    try {
+      applied = await ref
+          .read(timerSettingsProvider.notifier)
+          .apply(resolved.settings);
+    } catch (e, st) {
+      AppLogger.e('TIMER', 'No se pudieron aplicar los ajustes', e, st);
+    }
+    if (!mounted) return;
+    setState(() => _starting = false);
+    if (!applied) {
+      _showSnack(l10n.timerStartError);
+      return;
+    }
+    if (resolved.ambient != null) _ambient = resolved.ambient;
+    _lengthSource = resolved.lengthSource;
+    final settings = ref.read(timerSettingsProvider);
+    if (settings.mode == TimerMode.countdown) {
+      unawaited(_wheels.currentState?.animateTo(settings.minutes));
+    }
+    await _start();
+  }
+
+  _ResolvedLaunch? _resolveLaunch(TimerLaunch launch) {
+    final name = launch.presetName;
+    if (name != null) {
+      for (final preset in ref.read(timerPresetsProvider)) {
+        if (preset.name == name) {
+          return (
+            settings: preset.settings,
+            ambient: (sound: preset.sound),
+            lengthSource: 'preset',
+          );
+        }
+      }
+    }
+    if (launch.last) {
+      final snapshot = LastTimerStore.read(ref.read(sharedPreferencesProvider));
+      final settings = snapshot == null
+          ? null
+          : TimerSettings.fromSnapshotJson(snapshot.settings);
+      if (snapshot != null && settings != null) {
+        return (
+          settings: settings,
+          ambient: _ambientFromId(snapshot.backgroundSoundId),
+          lengthSource: 'launch',
+        );
+      }
+    }
+    final minutes = launch.minutes;
+    if (minutes != null) {
+      return (
+        settings: ref
+            .read(timerSettingsProvider)
+            .copyWith(
+              mode: TimerMode.countdown,
+              minutes: minutes,
+              stages: const [],
+              extraTime: false,
+            ),
+        ambient: null,
+        lengthSource: 'launch',
+      );
+    }
+    return null;
+  }
+
+  /// Sonido de fondo guardado con «Repetir»: sin id = sin sonido; un id que
+  /// ya no está en el catálogo deja el sonido actual (null).
+  _AmbientChoice? _ambientFromId(String? id) {
+    if (id == null || id == kNoneBackgroundSoundId) return (sound: null);
+    final global = _globalAmbient();
+    if (global?.id == id) return (sound: global);
+    try {
+      for (final sound in _soundRepo.fetchCachedBackgroundSounds()) {
+        if (sound.id == id) return (sound: sound);
+      }
+    } catch (e) {
+      AppLogger.w('TIMER', 'Catálogo de sonidos no disponible: $e');
+    }
+    return null;
+  }
+
+  /// Tocar un temporizador guardado lo carga en la pantalla; no empieza.
+  Future<void> _loadPreset(TimerPreset preset) async {
+    unawaited(HapticFeedback.selectionClick());
+    final l10n = AppLocalizations.of(context)!;
+    final applied = await ref
+        .read(timerSettingsProvider.notifier)
+        .apply(preset.settings);
+    if (!mounted) return;
+    if (!applied) {
+      showTimerPresetWriteError(context);
+      return;
+    }
+    _ambient = (sound: preset.sound);
+    _lengthSource = 'preset';
+    if (preset.settings.mode == TimerMode.countdown) {
+      unawaited(_wheels.currentState?.animateTo(preset.settings.minutes));
+    }
+    _showSnack(l10n.timerPresetLoaded(preset.name));
+  }
+
+  Future<void> _onPresetAction(
+    TimerPreset preset,
+    TimerPresetAction action,
+  ) async {
+    final notifier = ref.read(timerPresetsProvider.notifier);
+    final index = ref
+        .read(timerPresetsProvider)
+        .indexWhere((item) => item.id == preset.id);
+    if (index < 0) return;
+    switch (action) {
+      case TimerPresetAction.rename:
+        await renameTimerPreset(context, ref, preset);
+      case TimerPresetAction.update:
+        final settings = ref.read(timerSettingsProvider);
+        if (!settings.canStart) return;
+        final sound = _currentAmbient();
+        final updated = await notifier.update(
+          preset.id,
+          preset.copyWith(
+            settings: settings,
+            sound: sound,
+            clearSound: sound == null,
+          ),
+        );
+        if (!mounted) return;
+        if (updated) {
+          _showSnack(AppLocalizations.of(context)!.timerPresetUpdated);
+        } else {
+          showTimerPresetWriteError(context);
+        }
+      case TimerPresetAction.moveUp:
+      case TimerPresetAction.moveDown:
+        final to = action == TimerPresetAction.moveUp ? index - 1 : index + 1;
+        final moved = await notifier.move(preset.id, to);
+        if (!moved && mounted) showTimerPresetWriteError(context);
+      case TimerPresetAction.delete:
+        await deleteTimerPreset(context, ref, preset);
+    }
+  }
+
   Future<void> _savePreset(TimerSettings settings) async {
-    final sound = _soundRepo.getSelectedBgSoundFromSharedPreferences();
+    final l10n = AppLocalizations.of(context)!;
+    final sound = _currentAmbient();
     final name = await showDialog<String>(
       context: context,
-      builder: (_) => const TimerPresetNameDialog(),
+      builder: (_) => TimerPresetNameDialog(
+        initialName: timerPresetAutoName(settings, l10n),
+      ),
     );
     if (!mounted || name == null) return;
     final saved = await ref
         .read(timerPresetsProvider.notifier)
-        .save(
-          name,
-          settings,
-          sound?.id == kNoneBackgroundSoundId ? null : sound,
-        );
-    if (!saved) _showPresetWriteError();
-  }
-
-  Future<void> _deletePreset(TimerPreset preset) async {
-    final l10n = AppLocalizations.of(context)!;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l10n.timerDeletePresetQuestion(preset.name)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(l10n.timerPresetCancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(l10n.timerPresetDelete),
-          ),
-        ],
-      ),
-    );
-    if (mounted && confirmed == true) {
-      final deleted = await ref
-          .read(timerPresetsProvider.notifier)
-          .delete(preset);
-      if (!deleted) _showPresetWriteError();
-    }
-  }
-
-  void _showPresetWriteError() {
-    if (!mounted) return;
-    final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l10n.timerPresetWriteError)));
+        .save(name, settings, sound);
+    if (!saved && mounted) showTimerPresetWriteError(context);
   }
 
   void _selectPreset(int minutes) {
@@ -237,14 +442,27 @@ class _TimerViewState extends ConsumerState<TimerView> {
     _wheels.currentState?.animateTo(minutes);
   }
 
+  void _setStages(List<TimerStage> stages) {
+    final notifier = ref.read(timerSettingsProvider.notifier);
+    // Las partes solo existen en cuenta regresiva.
+    if (stages.isNotEmpty) notifier.setMode(TimerMode.countdown);
+    unawaited(notifier.setStages(stages));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
     final settings = ref.watch(timerSettingsProvider);
     final isStopwatch = settings.mode == TimerMode.stopwatch;
+    final isMultiStage = settings.isMultiStage;
     final presets = ref.watch(timerPresetsProvider);
     final atPresetLimit = presets.length >= kMaxTimerPresets;
     final settingsNotifier = ref.read(timerSettingsProvider.notifier);
+    final showZeroHint = !isStopwatch && !settings.canStart;
+    final hintStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+    );
 
     final coverUrl = _coverUrl;
 
@@ -292,26 +510,20 @@ class _TimerViewState extends ConsumerState<TimerView> {
                       if (presets.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         Text(l10n.timerSavedPresets),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              for (final preset in presets)
-                                Padding(
-                                  padding: const EdgeInsetsDirectional.only(
-                                    end: 8,
-                                  ),
-                                  child: GestureDetector(
-                                    onLongPress: () => _deletePreset(preset),
-                                    child: ActionChip(
-                                      label: Text(preset.name),
-                                      onPressed: _starting
-                                          ? null
-                                          : () => _start(preset),
-                                    ),
-                                  ),
-                                ),
-                            ],
+                        const SizedBox(height: 8),
+                        TimerSavedPresetChips(
+                          presets: presets,
+                          enabled: !_starting,
+                          canUpdate: settings.canStart,
+                          onLoad: _loadPreset,
+                          onAction: _onPresetAction,
+                        ),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: TextButton(
+                            onPressed: () =>
+                                showTimerPresetManagerSheet(context),
+                            child: Text(l10n.timerManagePresets),
                           ),
                         ),
                       ],
@@ -325,9 +537,10 @@ class _TimerViewState extends ConsumerState<TimerView> {
                           children: [
                             if (isStopwatch) const _StopwatchInfo(),
                             // Kept mounted while hidden so switching back
-                            // keeps the wheels' position.
+                            // keeps the wheels' position. Por partes, cada
+                            // parte lleva sus minutos y las ruedas se ocultan.
                             Visibility(
-                              visible: !isStopwatch,
+                              visible: !isStopwatch && !isMultiStage,
                               maintainState: true,
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -345,28 +558,48 @@ class _TimerViewState extends ConsumerState<TimerView> {
                                     },
                                   ),
                                   const SizedBox(height: 16),
-                                  _PresetChips(
+                                  TimerDurationChips(
                                     selectedMinutes: settings.minutes,
                                     onSelected: _selectPreset,
                                   ),
                                 ],
                               ),
                             ),
+                            if (!isStopwatch)
+                              TimerStagesEditor(
+                                stages: settings.stages,
+                                currentMinutes: settings.minutes,
+                                onChanged: _setStages,
+                              ),
                           ],
                         ),
+                      ),
+                      TimerPrepSelector(
+                        prepSeconds: settings.prepSeconds,
+                        onChanged: (seconds) =>
+                            unawaited(settingsNotifier.setPrepSeconds(seconds)),
                       ),
                       TimerBellControls(
                         bells: settings.bells,
                         showRandom: !isStopwatch,
                         onChanged: settingsNotifier.setBells,
                       ),
-                      if (!isStopwatch)
+                      if (!isStopwatch && !isMultiStage) ...[
                         SwitchListTile(
                           title: Text(l10n.timerExtraTime),
                           subtitle: Text(l10n.timerExtraTimeDescription),
                           value: settings.extraTime,
                           onChanged: settingsNotifier.setExtraTime,
                         ),
+                        if (settings.extraTime && !settings.bells.end)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            child: Text(
+                              l10n.timerExtraTimeBellHint,
+                              style: hintStyle,
+                            ),
+                          ),
+                      ],
                       OutlinedButton(
                         onPressed: settings.canStart && !atPresetLimit
                             ? () => _savePreset(settings)
@@ -380,10 +613,30 @@ class _TimerViewState extends ConsumerState<TimerView> {
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                child: _StartButton(
-                  enabled: settings.canStart,
-                  loading: _starting,
-                  onPressed: _start,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Se anuncia al lector de pantalla al aparecer.
+                    Semantics(
+                      liveRegion: true,
+                      child: showZeroHint
+                          ? Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                l10n.timerZeroHint,
+                                textAlign: TextAlign.center,
+                                style: hintStyle,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                    _StartButton(
+                      enabled: settings.canStart,
+                      loading: _starting,
+                      onPressed: () => unawaited(_start()),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -445,103 +698,6 @@ class _StopwatchInfo extends StatelessWidget {
   }
 }
 
-class _PresetChips extends StatelessWidget {
-  const _PresetChips({required this.selectedMinutes, required this.onSelected});
-
-  static const height = 58.0;
-
-  final int selectedMinutes;
-  final ValueChanged<int> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-    return SizedBox(
-      height: height,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          for (final minutes in kTimerPresetMinutes)
-            _PresetChip(
-              minutes: minutes,
-              selected: minutes == selectedMinutes,
-              label: l10n.min,
-              semanticLabel: l10n.timerPresetSemantics(minutes),
-              onTap: () => onSelected(minutes),
-              theme: theme,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PresetChip extends StatelessWidget {
-  const _PresetChip({
-    required this.minutes,
-    required this.selected,
-    required this.label,
-    required this.semanticLabel,
-    required this.onTap,
-    required this.theme,
-  });
-
-  final int minutes;
-  final bool selected;
-  final String label;
-  final String semanticLabel;
-  final VoidCallback onTap;
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    final background = selected ? context.brandAccent : theme.cardColor;
-    final foreground = selected
-        ? context.onBrandAccent
-        : theme.colorScheme.onSurface;
-    return Semantics(
-      label: semanticLabel,
-      button: true,
-      selected: selected,
-      excludeSemantics: true,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: _PresetChips.height,
-        height: _PresetChips.height,
-        decoration: BoxDecoration(color: background, shape: BoxShape.circle),
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '$minutes',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: foreground,
-                    fontWeight: FontWeight.w600,
-                    height: 1.1,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: foreground.withValues(alpha: 0.7),
-                    height: 1.1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _StartButton extends StatelessWidget {
   const _StartButton({
     required this.enabled,
@@ -556,9 +712,12 @@ class _StartButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Same as the track screen's Play: the themed primary button at 56pt.
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
+    // Alto mínimo, no fijo: con letra grande el botón crece.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        minWidth: double.infinity,
+        minHeight: 56,
+      ),
       child: ElevatedButton(
         onPressed: enabled && !loading ? onPressed : null,
         child: loading
