@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:medito/l10n/app_localizations.dart';
@@ -56,6 +57,7 @@ String buildPracticeCsv({
 
 final _formulaStart = RegExp(r'^[-=+@]');
 final _csvSpecialCharacter = RegExp(r'[,"\r\n]');
+bool _sharingPracticeCsv = false;
 
 String _escapeCell(String value) {
   final guarded = _formulaStart.hasMatch(value) ? "'$value" : value;
@@ -64,9 +66,11 @@ String _escapeCell(String value) {
 }
 
 Future<void> sharePracticeCsv(BuildContext context) async {
+  if (_sharingPracticeCsv) return;
   final l10n = AppLocalizations.of(context)!;
   final stats = StatsManager();
   final generation = stats.localGeneration;
+  _sharingPracticeCsv = true;
   try {
     // Carga el historial local antes de pedirlo para evitar la sincronización.
     await stats.hasLocalStats();
@@ -94,10 +98,11 @@ Future<void> sharePracticeCsv(BuildContext context) async {
       toLocal: DateTime.fromMillisecondsSinceEpoch,
     );
     final date = DateFormat('yyyy-MM-dd', 'en_US').format(DateTime.now());
+    final name = 'mi-practica-$date.csv';
     final temp = await getTemporaryDirectory();
     final folder = await temp.createTemp('practice-export-');
     try {
-      final file = File('${folder.path}/mi-practica-$date.csv');
+      final file = File('${folder.path}/$name');
       await file.writeAsBytes(utf8.encode('\uFEFF$csv'));
       if (!context.mounted) return;
       if (!sameAccount()) {
@@ -107,13 +112,25 @@ Future<void> sharePracticeCsv(BuildContext context) async {
       final origin = box != null && box.hasSize
           ? box.localToGlobal(Offset.zero) & box.size
           : null;
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path, mimeType: 'text/csv')],
-          subject: l10n.exportShareSubject,
-          sharePositionOrigin: origin,
-        ),
-      );
+      // En Android, share_plus 12.0.2 entrega esta copia al destino.
+      final sharedCopy = defaultTargetPlatform == TargetPlatform.android
+          ? File('${temp.path}/share_plus/$name')
+          : null;
+      try {
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [XFile(file.path, mimeType: 'text/csv')],
+            subject: l10n.exportShareSubject,
+            sharePositionOrigin: origin,
+          ),
+        );
+      } finally {
+        try {
+          await sharedCopy?.delete();
+        } on PathNotFoundException {
+          // La copia pudo no crearse o Android pudo limpiar la caché.
+        }
+      }
     } finally {
       await folder.delete(recursive: true);
     }
@@ -122,5 +139,7 @@ Future<void> sharePracticeCsv(BuildContext context) async {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(l10n.exportFailed)));
+  } finally {
+    _sharingPracticeCsv = false;
   }
 }

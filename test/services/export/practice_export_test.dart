@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -82,10 +83,11 @@ void main() {
     expect(_csv(), '${_es.exportCsvHeader}\r\n');
   });
 
-  for (final shareFails in [false, true]) {
+  for (final shareResult in ['completed', 'dismissed', 'failed']) {
     testWidgets(
-      'writes BOM, anchors sharing, and cleans up (failure: $shareFails)',
+      'writes BOM, anchors sharing, and cleans up when sharing is $shareResult',
       (tester) async {
+        final isAndroid = defaultTargetPlatform == TargetPlatform.android;
         final stats = StatsManager()..resetForTesting();
         addTearDown(stats.resetForTesting);
         final temp = Directory.systemTemp.createTempSync(
@@ -122,13 +124,25 @@ void main() {
 
         late Map<Object?, Object?> args;
         late File file;
+        late File sharedFile;
         late List<int> bytes;
         messenger.setMockMethodCallHandler(shareChannel, (call) async {
           args = call.arguments as Map<Object?, Object?>;
           file = File((args['paths'] as List).single as String);
-          bytes = file.readAsBytesSync();
-          if (shareFails) throw PlatformException(code: 'share-failed');
-          return '';
+          sharedFile = file;
+          if (isAndroid) {
+            // Android comparte cacheDir/share_plus/<nombre>, como share_plus.
+            final cache = Directory('${temp.path}/share_plus')..createSync();
+            sharedFile = file.copySync(
+              '${cache.path}/${file.uri.pathSegments.last}',
+            );
+          }
+          bytes = sharedFile.readAsBytesSync();
+          return switch (shareResult) {
+            'completed' => 'com.example/.ShareReceiver',
+            'dismissed' => '',
+            _ => throw PlatformException(code: 'share-failed'),
+          };
         });
         addTearDown(
           () => messenger.setMockMethodCallHandler(shareChannel, null),
@@ -165,13 +179,19 @@ void main() {
         expect(args['originY'], anchor.top);
         expect(args['originWidth'], anchor.width);
         expect(args['originHeight'], anchor.height);
+        expect(sharedFile.existsSync(), isFalse);
         expect(file.existsSync(), isFalse);
-        expect(temp.listSync(), isEmpty);
+        expect(file.parent.existsSync(), isFalse);
+        expect(temp.listSync(recursive: true).whereType<File>(), isEmpty);
         expect(
           find.text(_es.exportFailed),
-          shareFails ? findsOneWidget : findsNothing,
+          shareResult == 'failed' ? findsOneWidget : findsNothing,
         );
       },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+      }),
     );
   }
 }

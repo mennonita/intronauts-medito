@@ -64,6 +64,26 @@ final _updated = _old.copyWith(
   path: 'https://example.com/rain-v2.mp3',
 );
 
+const _guidedDownload = Track(
+  id: 'track',
+  title: 'Meditación',
+  description: '',
+  coverUrl: '',
+  isPublished: true,
+  hasBackgroundSound: false,
+  voices: [
+    TrackVoice(
+      audioFiles: [
+        TrackAudioFile(
+          id: 'file',
+          path: 'https://example.com/file.mp3',
+          duration: 60,
+        ),
+      ],
+    ),
+  ],
+);
+
 const _timer = PlaybackRequest(
   trackId: 'timer-120',
   fileId: 'timer',
@@ -345,7 +365,7 @@ void main() {
   test(
     'offline uses the safe legacy file when there is no cache map',
     () async {
-      await open();
+      await open(legacyDownloads: [_old]);
       final legacy = file('Rain.mp3')..writeAsStringSync('legado');
       final done = settled();
       notifier.restoreTimerBackgroundSound(_timer);
@@ -478,27 +498,7 @@ void main() {
       await open(
         catalog: [_updated],
         legacyDownloads: [oldTitle],
-        guidedDownloads: [
-          const Track(
-            id: 'track',
-            title: 'Meditación',
-            description: '',
-            coverUrl: '',
-            isPublished: true,
-            hasBackgroundSound: false,
-            voices: [
-              TrackVoice(
-                audioFiles: [
-                  TrackAudioFile(
-                    id: 'file',
-                    path: 'https://example.com/file.mp3',
-                    duration: 60,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
+        guidedDownloads: [_guidedDownload],
       );
       final guided = file('track-file.mp3')..writeAsStringSync('meditación');
       final done = settled();
@@ -508,6 +508,42 @@ void main() {
       expect(guided.readAsStringSync(), 'meditación');
     },
   );
+
+  for (final origin in ['guided', 'unrecorded', 'shared by two IDs']) {
+    test('a failed download skips legacy files with origin $origin', () async {
+      final oldTitle = _old.copyWith(title: 'track-file');
+      await open(
+        catalog: [_updated],
+        legacyDownloads: [
+          if (origin != 'unrecorded') oldTitle,
+          if (origin == 'shared by two IDs')
+            oldTitle.copyWith(id: 'other-sound'),
+        ],
+        guidedDownloads: [if (origin == 'guided') _guidedDownload],
+      );
+      final legacy = file('track-file.mp3')
+        ..writeAsStringSync('audio anterior');
+      when(
+        () => downloader.downloadFile(any(), fileName: any(named: 'fileName')),
+      ).thenThrow(const FileSystemException('descarga interrumpida'));
+
+      final done = settled();
+      notifier.restoreTimerBackgroundSound(
+        _timer.copyWith(
+          overrideBackgroundSound: true,
+          backgroundSound: oldTitle,
+        ),
+      );
+      await done;
+
+      expect(loaded, isEmpty);
+      expect(legacy.readAsStringSync(), 'audio anterior');
+      expect(
+        container.read(backgroundSoundsNotifierProvider).failedBgSound,
+        _updated,
+      );
+    });
+  }
 
   test(
     'unsafe legacy names cannot remove files using a slash or backslash',
