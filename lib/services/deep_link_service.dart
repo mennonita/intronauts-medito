@@ -9,6 +9,7 @@ import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/constants/types/type_constants.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/app_globals.dart' show appReadyCompleter;
+import 'package:medito/models/timer/timer_launch.dart';
 import 'package:medito/providers/providers.dart';
 import 'package:medito/routes/routes.dart';
 import 'package:medito/services/shop/fourthwall_service.dart';
@@ -67,8 +68,8 @@ class DeepLinkService {
     }
   }
 
-  // Waits until the app has finished auth/init, then navigates.
-  Future<void> _navigateWhenReady(String path, String id) async {
+  // Espera a que termine la inicialización antes de abrir la pantalla.
+  Future<void> _navigateWhenReady(Future<void> Function() navigate) async {
     try {
       await appReadyCompleter.future.timeout(const Duration(seconds: 15));
     } on TimeoutException {
@@ -77,7 +78,7 @@ class DeepLinkService {
 
     if (!context.mounted) return;
 
-    handleNavigation(path, [id], context, ref: ref);
+    await navigate();
   }
 
   void dispose() {
@@ -107,6 +108,12 @@ class DeepLinkService {
       // Extract and store UTM parameters before navigation
       await _storeUtmParameters(uri);
 
+      final timerLaunch = TimerLaunch.fromUri(uri);
+      if (timerLaunch != null) {
+        unawaited(_navigateWhenReady(() => openTimerLaunch(timerLaunch)));
+        return;
+      }
+
       var pathSegments = <String>[];
 
       if (uri.scheme == 'org.meditofoundation') {
@@ -119,7 +126,16 @@ class DeepLinkService {
         }
       } else if (uri.scheme == 'https' &&
           uri.host == FourthwallService.shopDomain) {
-        unawaited(_navigateWhenReady(TypeConstants.url, uri.toString()));
+        unawaited(
+          _navigateWhenReady(
+            () => handleNavigation(
+              TypeConstants.url,
+              [uri.toString()],
+              context,
+              ref: ref,
+            ),
+          ),
+        );
         return;
       } else if (uri.scheme == 'https' && uri.host == 'medito.app') {
         pathSegments = uri.pathSegments;
@@ -149,10 +165,13 @@ class DeepLinkService {
       }
 
       // Handle other navigation links
-      var path = pathSegments[0];
-      var id = pathSegments.length > 1 ? pathSegments[1] : '';
-
-      _navigateWhenReady(path, id);
+      final path = pathSegments[0];
+      final id = pathSegments.length > 1 ? pathSegments[1] : '';
+      unawaited(
+        _navigateWhenReady(
+          () => handleNavigation(path, [id], context, ref: ref),
+        ),
+      );
     } catch (e) {
       AppLogger.e('DEEPLINK', 'Error handling deep link', e);
       if (context.mounted) {

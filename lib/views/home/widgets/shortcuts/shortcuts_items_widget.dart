@@ -43,9 +43,12 @@ class ShortcutsItemsWidget extends ConsumerWidget {
       ),
     );
     unawaited(analytics.logFirstActionAfterOnboardingIfNeeded('shortcut'));
+    final path = element.type == TypeConstants.route
+        ? element.path
+        : element.path.toString().getIdFromPath();
     await handleNavigation(
       element.type,
-      [element.path.toString().getIdFromPath()],
+      [path],
       context,
       ref: ref,
       timerSource: AnalyticsEventConstants.sourceShortcut,
