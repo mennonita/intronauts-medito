@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/l10n/app_localizations.dart';
+import 'package:medito/models/timer/timer_bell_settings.dart';
+import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/models/timer/timer_settings.dart';
 import 'package:medito/views/previews/preview_support.dart';
 import 'package:medito/views/timer/widgets/timer_stages_editor.dart';
@@ -189,6 +191,52 @@ void main() {
       find.text(l10n.bellSoundSelection(l10n.bellSoundActual)),
       findsOneWidget,
     );
+  });
+
+  testWidgets('cada parte elige cuántas veces suena su campana y se conserva '
+      'al guardar y al reproducir', (tester) async {
+    await _pump(tester, initial: [_sit(10), _sit(10), _sit(10)]);
+    expect(find.text(l10n.timerBellRepeats), findsNWidgets(3));
+    expect(find.text(l10n.timerBellRepeatCount(1)), findsNWidgets(3));
+
+    // La segunda parte suena 3 veces.
+    await tester.tap(find.text(l10n.timerBellRepeatCount(1)).at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.timerBellRepeatCount(3)).last);
+    await tester.pumpAndSettle();
+    final stages = _stages(tester);
+    expect([for (final s in stages) s.repeats], [1, 3, 1]);
+    expect(find.text(l10n.timerBellRepeatCount(3)), findsOneWidget);
+
+    // Guardar: los ajustes guardados conservan las repeticiones.
+    final settings = TimerSettings(
+      mode: TimerMode.countdown,
+      minutes: 30,
+      stages: stages,
+    );
+    final restored = TimerSettings.fromSnapshotJson(settings.toSnapshotJson());
+    expect([for (final s in restored!.stages) s.repeats], [1, 3, 1]);
+
+    // Reproducir: la campana de la segunda parte suena 3 veces seguidas.
+    final request = timerPlaybackRequest(
+      mode: TimerMode.countdown,
+      duration: const Duration(minutes: 30),
+      filePath: '/tmp/timer.wav',
+      title: 'Temporizador',
+      bells: const TimerBellSettings(end: false),
+      stages: restored.stages,
+    );
+    final secondStart = 10 * Duration.millisecondsPerMinute;
+    final stageCues = [
+      for (final cue in request.timerBellCues!)
+        if (cue.kind == TimerBellKind.stage) cue.offsetMs,
+    ];
+    expect(stageCues.where((ms) => ms < secondStart), hasLength(1));
+    expect(
+      stageCues.where((ms) => ms >= secondStart && ms < 2 * secondStart),
+      hasLength(3),
+    );
+    expect(stageCues.where((ms) => ms >= 2 * secondStart), hasLength(1));
   });
 
   testWidgets('con letra al doble no hay desbordes', (tester) async {

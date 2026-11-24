@@ -11,7 +11,6 @@ import androidx.glance.state.GlanceStateDefinition
 import es.antonborri.home_widget.HomeWidgetGlanceState
 import es.antonborri.home_widget.HomeWidgetGlanceStateDefinition
 import org.json.JSONArray
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -49,11 +48,9 @@ class ConsistencyWidget : GlanceAppWidget() {
         // they disagree for users with a nonzero offset.
         val dayBoundaryOffsetHours = prefs.getInt("day_boundary_offset_hours", 0)
         val zone = ZoneId.systemDefault()
+        // Desfase sobre la hora de reloj, igual que la racha y la app.
         fun bucketDay(millis: Long): LocalDate =
-            Instant.ofEpochMilli(millis)
-                .minusSeconds(dayBoundaryOffsetHours * 3600L)
-                .atZone(zone)
-                .toLocalDate()
+            StreakCalculator.dayOf(millis, dayBoundaryOffsetHours, zone)
 
         val consistencyToday = bucketDay(System.currentTimeMillis())
         val consistencyScore = ConsistencyScoreCalculator.calculate(

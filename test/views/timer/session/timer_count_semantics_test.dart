@@ -52,11 +52,41 @@ void main() {
       );
     });
 
-    test('redondea los minutos hacia abajo y junta horas y minutos', () {
+    test('desde un minuto dice también los segundos que no son cero', () {
+      expect(
+        timerSpokenDuration(l10n, const Duration(minutes: 12, seconds: 30)),
+        '12 minutos 30 segundos',
+      );
       expect(
         timerSpokenDuration(l10n, const Duration(minutes: 12, seconds: 59)),
-        '12 minutos',
+        '12 minutos 59 segundos',
       );
+      expect(
+        timerSpokenDuration(l10n, const Duration(minutes: 1, seconds: 1)),
+        '1 minuto 1 segundo',
+      );
+      expect(
+        timerSpokenDuration(l10n, const Duration(hours: 1, seconds: 30)),
+        '1 hora 30 segundos',
+      );
+      expect(
+        timerSpokenDuration(
+          l10n,
+          const Duration(hours: 2, minutes: 5, seconds: 7),
+        ),
+        '2 horas 5 minutos 7 segundos',
+      );
+      // Las fracciones de segundo no se dicen.
+      expect(
+        timerSpokenDuration(
+          l10n,
+          const Duration(minutes: 3, milliseconds: 400),
+        ),
+        '3 minutos',
+      );
+    });
+
+    test('junta horas y minutos', () {
       expect(timerSpokenDuration(l10n, const Duration(minutes: 1)), '1 minuto');
       expect(timerSpokenDuration(l10n, const Duration(hours: 1)), '1 hora');
       expect(
@@ -85,6 +115,17 @@ void main() {
       );
       expect(seconds.time, '0:45');
       expect(seconds.semantics, 'Quedan 45 segundos');
+    });
+
+    test('cuenta regresiva: «Quedan 12 minutos 30 segundos», igual que el '
+        'reloj', () {
+      final reading = timerCountReading(
+        l10n,
+        request: _request(),
+        positionMs: 7 * _min + 30000 + 400,
+      );
+      expect(reading.time, '12:30');
+      expect(reading.semantics, 'Quedan 12 minutos 30 segundos');
     });
 
     test('en pausa la etiqueta cambia y la frase la lleva al inicio', () {
@@ -164,7 +205,7 @@ void main() {
       );
       expect(reading.label, 'Tiempo extra');
       expect(reading.time, '+1:05');
-      expect(reading.semantics, 'Tiempo extra. Llevas 1 minuto');
+      expect(reading.semantics, 'Tiempo extra. Llevas 1 minuto 5 segundos');
     });
 
     test('el cronómetro dice lo que llevas', () {

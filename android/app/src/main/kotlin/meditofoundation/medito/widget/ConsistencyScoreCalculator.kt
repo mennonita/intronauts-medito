@@ -1,6 +1,5 @@
 package meditofoundation.medito.widget
 
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -23,15 +22,12 @@ object ConsistencyScoreCalculator {
         zone: ZoneId = ZoneId.systemDefault(),
         dayBoundaryOffsetHours: Int = 0,
     ): Int {
-        // Mirrors Dart's `dayOf` / StreakCalculator: shift the instant back by
-        // the day-boundary offset before taking the local date, so this score
-        // buckets days identically to the streak. Callers must pass an
-        // offset-adjusted `today` (see ConsistencyWidget).
+        // Igual que `dayOf` de Dart: usa StreakCalculator, que resta el desfase
+        // a la hora de reloj local, así el puntaje agrupa los días igual que la
+        // racha, también en los cambios de horario. Quien llama pasa un `today`
+        // ya ajustado (ver ConsistencyWidget).
         fun toLocalDate(millis: Long) =
-            Instant.ofEpochMilli(millis)
-                .minusSeconds(dayBoundaryOffsetHours * 3600L)
-                .atZone(zone)
-                .toLocalDate()
+            StreakCalculator.dayOf(millis, dayBoundaryOffsetHours, zone)
 
         val audioDates = meditationDates
             .map(::toLocalDate)

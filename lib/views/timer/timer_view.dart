@@ -164,12 +164,16 @@ class _TimerViewState extends ConsumerState<TimerView> {
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
-  /// Empieza con los ajustes en pantalla. Reserva el reproductor antes de
-  /// cualquier espera: dos inicios seguidos (dos enlaces, un enlace y un
-  /// toque) nunca abren dos sesiones, y una sesión en curso sigue intacta.
-  Future<void> _start() async {
+  /// Empieza con los ajustes en pantalla, o con los de un arranque desde
+  /// fuera ([launch]) sin guardarlos: los ajustes guardados no cambian y el
+  /// «último temporizador» se guarda solo cuando el reloj avanza (§4.10).
+  /// Reserva el reproductor antes de cualquier espera: dos inicios seguidos
+  /// (dos enlaces, un enlace y un toque) nunca abren dos sesiones, y una
+  /// sesión en curso sigue intacta.
+  Future<void> _start({_ResolvedLaunch? launch}) async {
     if (_starting) return;
-    final settings = ref.read(timerSettingsProvider);
+    final TimerSettings settings =
+        launch?.settings ?? ref.read(timerSettingsProvider);
     if (!settings.canStart) return;
     final l10n = AppLocalizations.of(context)!;
     final player = ref.read(playerProvider.notifier);
@@ -195,7 +199,8 @@ class _TimerViewState extends ConsumerState<TimerView> {
       final path = await TimerView.prepareTimerFile(settings.fileDuration);
       if (!player.isReserved(runId) || !mounted) return;
 
-      final ambient = _ambient;
+      final ambient = launch?.ambient ?? _ambient;
+      final lengthSource = launch?.lengthSource ?? _lengthSource;
       final request = timerPlaybackRequest(
         mode: settings.mode,
         duration: settings.sessionDuration,
@@ -226,7 +231,7 @@ class _TimerViewState extends ConsumerState<TimerView> {
                 ? 0
                 : settings.plannedDuration.inMinutes,
             if (settings.mode == TimerMode.countdown)
-              AnalyticsEventConstants.paramLengthSource: _lengthSource,
+              AnalyticsEventConstants.paramLengthSource: lengthSource,
             // Ambient sound and bells, as last left in the player.
             AnalyticsEventConstants.paramSoundId:
                 startedAmbient?.id ?? kNoneBackgroundSoundId,
@@ -265,38 +270,21 @@ class _TimerViewState extends ConsumerState<TimerView> {
 
   /// Arranque desde fuera: una sesión en curso nunca se reemplaza; si el
   /// arranque no se puede resolver la pantalla queda como está, sin error.
+  /// Sin ninguna espera antes de reservar: los ajustes del arranque van
+  /// directo al inicio y nunca se guardan como ajustes de la pantalla, así
+  /// que cancelar el aviso de volumen o perder la carrera contra otro
+  /// arranque no deja nada escrito.
   Future<void> _handleLaunch(TimerLaunch launch) async {
     if (_launchHandled) return;
     _launchHandled = true;
-    final l10n = AppLocalizations.of(context)!;
-    if (ref.read(playerProvider.notifier).hasActiveSession) {
-      _showSnack(l10n.timerLaunchBusy);
-      return;
-    }
     final resolved = _resolveLaunch(launch);
-    if (resolved == null) return;
-    setState(() => _starting = true);
-    var applied = false;
-    try {
-      applied = await ref
-          .read(timerSettingsProvider.notifier)
-          .apply(resolved.settings);
-    } catch (e, st) {
-      AppLogger.e('TIMER', 'No se pudieron aplicar los ajustes', e, st);
-    }
-    if (!mounted) return;
-    setState(() => _starting = false);
-    if (!applied) {
-      _showSnack(l10n.timerStartError);
+    if (resolved == null) {
+      if (ref.read(playerProvider.notifier).hasActiveSession) {
+        _showSnack(AppLocalizations.of(context)!.timerLaunchBusy);
+      }
       return;
     }
-    if (resolved.ambient != null) _ambient = resolved.ambient;
-    _lengthSource = resolved.lengthSource;
-    final settings = ref.read(timerSettingsProvider);
-    if (settings.mode == TimerMode.countdown) {
-      unawaited(_wheels.currentState?.animateTo(settings.minutes));
-    }
-    await _start();
+    await _start(launch: resolved);
   }
 
   _ResolvedLaunch? _resolveLaunch(TimerLaunch launch) {

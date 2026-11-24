@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:medito/l10n/app_localizations.dart';
 import 'package:medito/models/timer/bell_sound.dart';
+import 'package:medito/models/timer/timer_bell_settings.dart';
 import 'package:medito/models/timer/timer_settings.dart';
 import 'package:medito/views/timer/timer_format.dart';
 
@@ -33,7 +34,8 @@ String timerStageKindLabel(AppLocalizations l10n, TimerStageKind kind) =>
     };
 
 /// «Sesión por partes» (solo cuenta regresiva): cada parte tiene su tipo, sus
-/// minutos y su campana. Con el interruptor apagado la lista queda vacía.
+/// minutos, su campana y las veces que suena (1 a 3). Con el interruptor
+/// apagado la lista queda vacía.
 class TimerStagesEditor extends StatelessWidget {
   const TimerStagesEditor({
     super.key,
@@ -219,6 +221,31 @@ class _StageRow extends StatelessWidget {
                       onChanged(stage.copyWith(sound: sound)),
                 ),
                 child: Text(l10n.bellSoundSelection(soundName)),
+              ),
+            ),
+            // Veces que suena la campana de esta parte, igual que en las
+            // campanas generales.
+            ListTile(
+              contentPadding: const EdgeInsetsDirectional.only(end: 8),
+              title: Text(l10n.timerBellRepeats),
+              subtitle: DropdownButton<int>(
+                value: timerBellRepeatOptions.contains(stage.repeats)
+                    ? stage.repeats
+                    : timerBellRepeatOptions.first,
+                isExpanded: true,
+                itemHeight: null,
+                items: [
+                  for (final option in timerBellRepeatOptions)
+                    DropdownMenuItem(
+                      value: option,
+                      child: Text(l10n.timerBellRepeatCount(option)),
+                    ),
+                ],
+                onChanged: (repeats) {
+                  if (repeats != null && repeats != stage.repeats) {
+                    onChanged(stage.copyWith(repeats: repeats));
+                  }
+                },
               ),
             ),
           ],

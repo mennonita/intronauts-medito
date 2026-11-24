@@ -18,6 +18,10 @@ class _Env {
   String account = _account;
   bool available = true;
   bool clearFails = false;
+
+  /// El disco rechaza el guardado de la cola (la caché sí cambia, como en
+  /// SharedPreferences real).
+  bool saveFails = false;
   final marks = <HealthPendingRun>[];
   final cleared = <String>[];
   final writes = <HealthSyncEntry>[];
@@ -44,6 +48,15 @@ class _Env {
       return results.isEmpty ? true : results.removeAt(0);
     },
     markSynced: (endMs) async => synced.add(endMs),
+    persist: (prefs, raw) async {
+      const key = SharedPreferenceConstants.pendingHealthSessions;
+      if (raw == null) {
+        await prefs.remove(key);
+      } else {
+        await prefs.setString(key, raw);
+      }
+      return !saveFails;
+    },
   );
 
   void mark(String runId, {String accountId = _account, int endMs = 2000}) {
@@ -403,5 +416,154 @@ void main() {
         expect(await _queue(), isEmpty);
       },
     );
+  });
+
+  group('cambio de cuenta y permiso durante el envío (TIMER-01)', () {
+    late Future<void> flushing;
+
+    Future<void> startBlockedFlush() async {
+      await _giveConsent();
+      await HealthSyncQueue.add(_entry('a'));
+      await HealthSyncQueue.add(_entry('b'));
+      env.writeGate = Completer<void>();
+      flushing = HealthSyncQueue.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(env.writes, isEmpty);
+    }
+
+    test('otra cuenta entre envíos: la siguiente sesión no sale', () async {
+      await startBlockedFlush();
+      env.account = _other;
+      env.writeGate!.complete();
+      await flushing;
+      expect([for (final w in env.writes) w.key], ['a']);
+      expect([for (final e in await _queue()) e.key], ['b']);
+    });
+
+    test('apagar Salud a la mitad detiene el envío y vacía la cola', () async {
+      await startBlockedFlush();
+      final off = HealthSyncQueue.setConsent(false);
+      env.writeGate!.complete();
+      await Future.wait([flushing, off]);
+      expect([for (final w in env.writes) w.key], ['a']);
+      expect(await _queue(), isEmpty);
+    });
+
+    test(
+      'invalidate a la mitad: nada más sale y la cola queda vacía',
+      () async {
+        await startBlockedFlush();
+        final invalidated = HealthSyncQueue.invalidate();
+        env.writeGate!.complete();
+        await Future.wait([flushing, invalidated]);
+        expect([for (final w in env.writes) w.key], ['a']);
+        expect(env.synced, isEmpty);
+        expect(await _queue(), isEmpty);
+        // Un envío nuevo ya no tiene nada viejo que mandar.
+        await HealthSyncQueue.flush();
+        expect(env.writes, hasLength(1));
+      },
+    );
+
+    test(
+      'la eliminación borra la cola por fuera: no se vuelve a guardar',
+      () async {
+        await startBlockedFlush();
+        final prefs = await SharedPreferences.getInstance();
+        // Lo que hace la eliminación de la cuenta con sus claves.
+        await prefs.remove(SharedPreferenceConstants.pendingHealthSessions);
+        await prefs.remove(SharedPreferenceConstants.healthSyncEnabled);
+        await prefs.remove(SharedPreferenceConstants.healthSyncAccountId);
+        env.writeGate!.complete();
+        await flushing;
+        expect([for (final w in env.writes) w.key], ['a']);
+        expect(await _queue(), isEmpty);
+      },
+    );
+
+    test('iOS: otra cuenta tras marcar el intento no escribe', () async {
+      use(_Env(isIOS: true));
+      await _giveConsent();
+      await HealthSyncQueue.add(_entry('a'));
+      HealthSyncQueue.dependencies = HealthSyncDependencies(
+        ready: () async {},
+        currentAccountId: (_) => env.account,
+        isIOS: true,
+        healthAvailable: () async => true,
+        pendingRuns: () async => const [],
+        clearPending: (_) async => true,
+        write: (entry) async {
+          env.writes.add(entry);
+          return true;
+        },
+        markSynced: (_) async {},
+        persist: (prefs, raw) async {
+          const key = SharedPreferenceConstants.pendingHealthSessions;
+          raw == null
+              ? await prefs.remove(key)
+              : await prefs.setString(key, raw);
+          // La cuenta cambia mientras se guarda la marca del intento.
+          env.account = _other;
+          return true;
+        },
+      );
+      await HealthSyncQueue.flush();
+      expect(env.writes, isEmpty);
+    });
+  });
+
+  group('guardado de la cola (TIMER-02)', () {
+    test('si la cola no se guarda, add devuelve false y nada cambia', () async {
+      await HealthSyncQueue.add(_entry('a'));
+      env.saveFails = true;
+      expect(await HealthSyncQueue.add(_entry('b')), isFalse);
+      expect([for (final e in await _queue()) e.key], ['a']);
+      env.saveFails = false;
+      expect(await HealthSyncQueue.add(_entry('b')), isTrue);
+      expect([for (final e in await _queue()) e.key], ['a', 'b']);
+    });
+
+    test(
+      'sesión guiada con la cola sin guardar: no quedó en la cola',
+      () async {
+        await _giveConsent();
+        env.saveFails = true;
+        expect(
+          await HealthSyncQueue.addConsentedSession(
+            key: 'pista@2000',
+            startMs: 1000,
+            endMs: 2000,
+          ),
+          isFalse,
+        );
+        expect(await _queue(), isEmpty);
+      },
+    );
+
+    test('la marca se conserva hasta que la cola se guarda', () async {
+      await _giveConsent();
+      env.mark('run-1');
+      env.saveFails = true;
+      await HealthSyncQueue.flush();
+      expect(env.cleared, isEmpty);
+      expect(env.marks, hasLength(1));
+      expect(env.writes, isEmpty);
+      expect(await _queue(), isEmpty);
+
+      // Tras «reiniciar», la sesión se reintenta y llega una vez.
+      env.saveFails = false;
+      await HealthSyncQueue.flush();
+      expect(env.cleared, ['run-1']);
+      expect([for (final w in env.writes) w.key], ['run-1']);
+      expect(await _queue(), isEmpty);
+    });
+
+    test('la sesión que espera permiso también conserva su marca', () async {
+      env.mark('run-1');
+      env.saveFails = true;
+      await HealthSyncQueue.flush();
+      expect(env.cleared, isEmpty);
+      expect(await _queue(), isEmpty);
+    });
   });
 }
