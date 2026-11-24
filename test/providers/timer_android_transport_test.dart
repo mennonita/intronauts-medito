@@ -141,7 +141,7 @@ void main() {
               assetKey: 'assets/audio/session_bell_v2.wav',
             ),
             BellCue(
-              offsetMs: 175425,
+              offsetMs: 178324,
               kind: 'end',
               assetKey: 'assets/audio/bells/p8-kalimba.mp3',
             ),

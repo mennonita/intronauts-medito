@@ -1405,6 +1405,8 @@
   "timerBells": "Campanas",
   "timerStartBell": "Al empezar",
   "timerEndBell": "Al terminar",
+  "timerBellRepeats": "Veces que suena",
+  "timerBellRepeatCount": "{count, plural, one{1 vez} other{{count} veces}}",
   "timerBellEvery": "Cada {minutes} min",
   "timerBellInterval": "Intervalo",
   "timerBellsOff": "Apagado",

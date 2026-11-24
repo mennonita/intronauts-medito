@@ -44,6 +44,7 @@ void main() {
     await tester.pumpAndSettle();
     final soundRow = find.text('Sonido: Campana actual');
     expect(soundRow, findsOneWidget);
+    expect(find.text('Veces que suena'), findsOneWidget);
     await tester.tap(soundRow);
     await tester.pumpAndSettle();
 
@@ -59,5 +60,71 @@ void main() {
     expect(find.text('Sonido: Cuenco tibetano'), findsOneWidget);
     verify(() => preview.play(any(), assetKey: selected.assetKey)).called(2);
     verify(preview.stop).called(1);
+  });
+
+  testWidgets('cada campana permite elegir cuántas veces suena', (
+    tester,
+  ) async {
+    const initial = TimerBellSettings(intervalMinutes: 1, randomCount: 1);
+    var settings = initial;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('es'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: StatefulBuilder(
+              builder: (context, setState) => TimerBellControls(
+                bells: settings,
+                showRandom: true,
+                onChanged: (updated) => setState(() => settings = updated),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Campanas'));
+    await tester.pumpAndSettle();
+
+    final repeatDropdowns = find.descendant(
+      of: find.widgetWithText(ListTile, 'Veces que suena'),
+      matching: find.byType(DropdownButton<int>),
+    );
+    expect(repeatDropdowns, findsNWidgets(4));
+    for (final (index, label) in [
+      '2 veces',
+      '3 veces',
+      '2 veces',
+      '3 veces',
+    ].indexed) {
+      final dropdown = repeatDropdowns.at(index);
+      final button = tester.widget<DropdownButton<int>>(dropdown);
+      expect(button.value, 1);
+      expect(button.items!.map((item) => (item.child as Text).data), [
+        '1 vez',
+        '2 veces',
+        '3 veces',
+      ]);
+      await tester.ensureVisible(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label).hitTestable().last);
+      await tester.pumpAndSettle();
+    }
+
+    expect(
+      settings.toJson(),
+      initial
+          .copyWith(
+            startRepeats: 2,
+            endRepeats: 3,
+            intervalRepeats: 2,
+            randomRepeats: 3,
+          )
+          .toJson(),
+    );
   });
 }

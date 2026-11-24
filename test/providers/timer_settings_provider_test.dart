@@ -36,6 +36,10 @@ void main() {
       'endSound': 'actual',
       'intervalSound': 'actual',
       'randomSound': 'actual',
+      'startRepeats': 1,
+      'endRepeats': 1,
+      'intervalRepeats': 1,
+      'randomRepeats': 1,
     });
   });
 
@@ -75,6 +79,10 @@ void main() {
       'endSound': 'actual',
       'intervalSound': 'actual',
       'randomSound': 'actual',
+      'startRepeats': 1,
+      'endRepeats': 1,
+      'intervalRepeats': 1,
+      'randomRepeats': 1,
     });
   });
 

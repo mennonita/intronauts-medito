@@ -5224,6 +5224,18 @@ abstract class AppLocalizations {
   /// **'At the end'**
   String get timerEndBell;
 
+  /// No description provided for @timerBellRepeats.
+  ///
+  /// In en, this message translates to:
+  /// **'Times it rings'**
+  String get timerBellRepeats;
+
+  /// No description provided for @timerBellRepeatCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 time} other{{count} times}}'**
+  String timerBellRepeatCount(int count);
+
   /// No description provided for @timerBellEvery.
   ///
   /// In en, this message translates to:

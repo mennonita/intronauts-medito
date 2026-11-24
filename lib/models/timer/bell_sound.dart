@@ -50,7 +50,7 @@ final List<BellSound> bellSounds = List.unmodifiable([
   BellSound._mp3(
     'bloque_madera',
     'g2-bloque-madera',
-    3971,
+    1202,
     (l10n) => l10n.bellSoundWoodBlock,
   ),
   BellSound._mp3(
@@ -101,7 +101,7 @@ final List<BellSound> bellSounds = List.unmodifiable([
   BellSound._mp3(
     'palo_lluvia',
     'p4-palo-lluvia',
-    6008,
+    5799,
     (l10n) => l10n.bellSoundRainstick,
     premium: true,
   ),
@@ -129,21 +129,21 @@ final List<BellSound> bellSounds = List.unmodifiable([
   BellSound._mp3(
     'kalimba',
     'p8-kalimba',
-    4075,
+    1176,
     (l10n) => l10n.bellSoundKalimba,
     premium: true,
   ),
   BellSound._mp3(
     'flauta',
     'p9-flauta',
-    5773,
+    5381,
     (l10n) => l10n.bellSoundBambooFlute,
     premium: true,
   ),
   BellSound._mp3(
     'campanas_viento',
     'p10-campanas-viento',
-    7027,
+    5329,
     (l10n) => l10n.bellSoundWindChimes,
     premium: true,
   ),

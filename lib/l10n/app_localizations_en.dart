@@ -2849,6 +2849,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get timerEndBell => 'At the end';
 
   @override
+  String get timerBellRepeats => 'Times it rings';
+
+  @override
+  String timerBellRepeatCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count times',
+      one: '1 time',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String timerBellEvery(int minutes) {
     return 'Every $minutes min';
   }

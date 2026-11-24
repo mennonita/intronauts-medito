@@ -74,6 +74,29 @@ void main() {
     expect(schedule.update(7200000, enabled: true), isNull);
   });
 
+  test('toca cada golpe del mismo grupo una sola vez', () {
+    final cues = buildTimerBellCues(
+      settings: const TimerBellSettings(
+        startSound: 'bloque_madera',
+        startRepeats: 3,
+        end: false,
+      ),
+      mode: TimerMode.countdown,
+      plannedDuration: const Duration(minutes: 1),
+      extraTime: false,
+      seed: 1,
+    );
+    final schedule = TimerBellSchedule(cues);
+    final assetKey = BellSound.resolve('bloque_madera').assetKey;
+    for (final offset in [0, 2000, 4000]) {
+      expect(
+        schedule.update(offset, enabled: true),
+        TimerBellCue(offset, TimerBellKind.start, assetKey),
+      );
+      expect(schedule.update(offset, enabled: true), isNull);
+    }
+  });
+
   test('devuelve el cierre con su archivo al cruzar el margen', () {
     final cues = buildTimerBellCues(
       settings: const TimerBellSettings(),

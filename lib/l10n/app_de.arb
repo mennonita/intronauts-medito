@@ -1620,6 +1620,8 @@
   "timerBells": "Bells",
   "timerStartBell": "At the start",
   "timerEndBell": "At the end",
+  "timerBellRepeats": "Wie oft sie klingt",
+  "timerBellRepeatCount": "{count, plural, one{1 Mal} other{{count} Mal}}",
   "timerBellEvery": "Every {minutes} min",
   "timerBellInterval": "Interval",
   "timerBellsOff": "Off",

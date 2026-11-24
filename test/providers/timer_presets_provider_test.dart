@@ -124,6 +124,53 @@ void main() {
     });
   });
 
+  test(
+    'conserva las repeticiones al volver a cargar un temporizador',
+    () async {
+      final repeatedBells = settings.bells.copyWith(
+        startRepeats: 2,
+        endRepeats: 3,
+        intervalRepeats: 3,
+        randomRepeats: 2,
+      );
+      await open()
+          .read(timerPresetsProvider.notifier)
+          .save('Repeticiones', settings.copyWith(bells: repeatedBells), null);
+      expect(
+        open().read(timerPresetsProvider).single.settings.bells.toJson(),
+        repeatedBells.toJson(),
+      );
+    },
+  );
+
+  test(
+    'carga una repetición por campana en temporizadores anteriores',
+    () async {
+      final legacy = settings.bells.toJson()
+        ..removeWhere((key, _) => key.endsWith('Repeats'));
+      await prefs.setString(
+        SharedPreferenceConstants.timerPresets,
+        jsonEncode([
+          {
+            ...const TimerPreset(
+              name: 'Anterior',
+              settings: settings,
+              sound: null,
+            ).toJson(),
+            'bells': legacy,
+          },
+        ]),
+      );
+      expect(open().read(timerPresetsProvider).single.settings.bells.toJson(), {
+        ...legacy,
+        'startRepeats': 1,
+        'endRepeats': 1,
+        'intervalRepeats': 1,
+        'randomRepeats': 1,
+      });
+    },
+  );
+
   test('ignora un JSON roto y descarta solo las entradas inválidas', () async {
     await prefs.setString(
       SharedPreferenceConstants.timerPresets,
