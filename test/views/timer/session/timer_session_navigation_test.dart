@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/models/events/donation/donation_page_model.dart';
@@ -20,7 +21,14 @@ import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/providers/stripe/payment_service_provider.dart';
 import 'package:medito/services/review_service.dart';
 import 'package:medito/src/audio_pigeon.g.dart' show Track;
+import 'package:medito/l10n/app_localizations.dart';
+import 'package:medito/models/timer/timer_house_content.dart';
+import 'package:medito/providers/timer/timer_content_provider.dart';
+import 'package:medito/services/timer/mantra_counter_store.dart';
+import 'package:medito/services/timer/timer_route_tracker.dart';
+import 'package:medito/views/timer/mantra/mantra_counter_view.dart';
 import 'package:medito/views/timer/session/timer_exit_dialogs.dart';
+import 'package:medito/views/timer/timer_format.dart';
 import 'package:medito/views/background_sound/background_sound_view.dart';
 import 'package:medito/views/end_screen/end_screen_view.dart';
 import 'package:medito/views/home/previews/home_previews.dart';
@@ -74,10 +82,15 @@ class _Player extends PlayerProvider {
   @override
   PlaybackRequest build() => request;
 
+  VoidCallback? onPlayError;
+
   @override
   Future<void> play(PlaybackRequest request) async {
     final error = playError;
-    if (error != null) throw error;
+    if (error != null) {
+      onPlayError?.call();
+      throw error;
+    }
   }
 
   @override
@@ -166,10 +179,18 @@ class _Harness {
   final ProviderContainer container;
 }
 
+/// Contenido de la casa fijo, sin red.
+class _HouseContent extends TimerHouseContentNotifier {
+  @override
+  TimerHouseContent build() => const TimerHouseContent.empty();
+}
+
 Future<_Harness> _openPlayer(
   WidgetTester tester, {
   _Player? player,
   Map<String, Object> prefs = const {},
+  List<Override> overrides = const [],
+  Widget Function(BuildContext context)? below,
 }) async {
   final fake = player ?? _Player();
   final sounds = _Sounds();
@@ -201,12 +222,20 @@ Future<_Harness> _openPlayer(
             buttons: [],
           ),
         ),
+        ...overrides,
       ],
       child: const Scaffold(key: _home),
     ),
   );
   final homeContext = tester.element(find.byKey(_home));
   final container = ProviderScope.containerOf(homeContext);
+  if (below != null) {
+    // Una pantalla que ya estaba abierta debajo del reproductor.
+    unawaited(
+      Navigator.of(homeContext).push<void>(MaterialPageRoute(builder: below)),
+    );
+    await tester.pumpAndSettle();
+  }
   unawaited(
     Navigator.of(
       homeContext,
@@ -893,4 +922,256 @@ void main() {
   test('el umbral de salir sin preguntar es un minuto', () {
     expect(kTimerExitConfirmMinMs, kMinRecordedTimerSession.inMilliseconds);
   });
+
+  group('un cierre diferido revisa la sesión al ejecutarse (TMR-03)', () {
+    testWidgets('el resumen no tapa la pantalla de otra sesión', (
+      tester,
+    ) async {
+      final h = await _openPlayer(tester);
+      _update(h.container, _request, positionMs: 90000);
+      await tester.pump();
+      final oldRoute = ModalRoute.of(
+        tester.element(find.byType(TimerSessionLayout)),
+      )!;
+
+      // El cierre guardado llega y el resumen queda para el siguiente cuadro.
+      h.player.systemClose(const Duration(minutes: 2));
+      await Future<void>.microtask(() {});
+      // Antes de ese cuadro, otra sesión toma el reproductor y abre la suya.
+      h.player.replaceRun(_long);
+      _update(h.container, _long, positionMs: 45000);
+      const newScreen = Key('pantalla-de-la-otra-sesion');
+      unawaited(
+        oldRoute.navigator!.push<void>(
+          MaterialPageRoute(builder: (_) => const Scaffold(key: newScreen)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(newScreen), findsOneWidget);
+      expect(find.byType(EndScreenView), findsNothing);
+      expect(find.byType(PlayerView, skipOffstage: false), findsNothing);
+      expect(h.player.stops, 0);
+      final audio = h.container.read(audioStateProvider);
+      expect(audio.runId, _long.timerRunId);
+      expect(audio.position, 45000);
+    });
+
+    testWidgets('cerrar una guiada no detiene ni quita la sesión nueva', (
+      tester,
+    ) async {
+      const guided = PlaybackRequest(
+        trackId: 'guiada',
+        fileId: 'archivo-guiado',
+        title: 'Guiada',
+        description: '',
+        coverUrl: '',
+        remoteUrl: 'file:///tmp/guiada.mp3',
+        duration: 600000,
+        hasBackgroundSound: false,
+      );
+      final h = await _openPlayer(tester, player: _Player(guided));
+      final layout = tester.widget<PlayerScreenLayout>(
+        find.byType(PlayerScreenLayout),
+      );
+      final oldRoute = ModalRoute.of(
+        tester.element(find.byType(PlayerScreenLayout)),
+      )!;
+
+      // Cerrar deja el trabajo para el siguiente cuadro.
+      layout.onClosePressed();
+      // Antes de ese cuadro, otra sesión toma el reproductor y abre la suya.
+      h.player.replaceRun(_long);
+      _update(h.container, _long, positionMs: 45000);
+      const newScreen = Key('pantalla-de-la-otra-sesion');
+      unawaited(
+        oldRoute.navigator!.push<void>(
+          MaterialPageRoute(builder: (_) => const Scaffold(key: newScreen)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(newScreen), findsOneWidget);
+      expect(find.byType(PlayerView, skipOffstage: false), findsNothing);
+      expect(h.player.stops, 0);
+      final audio = h.container.read(audioStateProvider);
+      expect(audio.runId, _long.timerRunId);
+      expect(audio.position, 45000);
+    });
+  });
+
+  group('«Guardamos tu sesión» solo con el historial confirmado (END-01)', () {
+    late List<String> asked;
+
+    Future<_Harness> openSkipping(WidgetTester tester, bool confirmed) async {
+      asked = [];
+      final original = PlayerView.confirmSavedTimerRun;
+      PlayerView.confirmSavedTimerRun = (runId) async {
+        asked.add(runId);
+        return confirmed;
+      };
+      TimerRouteTracker.openTimerViews = 1;
+      addTearDown(() {
+        TimerRouteTracker.openTimerViews = 0;
+        PlayerView.confirmSavedTimerRun = original;
+      });
+      return _openPlayer(
+        tester,
+        prefs: {SharedPreferenceConstants.timerSkipEndScreen: true},
+        overrides: [timerHouseContentProvider.overrideWith(_HouseContent.new)],
+      );
+    }
+
+    testWidgets('confirmada: dice que se guardó', (tester) async {
+      final h = await openSkipping(tester, true);
+      _update(h.container, _request, positionMs: 90000);
+      await tester.pump();
+      h.player.systemClose(const Duration(minutes: 2));
+      await tester.pumpAndSettle();
+
+      expect(asked, [_request.timerRunId]);
+      expect(find.byType(PlayerView), findsNothing);
+      expect(find.text(_es.timerSavedSessionNoun('sesión', 2)), findsOneWidget);
+    });
+
+    testWidgets('pendiente: no promete el guardado', (tester) async {
+      final h = await openSkipping(tester, false);
+      _update(h.container, _request, positionMs: 90000);
+      await tester.pump();
+      h.player.systemClose(const Duration(minutes: 2));
+      await tester.pumpAndSettle();
+
+      expect(asked, [_request.timerRunId]);
+      expect(find.text(_es.timerSavedSessionNoun('sesión', 2)), findsNothing);
+      expect(
+        find.text(
+          _es.timerCompletedTitle(
+            formatTimerLength(const Duration(minutes: 2), _es),
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  testWidgets('al volver al contador de mantras la pantalla sigue encendida '
+      '(WAKE-01)', (tester) async {
+    final calls = <Object?>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    TimerDeviceChannel.debugIsAndroid = true;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('intronauts/timer_device'),
+      (call) async {
+        if (call.method == 'keepScreenOn') {
+          calls.add((call.arguments as Map)['on']);
+        }
+        return null;
+      },
+    );
+    MantraCounterStore.instance = MantraCounterStore();
+    addTearDown(() {
+      TimerDeviceChannel.debugIsAndroid = null;
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('intronauts/timer_device'),
+        null,
+      );
+      MantraCounterStore.resetForTesting();
+    });
+    // Un aviso abre el temporizador encima del contador.
+    final h = await _openPlayer(
+      tester,
+      prefs: {SharedPreferenceConstants.timerKeepScreenOn: true},
+      overrides: [timerHouseContentProvider.overrideWith(_HouseContent.new)],
+      below: (_) => const MantraCounterView(),
+    );
+    expect(find.byType(PlayerView), findsOneWidget);
+    _update(h.container, _request, positionMs: 30000);
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+
+    // De vuelta en el contador, la pantalla sigue encendida.
+    expect(find.byType(PlayerView), findsNothing);
+    expect(find.byType(MantraCounterView), findsOneWidget);
+    expect(calls, isNotEmpty);
+    expect(calls.last, isTrue);
+
+    // Al salir del contador vuelve a su ajuste normal.
+    await tester.tap(find.byTooltip(_es.goBack));
+    await tester.pumpAndSettle();
+    expect(calls.last, isFalse);
+  });
+
+  testWidgets('sin «Pantalla encendida», el temporizador sobre el contador '
+      'manda mientras está al frente (WAKE-01)', (tester) async {
+    final calls = <Object?>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    TimerDeviceChannel.debugIsAndroid = true;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('intronauts/timer_device'),
+      (call) async {
+        if (call.method == 'keepScreenOn') {
+          calls.add((call.arguments as Map)['on']);
+        }
+        return null;
+      },
+    );
+    MantraCounterStore.instance = MantraCounterStore();
+    addTearDown(() {
+      TimerDeviceChannel.debugIsAndroid = null;
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('intronauts/timer_device'),
+        null,
+      );
+      MantraCounterStore.resetForTesting();
+    });
+    final h = await _openPlayer(
+      tester,
+      overrides: [timerHouseContentProvider.overrideWith(_HouseContent.new)],
+      below: (_) => const MantraCounterView(),
+    );
+    expect(calls, [true, false]);
+    _update(h.container, _request, positionMs: 30000);
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    expect(calls, [true, false, true]);
+  });
+
+  testWidgets('una guiada que no pudo reemplazar al temporizador lo avisa '
+      'y no lo detiene (TMR-02)', (tester) async {
+    const guided = PlaybackRequest(
+      trackId: 'guiada',
+      fileId: 'archivo-guiado',
+      title: 'Guiada',
+      description: '',
+      coverUrl: '',
+      remoteUrl: 'file:///tmp/guiada.mp3',
+      duration: 600000,
+      hasBackgroundSound: false,
+    );
+    final player = _Player(guided)
+      ..playError = const TimerReplaceFailedException();
+    // Como el proveedor real: el temporizador vuelve a ser la sesión.
+    player.onPlayError = () => player.replaceRun(_request);
+    final h = await _openPlayer(tester, player: player);
+    await tester.pumpAndSettle();
+
+    expect(find.text(_es.timerStopError), findsOneWidget);
+    expect(find.byType(PlayerView), findsOneWidget);
+
+    // Salir de la guiada no detiene el temporizador que sigue sonando.
+    final navigator = tester.state<NavigatorState>(
+      find.byType(Navigator).first,
+    );
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(PlayerView), findsNothing);
+    expect(h.player.stops, 0);
+  });
 }
+
+final _es = lookupAppLocalizations(const Locale('es'));

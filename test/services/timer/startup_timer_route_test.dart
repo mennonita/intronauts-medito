@@ -266,6 +266,15 @@ void main() {
           ? tester.element(find.byType(TimerView))
           : null;
       if (hasSetup) TimerRouteTracker.openTimerViews = 1;
+      // «Guardamos…» solo sale cuando el historial confirma la sesión
+      // (END-01); aquí el historial ya la tiene.
+      final confirmed = <String>[];
+      final originalConfirm = PlayerView.confirmSavedTimerRun;
+      PlayerView.confirmSavedTimerRun = (runId) async {
+        confirmed.add(runId);
+        return true;
+      };
+      addTearDown(() => PlayerView.confirmSavedTimerRun = originalConfirm);
       unawaited(
         navigator.push<void>(
           MaterialPageRoute(builder: (_) => const PlayerView()),
@@ -294,6 +303,7 @@ void main() {
         find.text(_es.timerSavedSessionNoun('práctica', 1)),
         findsOneWidget,
       );
+      expect(confirmed, [player.request!.timerRunId]);
       expect(player.stops, 1);
       final setup = tester.element(find.byType(TimerView));
       if (originalSetup != null) {

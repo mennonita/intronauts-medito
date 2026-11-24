@@ -139,6 +139,9 @@ class IosAudioHandler extends BaseAudioHandler {
   PlaybackRequest? _timerRequest;
   bool _timerCompleting = false;
   bool _endPassedSeen = false;
+  // Resultado de la campana final de la corrida que terminó sola, tomado al
+  // terminar la espera de campanas y antes de soltarlas (SIT-01).
+  ({String runId, bool endCueRang})? _finishedEndCue;
 
   /// La solicitud del temporizador en curso, si hay una.
   PlaybackRequest? get timerRequest => _isTimer ? _timerRequest : null;
@@ -148,6 +151,17 @@ class IosAudioHandler extends BaseAudioHandler {
 
   /// Verdadero mientras el final natural del temporizador suelta el audio.
   bool get timerCompleting => _timerCompleting;
+
+  /// Si la campana final de la corrida [runId] empezó a sonar. Tras el final
+  /// natural responde el resultado publicado con su `runId` al terminar la
+  /// espera de campanas: soltarlas después borra su marca (SIT-01).
+  bool timerEndCueRang(String runId) {
+    final finished = _finishedEndCue;
+    if (finished != null && finished.runId == runId) {
+      return finished.endCueRang;
+    }
+    return timerRunId == runId && sessionBells.endCueStarted;
+  }
 
   String get _sessionKey => timerRunId ?? 'guided-$_startGeneration';
   // Distinguish a repeat boundary from terminal completion; never wait for bells.
@@ -439,17 +453,28 @@ class IosAudioHandler extends BaseAudioHandler {
       );
       // Si el guardado falla, el registro conserva el tiempo final en memoria
       // y lo guarda en la siguiente escritura.
-      await runStore.finish(
+      final saved = await runStore.finish(
         runId: request.timerRunId,
         durationMs: durationMs,
         fallback: TimerRunStart.fromRequest(request),
         generation: accountGeneration,
         keepForRetry: true,
       );
+      // Guardado: se entrega ya al historial, que es quien confirma
+      // «Guardamos tu sesión» (END-01). Si falló, queda para el reintento.
+      if (saved && PlaybackAccount.isCurrent(accountGeneration)) {
+        unawaited(runStore.deliver());
+      }
       unawaited(endBackup.cancel());
       _cancelPauseDeactivationTimer();
       await sessionBells.waitTimerBells();
       if (generation != _startGeneration) return;
+      // El resultado de la campana final viaja con su `runId` antes de soltar
+      // las campanas, que borran la marca (SIT-01).
+      _finishedEndCue = (
+        runId: request.timerRunId,
+        endCueRang: sessionBells.captureEndStarted(),
+      );
       // El final se publica cuando ya sonaron las campanas: la pantalla apaga
       // las campanas al verlo y no debe cortar una atrasada.
       _sessionCompleted.add(true);
@@ -820,6 +845,7 @@ class IosAudioHandler extends BaseAudioHandler {
     _timerRequest = request.isTimer ? request : null;
     _timerCompleting = false;
     _endPassedSeen = false;
+    _finishedEndCue = null;
     sessionBells.onEndCueStarted = request.isTimer
         ? () => unawaited(runStore.markEndPassed(request.timerRunId))
         : null;

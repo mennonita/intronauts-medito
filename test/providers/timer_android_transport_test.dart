@@ -788,6 +788,74 @@ void main() {
         expect(closes, isEmpty);
       },
     );
+
+    test('si el guardado falla, la guiada no empieza y el temporizador sigue '
+        'siendo la sesión (TMR-02)', () async {
+      audioHost('stopTimerPlayback', (_) {
+        return TimerStopReport(
+          positionMs: 61000,
+          stopped: false,
+          endCueRang: false,
+          completionPersisted: false,
+          runId: request.timerRunId,
+        );
+      });
+      await player.play(request);
+      playing(request, position: 61000);
+      expect(playCalls, 1);
+
+      player.prepare(guided);
+      await expectLater(
+        player.play(guided),
+        throwsA(isA<TimerReplaceFailedException>()),
+      );
+
+      // La guiada nunca se cargó: no reemplaza al temporizador.
+      expect(playCalls, 1);
+      expect(player.activeTimerRequest, request);
+      expect(player.hasActiveSession, isTrue);
+      expect(container.read(playerProvider), request);
+      expect(closes, isEmpty);
+    });
+
+    test('si el servicio falla al guardar, la guiada tampoco empieza '
+        '(TMR-02)', () async {
+      audioHost('stopTimerPlayback', (_) {
+        throw PlatformException(code: 'error');
+      });
+      await player.play(request);
+      playing(request, position: 61000);
+
+      await expectLater(
+        player.play(guided),
+        throwsA(isA<TimerReplaceFailedException>()),
+      );
+      expect(playCalls, 1);
+      expect(player.activeTimerRequest, request);
+    });
+
+    test('un temporizador que ya terminó no frena la guiada', () async {
+      audioHost('stopTimerPlayback', (_) {
+        // El servicio ya no tiene la sesión viva: no hay nada que guardar.
+        return TimerStopReport(
+          positionMs: 0,
+          stopped: false,
+          endCueRang: false,
+        );
+      });
+      await player.play(request);
+      playing(request, position: 61000);
+
+      Object? error;
+      try {
+        await player.play(guided);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error, isNot(isA<TimerReplaceFailedException>()));
+      // La guiada ya es la sesión: el temporizador quedó atrás.
+      expect(player.activeTimerRequest, isNull);
+    });
   });
 
   group('cuenta vinculada antes de abrir el servicio (TIMER-REVIEW-03)', () {

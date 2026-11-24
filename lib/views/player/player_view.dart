@@ -28,7 +28,6 @@ import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/providers/timer/timer_content_provider.dart';
 import 'package:medito/providers/timer/timer_preferences_provider.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
-import 'package:medito/services/timer/timer_device_channel.dart';
 import 'package:medito/services/timer/timer_route_tracker.dart';
 import 'package:medito/views/end_screen/end_screen_view.dart';
 import 'package:medito/views/player/session_completion_gate.dart';
@@ -38,9 +37,13 @@ import 'package:medito/views/player/widgets/duration_indicator_widget.dart';
 import 'package:medito/views/player/widgets/stopwatch_elapsed_widget.dart';
 import 'package:medito/views/player/widgets/player_buttons/player_buttons_widget.dart';
 import 'package:medito/l10n/app_localizations.dart';
+import 'package:medito/views/timer/mantra/mantra_counter_view.dart'
+    show KeepScreenOnRequests;
 import 'package:medito/views/timer/session/timer_exit_dialogs.dart';
 import 'package:medito/views/timer/session/timer_session_layout.dart';
+import 'package:medito/views/timer/timer_format.dart';
 import 'package:medito/views/timer/timer_view.dart';
+import 'package:medito/utils/stats_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -49,6 +52,12 @@ import '../../widgets/errors/medito_error_widget.dart';
 
 class PlayerView extends ConsumerStatefulWidget {
   const PlayerView({super.key});
+
+  /// Confirma que el historial ya guardó la sesión [runId] (END-01). Se
+  /// reemplaza en pruebas.
+  @visibleForTesting
+  static Future<bool> Function(String runId) confirmSavedTimerRun = (runId) =>
+      StatsManager().confirmTimerRun(runId);
 
   @override
   ConsumerState<PlayerView> createState() => _PlayerViewState();
@@ -206,6 +215,15 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       if (request.isTimer) {
         _showTimerStartError();
       } else {
+        if (e is TimerReplaceFailedException) {
+          // El temporizador que sonaba no se pudo guardar: sigue sonando y
+          // esta sesión no empieza (TMR-02).
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              content: Text(AppLocalizations.of(context)!.timerStopError),
+            ),
+          );
+        }
         setState(() => _startFailed = true);
       }
     }
@@ -385,7 +403,9 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
           if (isTimer) unawaited(_requestTimerExit());
           return;
         }
-        if (!(_isClosing && isTimer)) {
+        // Una pantalla que se va porque otra sesión tomó el reproductor no
+        // toca lo compartido (TMR-03).
+        if (!(_isClosing && isTimer) && !_leftForOtherRun) {
           _resetState();
           _stopAudio();
         }
@@ -440,6 +460,9 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   bool get _timerBusy =>
       _endScreenOpened || _isClosing || _timerStopped || _timerDialogOpen;
 
+  /// La pantalla del temporizador manda mientras está al frente: pide
+  /// encendida o normal según «Pantalla encendida». Al irse, vuelve a mandar
+  /// la vista de abajo (por ejemplo, el contador de mantras; WAKE-01).
   void _keepScreenOnIfAsked() {
     bool keepOn;
     try {
@@ -448,15 +471,14 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
       AppLogger.w('TIMER', 'No se pudo leer «Pantalla encendida»: $error');
       keepOn = false;
     }
-    if (!keepOn) return;
     _keepingScreenOn = true;
-    unawaited(TimerDeviceChannel.keepScreenOn(true));
+    KeepScreenOnRequests.request(this, on: keepOn);
   }
 
   void _releaseScreenOn() {
     if (!_keepingScreenOn) return;
     _keepingScreenOn = false;
-    unawaited(TimerDeviceChannel.keepScreenOn(false));
+    KeepScreenOnRequests.release(this);
   }
 
   /// ✕ y «atrás» del sistema: con menos de un minuto sale sin preguntar;
@@ -661,10 +683,18 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     } else {
       _isClosing = true;
     }
+    // La sesión de esta pantalla al programar el cierre: se revisa al
+    // ejecutarlo (TMR-03).
+    final mark = _sessionMark();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _resetState();
+      if (!_isSameSession(mark)) {
+        // Otra sesión tomó el reproductor: solo se quita esta pantalla.
+        _removeOwnRoute();
+        return;
+      }
+      _resetState(mark);
       if (!isTimer) _stopAudio();
       // No molestar lo restaura el servicio nativo (DndGuard).
       _endScreenOpened = false;
@@ -701,6 +731,15 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     _playbackStartFallback?.cancel();
     _releaseScreenOn();
     setState(() => _isClosing = true);
+    _removeOwnRoute();
+  }
+
+  /// Quita SOLO la ruta de esta pantalla, esté al frente o debajo de otra.
+  void _removeOwnRoute() {
+    _leftForOtherRun = true;
+    _timerStopped = true;
+    _playbackStartFallback?.cancel();
+    _releaseScreenOn();
     final route = ModalRoute.of(context);
     if (route == null || !route.isActive) return;
     final navigator = Navigator.of(context);
@@ -711,6 +750,25 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
     }
   }
 
+  /// Marca de la sesión del reproductor (TMR-03).
+  Object _sessionMark() => ref.read(playerProvider.notifier).sessionMark;
+
+  /// La sesión del reproductor sigue siendo la que había en [mark] y, para
+  /// un temporizador, sigue siendo la corrida de esta pantalla.
+  bool _isSameSession(Object mark) {
+    try {
+      if (ref.read(playerProvider.notifier).sessionMark != mark) return false;
+    } on StateError {
+      return false;
+    }
+    return !_isOwnTimer || _ownsCurrentRun;
+  }
+
+  /// La solicitud del reproductor es la de esta pantalla.
+  bool get _ownsPlayerRequest => _isOwnTimer
+      ? _ownsCurrentRun
+      : identical(ref.read(playerProvider), _ownRequest);
+
   void _dismissPlayerOverlays() {
     final route = ModalRoute.of(context);
     if (route != null && route.isActive && !route.isCurrent) {
@@ -720,14 +778,42 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
 
   void _stopAudio() {
     if (_timerStopped) return;
+    // Nunca detiene una sesión que no es la de esta pantalla (TMR-02/03).
+    if (!_ownsPlayerRequest) return;
     ref.read(playerProvider.notifier).stop();
     ref.read(backgroundSoundsNotifierProvider.notifier).stopBackgroundSound();
   }
 
-  void _resetState() {
+  /// Borra el estado del audio en el siguiente cuadro, solo si para entonces
+  /// el reproductor sigue con la misma sesión (TMR-03).
+  void _resetState([Object? mark]) {
+    if (!_ownsPlayerRequest) return;
+    final player = ref.read(playerProvider.notifier);
+    final scheduled = mark ?? player.sessionMark;
+    final audio = ref.read(audioStateProvider.notifier);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(audioStateProvider.notifier).resetState();
+      if (player.sessionMark != scheduled) return;
+      audio.resetState();
     });
+  }
+
+  /// «Guardamos tu sesión» solo cuando el historial confirma el registro de
+  /// esta corrida. Si el guardado sigue pendiente, dice cuánto meditó sin
+  /// prometer que ya se guardó (END-01).
+  Future<void> _announceTimerSave(
+    ScaffoldMessengerState messenger, {
+    required String runId,
+    required String saved,
+    required String pending,
+  }) async {
+    var confirmed = false;
+    try {
+      confirmed = await PlayerView.confirmSavedTimerRun(runId);
+    } catch (error, stack) {
+      AppLogger.e('TIMER', 'No se pudo confirmar la sesión', error, stack);
+    }
+    if (!messenger.mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text(confirmed ? saved : pending)));
   }
 
   /// Tiempo meditado del final natural: lo planeado (TECH-9), o lo meditado
@@ -743,8 +829,16 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
   }
 
   void _openEndScreen({Duration? timerElapsed}) {
+    // La sesión que terminó: se revisa al abrir el resumen (TMR-03).
+    final mark = _sessionMark();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_endScreenOpened && mounted && !_isClosing) {
+        if (!_isSameSession(mark)) {
+          // Otra sesión tomó el reproductor: no se detiene ni se tapa su
+          // pantalla; solo se quita la de esta sesión.
+          _removeOwnRoute();
+          return;
+        }
         final currentlyPlayingTrack = _isOwnTimer
             ? _ownRequest
             : ref.read(playerProvider);
@@ -753,7 +847,7 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
         final elapsed = isTimer
             ? timerElapsed ?? _naturalTimerElapsed(currentlyPlayingTrack)
             : null;
-        _resetState();
+        _resetState(mark);
         if (isTimer && !_timerStopped) {
           // Fin natural: el controlador de audio ya esperó la campana final y
           // suelta las campanas y el sonido de fondo por su cuenta (SES-06).
@@ -787,10 +881,13 @@ class _PlayerViewState extends ConsumerState<PlayerView> {
               HouseWord.session,
               l10n.timerSessionNounDefault,
             );
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  l10n.timerSavedSessionNoun(noun, elapsed.inMinutes),
+            unawaited(
+              _announceTimerSave(
+                ScaffoldMessenger.of(context),
+                runId: currentlyPlayingTrack.timerRunId,
+                saved: l10n.timerSavedSessionNoun(noun, elapsed.inMinutes),
+                pending: l10n.timerCompletedTitle(
+                  formatTimerLength(elapsed, l10n),
                 ),
               ),
             );

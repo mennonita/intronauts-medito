@@ -15,6 +15,51 @@ import 'package:medito/widgets/medito_icon.dart';
 
 import 'mantra_total_sheet.dart';
 
+/// Pantalla encendida en Android (WAKE-01). El contador y el reproductor
+/// usan la misma opción del sistema: cada vista registra lo que pide y manda
+/// la más reciente, que es la que está al frente. Cuando una vista se cierra,
+/// vuelve a valer lo que pidió la que queda debajo.
+class KeepScreenOnRequests {
+  KeepScreenOnRequests._();
+
+  // En orden de llegada: la última es la vista de arriba.
+  static final _requests = <Object, bool>{};
+  // Sin peticiones la pantalla sigue su ajuste normal (apagada a tiempo).
+  static bool _applied = false;
+
+  /// Cambia la opción del sistema; se reemplaza en pruebas.
+  @visibleForTesting
+  static Future<void> Function(bool on) apply = TimerDeviceChannel.keepScreenOn;
+
+  /// [owner] pasa al frente pidiendo [on].
+  static void request(Object owner, {required bool on}) {
+    _requests.remove(owner);
+    _requests[owner] = on;
+    _sync();
+  }
+
+  /// [owner] se fue: manda otra vez la vista que quedó al frente.
+  static void release(Object owner) {
+    if (!_requests.containsKey(owner)) return;
+    _requests.remove(owner);
+    _sync();
+  }
+
+  static void _sync() {
+    final on = _requests.isNotEmpty && _requests.values.last;
+    if (on == _applied) return;
+    _applied = on;
+    unawaited(apply(on));
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _requests.clear();
+    _applied = false;
+    apply = TimerDeviceChannel.keepScreenOn;
+  }
+}
+
 /// «Contador de mantras» (F2): toda la pantalla es un solo botón que cuenta
 /// una cuenta por toque. Solo hay toques sencillos: aquí no existe el doble
 /// toque ni el toque largo (regla del dueño).
@@ -45,7 +90,7 @@ class _MantraCounterViewState extends ConsumerState<MantraCounterView> {
       onPause: _flush,
       onDetach: _flush,
     );
-    unawaited(TimerDeviceChannel.keepScreenOn(true));
+    KeepScreenOnRequests.request(this, on: true);
     unawaited(
       _store.load(
         beadsPerRound: ref.read(timerHouseContentProvider).beadsPerRound,
@@ -58,7 +103,7 @@ class _MantraCounterViewState extends ConsumerState<MantraCounterView> {
     _lifecycle.dispose();
     _store.removeListener(_onStoreChanged);
     _flush();
-    unawaited(TimerDeviceChannel.keepScreenOn(false));
+    KeepScreenOnRequests.release(this);
     super.dispose();
   }
 

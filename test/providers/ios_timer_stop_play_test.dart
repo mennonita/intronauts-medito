@@ -6,6 +6,8 @@ import 'package:medito/models/timer/timer_session.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/providers/player/ios_audio_handler.dart';
 import 'package:medito/services/audio/ios_session_bells.dart';
+import 'package:medito/services/timer/ios_timer_run_store.dart';
+import 'package:medito/services/timer/timer_end_backup.dart';
 import 'package:medito/src/audio_pigeon.g.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -15,8 +17,17 @@ class _Bells extends Mock implements IosSessionBells {}
 
 class _Source extends Fake implements AudioSource {}
 
+class _RunStore extends Mock implements IosTimerRunStore {}
+
+class _EndBackup extends Mock implements TimerEndBackup {}
+
 class _Handler extends IosAudioHandler {
-  _Handler(AudioPlayer player, this._bells) : super(player: player);
+  _Handler(
+    AudioPlayer player,
+    this._bells, {
+    super.runStore,
+    super.endBackup,
+  }) : super(player: player);
 
   final IosSessionBells _bells;
 
@@ -220,4 +231,87 @@ void main() {
       },
     );
   }
+
+  test('el final natural publica la campana final con su runId antes de '
+      'soltar las campanas (SIT-01)', () async {
+    registerFallbackValue(_Source());
+    final player = _AudioPlayer();
+    final bells = _Bells();
+    final runs = _RunStore();
+    final backup = _EndBackup();
+    when(player.pause).thenAnswer((_) async {});
+    when(() => player.setSpeed(1)).thenAnswer((_) async {});
+    when(() => player.setAudioSource(any())).thenAnswer((_) async => null);
+    when(() => player.setLoopMode(LoopMode.off)).thenAnswer((_) async {});
+    when(() => player.position).thenReturn(const Duration(minutes: 3));
+    when(
+      () => bells.setBellCues(
+        cues: any(named: 'cues'),
+        enabled: any(named: 'enabled'),
+        volume: any(named: 'volume'),
+        output: any(named: 'output'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => bells.onEndCueStarted = any()).thenReturn(null);
+    when(bells.reset).thenReturn(null);
+    var deliveries = 0;
+    bool? deliveredBeforeBells;
+    when(bells.waitTimerBells).thenAnswer((_) async {
+      deliveredBeforeBells = deliveries > 0;
+    });
+    // La campana final empezó durante la espera del final.
+    var endStarted = true;
+    when(() => bells.endCueStarted).thenAnswer((_) => endStarted);
+    when(bells.captureEndStarted).thenAnswer((_) => endStarted);
+    bool? publishedBeforeRelease;
+    late _Handler handler;
+    final request = timerPlaybackRequest(
+      mode: TimerMode.countdown,
+      duration: const Duration(minutes: 3),
+      filePath: '/tmp/timer.wav',
+      title: 'Temporizador',
+    );
+    when(bells.disable).thenAnswer((_) async {
+      publishedBeforeRelease ??= handler.timerEndCueRang(request.timerRunId);
+      // Soltar las campanas borra su marca.
+      endStarted = false;
+    });
+    when(
+      () => runs.finish(
+        runId: any(named: 'runId'),
+        durationMs: any(named: 'durationMs'),
+        fallback: any(named: 'fallback'),
+        generation: any(named: 'generation'),
+        keepForRetry: any(named: 'keepForRetry'),
+      ),
+    ).thenAnswer((_) async => true);
+    when(runs.deliver).thenAnswer((_) async {
+      deliveries++;
+      return null;
+    });
+    when(backup.cancel).thenAnswer((_) async {});
+    handler = _Handler(player, bells, runStore: runs, endBackup: backup);
+    handler.pauseAmbient = () {};
+    await handler.setUrl(
+      null,
+      request,
+      Track(
+        id: request.trackId,
+        title: request.title,
+        fileId: request.fileId,
+        description: '',
+        imageUrl: '',
+      ),
+    );
+    publishedBeforeRelease = null;
+
+    await handler.completeTimer();
+
+    expect(publishedBeforeRelease, isTrue);
+    expect(bells.endCueStarted, isFalse);
+    expect(handler.timerEndCueRang(request.timerRunId), isTrue);
+    expect(handler.timerEndCueRang('otra-corrida'), isFalse);
+    // Guardado: se entrega al historial antes de esperar las campanas (END-01).
+    expect(deliveredBeforeBells, isTrue);
+  });
 }
