@@ -3,6 +3,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:medito/utils/local_time_zone.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/services/analytics/crashlytics_service.dart';
 
@@ -21,6 +22,8 @@ class ReminderProvider {
 
   Future<void> _initializeNotifications() async {
     tz.initializeTimeZones();
+    // Usa la zona horaria del teléfono; sin esto tz.local queda en UTC.
+    await ensureLocalTimeZone();
     const initializationSettingsAndroid = AndroidInitializationSettings('logo');
     const initializationSettingsIOS = DarwinInitializationSettings(
       requestAlertPermission: false,
