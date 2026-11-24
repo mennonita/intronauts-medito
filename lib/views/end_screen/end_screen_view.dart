@@ -19,6 +19,7 @@ import 'package:medito/providers/settings/account_prompt_provider.dart';
 import 'package:medito/providers/practice_history_provider.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/services/reminders/daily_reminders_service.dart';
+import 'package:medito/services/review_service.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/notification_permission_flow.dart';
 import 'package:medito/utils/permission_handler.dart';
@@ -211,7 +212,11 @@ class _EndScreenViewState extends ConsumerState<EndScreenView>
     // no refresh() needed. Just gate the review prompt on the current
     // stats being available.
     final reviewService = ref.read(reviewServiceProvider);
-    reviewService.checkAndRequestReview();
+    unawaited(
+      reviewService.maybeRequestAfterSit(
+        ref.read(playerProvider.notifier).takeSitOutcome(),
+      ),
+    );
   }
 
   void _navigateToHome() {
