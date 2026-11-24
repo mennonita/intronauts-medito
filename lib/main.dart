@@ -37,6 +37,10 @@ import 'package:medito/src/audio_pigeon.g.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:medito/providers/player/ios_audio_handler.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
+import 'package:medito/utils/current_localizations.dart';
+import 'package:medito/utils/health_sync_queue.dart';
+import 'package:medito/services/timer/ios_timer_run_store.dart';
+import 'package:medito/services/timer/timer_shortcuts_service.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/utils/stats_updater.dart';
 import 'package:medito/views/splash_view.dart';
@@ -267,14 +271,37 @@ class _ParentWidgetState extends ConsumerState<ParentWidget>
   /// replay, or one session is reported both completed and abandoned. iOS
   /// holds them in a queue Dart can drain first; Android pushes them from
   /// MainActivity.onResume at its own pace, so the replay waits for them.
+  ///
+  /// Timers keep their own run store (§4.6): on iOS Dart recovers a session
+  /// that was cut and saves it once («Guardamos tu sesión…»); on Android the
+  /// native service does it and only guided sessions are replayed here.
   Future<void> _recoverPreviousSession() async {
     if (Platform.isIOS) {
       await processPendingCompletedTracks();
+      await _recoverTimerRuns();
       await AudioSessionTracker.instance.replayIfAbandoned();
     } else {
       await AudioSessionTracker.instance.replayIfAbandoned(
         completionGrace: const Duration(seconds: 10),
       );
+    }
+    unawaited(HealthSyncQueue.flush());
+    unawaited(TimerShortcutsService.refresh());
+  }
+
+  Future<void> _recoverTimerRuns() async {
+    try {
+      final recovered = await IosTimerRunStore.instance.recoverTimerRuns();
+      if (recovered == null) return;
+      scaffoldMessengerKey.currentState?.showSnackBar(
+        SnackBar(
+          content: Text(
+            currentLocalizations().timerRecoveredSession(recovered.minutes),
+          ),
+        ),
+      );
+    } catch (error) {
+      AppLogger.e('TIMER', 'No se pudo recuperar la sesión', error);
     }
   }
 
@@ -419,6 +446,8 @@ class _ParentWidgetState extends ConsumerState<ParentWidget>
   }
 
   void _onAppForegrounded() async {
+    if (Platform.isIOS) unawaited(_recoverTimerRuns());
+    unawaited(HealthSyncQueue.flush());
     ref.read(firebaseMessagingProvider).ref.read(reminderProvider).clearBadge();
     final prefs = ref.read(sharedPreferencesProvider);
     if (prefs.getBool(SharedPreferenceConstants.isLoggedIn) == true &&

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:mocktail/mocktail.dart';
@@ -6,14 +7,37 @@ import 'package:medito/models/background_sounds/background_sounds_model.dart';
 import 'package:medito/models/timer/bell_sound.dart';
 import 'package:medito/models/timer/timer_bell_settings.dart';
 import 'package:medito/services/audio/ios_session_bells.dart';
+import 'package:medito/services/timer/timer_end_backup.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 class _Player extends Mock implements AudioPlayer {}
 
+class _Backup implements TimerEndBackupScheduler {
+  int cancels = 0;
+
+  @override
+  Future<void> schedule({
+    required int id,
+    required tz.TZDateTime at,
+    required String title,
+    required String body,
+    required bool sound,
+  }) async {}
+
+  @override
+  Future<void> cancel(int id) async => cancels++;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late _Player primary;
   late _Player bell;
   late StreamController<Duration> positions;
   late StreamController<Duration> bellPositions;
+  late StreamController<ProcessingState> bellStates;
+  late _Backup backup;
+  var endCues = 0;
   late StreamController<PositionDiscontinuity> discontinuities;
   late List<_Player> createQueue;
   late IosSessionBells controller;
@@ -27,11 +51,15 @@ void main() {
     bell = _Player();
     positions = StreamController<Duration>.broadcast(sync: true);
     bellPositions = StreamController<Duration>.broadcast(sync: true);
+    bellStates = StreamController<ProcessingState>.broadcast(sync: true);
+    backup = _Backup();
+    endCues = 0;
     discontinuities = StreamController<PositionDiscontinuity>.broadcast(
       sync: true,
     );
     createQueue = [bell];
     when(() => bell.positionStream).thenAnswer((_) => bellPositions.stream);
+    when(() => bell.processingStateStream).thenAnswer((_) => bellStates.stream);
     position = Duration.zero;
     playing = false;
     processing = ProcessingState.ready;
@@ -59,16 +87,17 @@ void main() {
     when(() => bell.processingState).thenReturn(ProcessingState.ready);
     when(() => bell.playing).thenReturn(false);
     when(() => bell.position).thenReturn(Duration.zero);
-    controller = IosSessionBells(
-      primary,
-      createPlayer: () => createQueue.removeAt(0),
-    );
+    controller =
+        IosSessionBells(primary, createPlayer: () => createQueue.removeAt(0))
+          ..endBackup = TimerEndBackup(scheduler: backup)
+          ..onEndCueStarted = () => endCues++;
   });
 
   tearDown(() async {
     await controller.disable();
     await positions.close();
     await bellPositions.close();
+    await bellStates.close();
     await discontinuities.close();
   });
 
@@ -157,10 +186,13 @@ void main() {
       positions.add(Duration.zero);
       await flush();
       verify(() => bell.play()).called(1);
+      bellStates.add(ProcessingState.completed);
       position = const Duration(minutes: 3);
       positions.add(position);
       await flush();
       verify(() => bell.play()).called(1);
+      expect(endCues, 1);
+      expect(backup.cancels, 1);
       bellPositions.add(const Duration(milliseconds: 100));
       expect(controller.stopBellsAndReportEnd(), isTrue);
       position += const Duration(seconds: 1);
@@ -251,12 +283,16 @@ void main() {
   });
 
   test(
-    'precarga archivos distintos y una campana reemplaza a la anterior',
+    'una campana que llega mientras suena otra espera a que termine',
     () async {
       final second = _Player();
       createQueue.add(second);
       final selected = BellSound.resolve('kalimba').assetKey;
       final loading = Completer<Duration?>();
+      final secondStates = StreamController<ProcessingState>.broadcast(
+        sync: true,
+      );
+      addTearDown(secondStates.close);
       when(() => second.setAsset(selected)).thenAnswer((_) => loading.future);
       when(() => second.setVolume(any())).thenAnswer((_) async {});
       when(() => second.seek(Duration.zero)).thenAnswer((_) async {});
@@ -265,6 +301,9 @@ void main() {
       when(second.dispose).thenAnswer((_) async {});
       when(() => second.processingState).thenReturn(ProcessingState.ready);
       when(() => second.playing).thenReturn(true);
+      when(
+        () => second.processingStateStream,
+      ).thenAnswer((_) => secondStates.stream);
 
       final preload = controller.setBellCues(
         cues: [
@@ -288,16 +327,90 @@ void main() {
       positions.add(position);
       await flush();
       verify(bell.play).called(1);
+      when(() => bell.playing).thenReturn(true);
+
+      // La segunda llega mientras la primera suena: no la corta.
       position = const Duration(seconds: 8);
       positions.add(position);
       await flush();
-      verifyInOrder([
-        bell.pause,
-        () => second.seek(Duration.zero),
-        second.play,
-      ]);
+      verifyNever(bell.pause);
+      verifyNever(second.play);
+
+      bellStates.add(ProcessingState.completed);
+      await flush();
+      verifyInOrder([() => second.seek(Duration.zero), second.play]);
+      verifyNever(bell.pause);
     },
   );
+
+  test('al final del archivo suena completa la campana en fila', () async {
+    await controller.setBellCues(
+      cues: const [
+        TimerBellCue(0, TimerBellKind.start, kSessionBellAsset),
+        TimerBellCue(60000, TimerBellKind.end, kSessionBellAsset),
+      ],
+      enabled: true,
+      volume: .5,
+    );
+    playing = true;
+    positions.add(Duration.zero);
+    await flush();
+    verify(bell.play).called(1);
+    when(() => bell.playing).thenReturn(true);
+
+    // El archivo termina con la campana de inicio sonando y el final atrasado.
+    position = const Duration(seconds: 61);
+    processing = ProcessingState.completed;
+    playing = false;
+    positions.add(position);
+    await flush();
+    verifyNever(bell.pause);
+    var drained = false;
+    final draining = controller.waitTimerBells().then((_) => drained = true);
+    await flush();
+    expect(drained, isFalse);
+
+    bellStates.add(ProcessingState.completed);
+    await flush();
+    verify(bell.play).called(1);
+    expect(endCues, 1);
+    expect(drained, isFalse);
+    bellStates.add(ProcessingState.completed);
+    await draining;
+    expect(drained, isTrue);
+  });
+
+  test('solo vibración no toca audio y la voz se ignora', () async {
+    await controller.setBellCues(
+      cues: const [
+        TimerBellCue(0, TimerBellKind.start, kSessionBellAsset),
+        TimerBellCue(60000, TimerBellKind.end, kSessionBellAsset),
+      ],
+      enabled: true,
+      volume: .5,
+      output: 'vibration',
+    );
+    final haptics = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'HapticFeedback.vibrate') haptics.add('vibrate');
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    playing = true;
+    positions.add(Duration.zero);
+    await flush();
+    position = const Duration(minutes: 1);
+    positions.add(position);
+    await flush();
+    verifyNever(bell.play);
+    expect(haptics, hasLength(2));
+    expect(endCues, 1);
+    expect(controller.stopBellsAndReportEnd(), isTrue);
+  });
 
   test(
     'una búsqueda cancela el salto pendiente y descarta la campana activa',
@@ -339,7 +452,8 @@ void main() {
       verify(bell.play).called(1);
       seek(10);
       await flush();
-      verify(bell.pause).called(1);
+      // Una al cancelar el salto pendiente y otra al descartar la activa.
+      verify(bell.pause).called(2);
       verifyNever(bell.play);
     },
   );

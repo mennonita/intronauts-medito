@@ -188,7 +188,7 @@ void main() {
       final route = ModalRoute.of(tester.element(session))!;
       var playerWasCurrentAtStop = false;
       player.onStop = () => playerWasCurrentAtStop = route.isCurrent;
-      await tester.tap(find.text('Fondo'));
+      await tester.tap(find.text('Pantalla'));
       await tester.pumpAndSettle();
       expect(find.byType(TimerBackgroundPicker), findsOneWidget);
 
@@ -213,11 +213,11 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Cerrar'));
-    await tester.tap(find.text('Fondo'));
+    await tester.tap(find.text('Pantalla'));
     await tester.pump();
     expect(dnd.disableCalls, 1);
     expect(find.byType(TimerBackgroundPicker), findsNothing);
-    for (final label in ['Fondo', 'Sonido de fondo']) {
+    for (final label in ['Pantalla', 'Sonido de fondo']) {
       expect(
         tester
             .widget<TextButton>(find.widgetWithText(TextButton, label))
@@ -248,7 +248,7 @@ void main() {
     final container = await _openPlayer(tester, player, dnd);
     _update(container, completed: false);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Fondo'));
+    await tester.tap(find.text('Pantalla'));
     await tester.pumpAndSettle();
     expect(find.byType(TimerBackgroundPicker), findsOneWidget);
 

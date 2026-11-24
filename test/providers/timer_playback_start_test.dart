@@ -29,7 +29,7 @@ class _DiscardingHandler extends IosAudioHandler {
   int transportStops = 0;
 
   @override
-  Future<void> stopPlayback() async => transportStops++;
+  Future<void> stopPlayback({bool full = true}) async => transportStops++;
 }
 
 void main() {
@@ -68,6 +68,11 @@ void main() {
       ).thenAnswer((_) async {});
       when(() => handler.setSpeed(1)).thenAnswer((_) async {});
       when(handler.cancelPendingTimerStart).thenAnswer((_) {});
+      when(
+        () => handler.configureSession(
+          mixWithOthers: any(named: 'mixWithOthers'),
+        ),
+      ).thenAnswer((_) async {});
       var installed = false;
       when(
         () => handler.setUrl(
@@ -93,6 +98,7 @@ void main() {
       });
 
       final player = container.read(playerProvider.notifier);
+      expect(player.reserveStart(request.timerRunId), isTrue);
       expect(
         container.read(backgroundSoundsNotifierProvider).bellsEnabled,
         isFalse,
@@ -144,6 +150,11 @@ void main() {
       when(() => handler.setSpeed(1)).thenAnswer((_) async {});
       when(handler.cancelPendingTimerStart).thenAnswer((_) {});
       when(
+        () => handler.configureSession(
+          mixWithOthers: any(named: 'mixWithOthers'),
+        ),
+      ).thenAnswer((_) async {});
+      when(
         () => handler.setUrl(
           any(),
           request,
@@ -156,6 +167,7 @@ void main() {
 
       final player = container.read(playerProvider.notifier);
       final sounds = container.read(backgroundSoundsNotifierProvider.notifier);
+      expect(player.reserveStart(request.timerRunId), isTrue);
       await player.play(request);
       sounds.setSessionBells(true);
       await pumpEventQueue();

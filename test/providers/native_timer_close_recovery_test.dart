@@ -3,10 +3,12 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
+import 'package:medito/constants/types/type_constants.dart';
 import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/models/local_audio_completed.dart';
 import 'package:medito/providers/timer/native_timer_close_recovery.dart';
 import 'package:medito/src/audio_pigeon.g.dart';
+import 'package:medito/utils/stats_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -104,5 +106,76 @@ void main() {
       logEnded: (params) async => expect(params['recorded'], 0),
     );
     expect(await recovery.handle(short), isTrue);
+  });
+
+  group('registro nativo con runId', () {
+    CompletionData run({bool recovered = false}) => CompletionData(
+      trackId: 'timer-720',
+      duration: 720000,
+      fileId: 'timer-countdown-900000',
+      timestamp: closedAt,
+      runId: 'run-a',
+      ownerId: 'cuenta',
+      recovered: recovered,
+      timerEnded: TimerEndedData(
+        positionMs: 720000,
+        mode: 'countdown',
+        elapsedSeconds: 720,
+        recorded: true,
+      ),
+    );
+
+    NativeTimerCloseRecovery engine(
+      List<TimerRecordResult> results,
+      List<Map<String, dynamic>> payloads,
+      List<int> shown, {
+      Future<bool> Function(Map<String, dynamic>)? record,
+    }) => NativeTimerCloseRecovery(
+      record:
+          record ?? (_) async => fail('un cierre con runId no usa handleStats'),
+      recordRun: (payload) async {
+        payloads.add(payload);
+        return results.removeAt(0);
+      },
+      logEnded: (_) async {},
+      showRecovered: shown.add,
+    );
+
+    test('una sesión recuperada y aceptada muestra el aviso', () async {
+      final payloads = <Map<String, dynamic>>[];
+      final shown = <int>[];
+      final recovery = engine([TimerRecordResult.accepted], payloads, shown);
+      expect(await recovery.handleRun(run(recovered: true)), isTrue);
+      expect(shown, [12]);
+      expect(payloads.single[TypeConstants.runIdKey], 'run-a');
+      expect(payloads.single[timerOwnerIdKey], 'cuenta');
+      expect(payloads.single[TypeConstants.durationIdKey], 720000);
+    });
+
+    test('un duplicado no muestra el aviso', () async {
+      final shown = <int>[];
+      final recovery = engine([TimerRecordResult.duplicate], [], shown);
+      expect(await recovery.handleRun(run(recovered: true)), isTrue);
+      expect(shown, isEmpty);
+    });
+
+    test('una sesión no recuperada no muestra el aviso', () async {
+      final shown = <int>[];
+      final recovery = engine([TimerRecordResult.accepted], [], shown);
+      expect(await recovery.handleRun(run()), isTrue);
+      expect(shown, isEmpty);
+    });
+
+    test('rechazada se confirma; fallida pide reintento', () async {
+      final shown = <int>[];
+      final recovery = engine(
+        [TimerRecordResult.rejected, TimerRecordResult.failed],
+        [],
+        shown,
+      );
+      expect(await recovery.handleRun(run(recovered: true)), isTrue);
+      expect(await recovery.handleRun(run(recovered: true)), isFalse);
+      expect(shown, isEmpty);
+    });
   });
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/providers/player/ios_audio_handler.dart';
 import 'package:medito/services/audio/ios_session_bells.dart';
 import 'package:medito/src/audio_pigeon.g.dart';
@@ -78,6 +79,69 @@ void main() {
     await handler.play();
     verify(player.play).called(1);
   });
+
+  test(
+    'cambiar de cuenta para el fondo de inmediato; el cierre propio no (R38)',
+    () async {
+      registerFallbackValue(_Source());
+      final player = _AudioPlayer();
+      final bells = _Bells();
+      when(player.pause).thenAnswer((_) async {});
+      when(() => player.setSpeed(1)).thenAnswer((_) async {});
+      when(() => player.setAudioSource(any())).thenAnswer((_) async => null);
+      when(() => player.setLoopMode(LoopMode.off)).thenAnswer((_) async {});
+      when(player.stop).thenAnswer((_) async {});
+      when(() => player.playing).thenReturn(false);
+      when(bells.disable).thenAnswer((_) async {});
+      when(
+        () => bells.setBellCues(
+          cues: any(named: 'cues'),
+          enabled: any(named: 'enabled'),
+          volume: any(named: 'volume'),
+          output: any(named: 'output'),
+        ),
+      ).thenAnswer((_) async {});
+      final handler = _Handler(player, bells);
+      var ambientPauses = 0;
+      handler.pauseAmbient = () => ambientPauses++;
+      final ambientStop = Completer<void>();
+      var ambientStopped = 0;
+      handler.stopAmbientPlayer = () {
+        ambientStopped++;
+        return ambientStop.future;
+      };
+      final request = timerPlaybackRequest(
+        mode: TimerMode.countdown,
+        duration: const Duration(minutes: 1),
+        filePath: '/tmp/timer.wav',
+        title: 'Temporizador',
+      );
+      final track = Track(
+        id: request.trackId,
+        title: request.title,
+        fileId: request.fileId,
+        description: '',
+        imageUrl: '',
+      );
+
+      await handler.setUrl(null, request, track);
+      // Cierre propio: el fondo se apaga después, con desvanecido.
+      await handler.stopPlayback(full: false);
+      expect(ambientPauses, 0);
+
+      await handler.setUrl(null, request, track);
+      clearInteractions(player);
+      final discarding = handler.discardPlayback();
+      await pumpEventQueue();
+      // Espera a que el fondo pare antes de soltar el resto.
+      expect(ambientStopped, 1);
+      verifyNever(player.stop);
+      ambientStop.complete();
+      await discarding;
+      expect(iosAmbientActive, isFalse);
+      verify(player.stop).called(greaterThanOrEqualTo(1));
+    },
+  );
 
   for (final interrupted in [false, true]) {
     test(

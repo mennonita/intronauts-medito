@@ -72,29 +72,31 @@ void main() {
   }
 
   group('fetchHome Spanish featured pack', () {
-    test('prepends the Spanish pack when any device locale is Spanish',
-        () async {
-      final packs = _FakePackRepository(pack: _spanishPack);
-      final container = makeContainer(
-        locales: const [Locale('en', 'US'), Locale('es', 'MX')],
-        home: const HomeModel(carousel: [_networkCard]),
-        packs: packs,
-      );
+    test(
+      'prepends the Spanish pack when any device locale is Spanish',
+      () async {
+        final packs = _FakePackRepository(pack: _spanishPack);
+        final container = makeContainer(
+          locales: const [Locale('en', 'US'), Locale('es', 'MX')],
+          home: const HomeModel(carousel: [_networkCard]),
+          packs: packs,
+        );
 
-      final home = await container.read(fetchHomeProvider.future);
+        final home = await container.read(fetchHomeProvider.future);
 
-      expect(packs.requestedIds, [kSpanishFeaturedPackId]);
-      expect(home.carousel.map((c) => c.id), [
-        kSpanishFeaturedPackId,
-        'net-1',
-      ]);
-      final card = home.carousel.first;
-      expect(card.title, 'Meditación en español');
-      expect(card.subtitle, 'Guiadas');
-      expect(card.coverUrl, 'https://example.com/es.jpg');
-      expect(card.path, 'packs/$kSpanishFeaturedPackId');
-      expect(card.type, 'pack');
-    });
+        expect(packs.requestedIds, [kSpanishFeaturedPackId]);
+        expect(home.carousel.map((c) => c.id), [
+          kSpanishFeaturedPackId,
+          'net-1',
+        ]);
+        final card = home.carousel.first;
+        expect(card.title, 'Meditación en español');
+        expect(card.subtitle, 'Guiadas');
+        expect(card.coverUrl, 'https://example.com/es.jpg');
+        expect(card.path, 'packs/$kSpanishFeaturedPackId');
+        expect(card.type, 'pack');
+      },
+    );
 
     test('leaves the carousel untouched without a Spanish locale', () async {
       final packs = _FakePackRepository(pack: _spanishPack);
@@ -110,41 +112,45 @@ void main() {
       expect(home.carousel, [_networkCard]);
     });
 
-    test('does not duplicate the pack if the network already features it',
-        () async {
-      final packs = _FakePackRepository(pack: _spanishPack);
-      const alreadyThere = HomeCarouselModel(
-        id: 'carousel-es',
-        title: 'Server card',
-        subtitle: '',
-        coverUrl: '',
-        path: 'packs/$kSpanishFeaturedPackId',
-        type: 'pack',
-      );
-      final container = makeContainer(
-        locales: const [Locale('es')],
-        home: const HomeModel(carousel: [_networkCard, alreadyThere]),
-        packs: packs,
-      );
+    test(
+      'does not duplicate the pack if the network already features it',
+      () async {
+        final packs = _FakePackRepository(pack: _spanishPack);
+        const alreadyThere = HomeCarouselModel(
+          id: 'carousel-es',
+          title: 'Server card',
+          subtitle: '',
+          coverUrl: '',
+          path: 'packs/$kSpanishFeaturedPackId',
+          type: 'pack',
+        );
+        final container = makeContainer(
+          locales: const [Locale('es')],
+          home: const HomeModel(carousel: [_networkCard, alreadyThere]),
+          packs: packs,
+        );
 
-      final home = await container.read(fetchHomeProvider.future);
+        final home = await container.read(fetchHomeProvider.future);
 
-      expect(packs.requestedIds, isEmpty);
-      expect(home.carousel, [_networkCard, alreadyThere]);
-    });
+        expect(packs.requestedIds, isEmpty);
+        expect(home.carousel, [_networkCard, alreadyThere]);
+      },
+    );
 
-    test('falls back to the network carousel when the pack fetch fails',
-        () async {
-      final packs = _FakePackRepository(error: Exception('offline'));
-      final container = makeContainer(
-        locales: const [Locale('es', 'ES')],
-        home: const HomeModel(carousel: [_networkCard]),
-        packs: packs,
-      );
+    test(
+      'falls back to the network carousel when the pack fetch fails',
+      () async {
+        final packs = _FakePackRepository(error: Exception('offline'));
+        final container = makeContainer(
+          locales: const [Locale('es', 'ES')],
+          home: const HomeModel(carousel: [_networkCard]),
+          packs: packs,
+        );
 
-      final home = await container.read(fetchHomeProvider.future);
+        final home = await container.read(fetchHomeProvider.future);
 
-      expect(home.carousel, [_networkCard]);
-    });
+        expect(home.carousel, [_networkCard]);
+      },
+    );
   });
 }

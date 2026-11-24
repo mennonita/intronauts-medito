@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -53,11 +54,19 @@ class AudioSessionTracker {
   /// Called from `PlayerProvider.play()` when a track starts. If a prior session
   /// is still active (the user switched tracks without it completing), that one
   /// is abandoned first.
+  ///
+  /// [persist] false (temporizadores) no escribe el registro en curso: cada
+  /// plataforma recupera sus temporizadores con su propio registro (§4.6).
+  /// [extraTime] dice si una cuenta regresiva sigue en tiempo extra; ya no se
+  /// deduce del largo del archivo, que ahora lleva una cola tras el final.
   Future<void> onStarted({
     required String fileId,
     String? guide,
     required int durationMs,
     int? plannedDurationMs,
+    bool? extraTime,
+    int prepMs = 0,
+    bool persist = true,
   }) async {
     final generation = _discardGeneration;
     // Switching tracks: the previous session never completed.
@@ -73,6 +82,9 @@ class AudioSessionTracker {
       fileDurationMs: durationMs,
       hasFixedPlan: plannedDurationMs != null,
       startMs: DateTime.now().millisecondsSinceEpoch,
+      extraTime: extraTime,
+      prepMs: prepMs,
+      persist: persist,
     );
     _active = session;
     _lastPersistAt = null;
@@ -125,8 +137,12 @@ class AudioSessionTracker {
   /// completion (see [replayIfAbandoned]) can tell its session finished.
   Future<void> onCompleted({String? fileId}) async {
     if (fileId != null) _completedFileIds.add(fileId);
-    // Riesgo aceptado: el cierre tardío de una sesión puede borrar el registro de la siguiente.
     final session = _active;
+    // Un cierre tardío de otra sesión no toca la sesión en curso.
+    if (session != null && fileId != null && session.fileId != fileId) {
+      AppLogger.d('SESSION', 'late completion ignored: $fileId');
+      return;
+    }
     if (session != null) {
       session.ended = true;
       session.playerCompleted = true;
@@ -254,7 +270,8 @@ class AudioSessionTracker {
     _Session session, {
     required String reason,
   }) async {
-    final elapsedMs = session.lastPositionMs < 0 ? 0 : session.lastPositionMs;
+    // La preparación del temporizador no cuenta como tiempo meditado.
+    final elapsedMs = max(0, session.lastPositionMs - session.prepMs);
     final elapsedSeconds = (elapsedMs / 1000).round();
     final percent =
         session.hasExtraTime && elapsedMs >= session.plannedDurationMs
@@ -290,6 +307,7 @@ class AudioSessionTracker {
   }
 
   Future<void> _persist(_Session session) async {
+    if (!session.persist) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       if (!identical(_active, session) || session.ended) return;
@@ -330,6 +348,9 @@ class _Session {
     this.hasFixedPlan = false,
     required this.startMs,
     this.lastPositionMs = 0,
+    this.extraTime,
+    this.prepMs = 0,
+    this.persist = true,
   });
 
   final String fileId;
@@ -338,9 +359,17 @@ class _Session {
   int fileDurationMs;
   final bool hasFixedPlan;
 
+  /// Tiempo extra explícito; null en registros de la versión anterior.
+  final bool? extraTime;
+  final int prepMs;
+  final bool persist;
+
+  // Los registros anteriores no tenían cola tras el final, así que ahí el
+  // archivo más largo que lo planeado sí significa tiempo extra.
   bool get hasExtraTime =>
-      fileId.startsWith('timer-countdown-') &&
-      fileDurationMs > plannedDurationMs;
+      extraTime ??
+      (fileId.startsWith('timer-countdown-') &&
+          fileDurationMs > plannedDurationMs);
   final int startMs;
   int lastPositionMs;
 
@@ -356,6 +385,8 @@ class _Session {
     'fileDurationMs': fileDurationMs,
     'startMs': startMs,
     'lastPositionMs': lastPositionMs,
+    'extraTime': ?extraTime,
+    if (prepMs > 0) 'prepMs': prepMs,
   };
 
   factory _Session.fromJson(Map<String, dynamic> json) => _Session(
@@ -371,5 +402,7 @@ class _Session {
         0,
     startMs: (json['startMs'] as num?)?.toInt() ?? 0,
     lastPositionMs: (json['lastPositionMs'] as num?)?.toInt() ?? 0,
+    extraTime: json['extraTime'] as bool?,
+    prepMs: (json['prepMs'] as num?)?.toInt() ?? 0,
   );
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:medito/constants/strings/analytics_event_constants.dart';
 import 'package:medito/constants/strings/shared_preference_constants.dart';
 import 'package:medito/constants/types/type_constants.dart';
@@ -7,21 +8,77 @@ import 'package:medito/models/local_all_stats.dart';
 import 'package:medito/services/analytics/firebase_analytics_service.dart';
 import 'package:medito/src/audio_pigeon.g.dart';
 import 'package:medito/utils/audio_completion_tracker.dart';
+import 'package:medito/scaffold_messenger_key.dart';
 import 'package:medito/utils/audio_session_tracker.dart';
+import 'package:medito/utils/current_localizations.dart';
+import 'package:medito/utils/stats_manager.dart';
 import 'package:medito/utils/stats_updater.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class NativeTimerCloseRecovery {
   NativeTimerCloseRecovery({
     Future<bool> Function(Map<String, dynamic>) record = handleStats,
+    Future<TimerRecordResult> Function(Map<String, dynamic>) recordRun =
+        handleTimerRun,
     Future<void> Function(Map<String, Object>)? logEnded,
+    void Function(int minutes)? showRecovered,
   }) : _record = record,
-       _logEnded = logEnded ?? _logTimerEnded;
+       _recordRun = recordRun,
+       _logEnded = logEnded ?? _logTimerEnded,
+       _showRecovered = showRecovered ?? _showRecoveredSnackBar;
 
   final Future<bool> Function(Map<String, dynamic>) _record;
+  final Future<TimerRecordResult> Function(Map<String, dynamic>) _recordRun;
   final Future<void> Function(Map<String, Object>) _logEnded;
+  final void Function(int minutes) _showRecovered;
   final _inFlight = <String, Future<bool>>{};
   final _sentEvents = <String>{};
+
+  /// Una sesión del registro nativo de Android (con `runId`). El servicio es
+  /// la única fuente: Dart solo la guarda una vez por `runId` en el historial
+  /// de su dueño. `false` solo si la escritura falló (Android reintenta).
+  Future<bool> handleRun(CompletionData completion) {
+    final runId = completion.runId!;
+    return _inFlight.putIfAbsent(
+      'run:$runId',
+      () => _deliverRun(completion, runId).whenComplete(() {
+        _inFlight.remove('run:$runId');
+      }),
+    );
+  }
+
+  Future<bool> _deliverRun(CompletionData completion, String runId) async {
+    final result = await _recordRun({
+      TypeConstants.trackIdKey: completion.trackId,
+      TypeConstants.durationIdKey: completion.duration,
+      TypeConstants.fileIdKey: completion.fileId,
+      TypeConstants.guideIdKey: completion.guideId ?? '',
+      TypeConstants.timestampIdKey: completion.timestamp,
+      TypeConstants.runIdKey: runId,
+      timerOwnerIdKey: completion.ownerId ?? '',
+    });
+    if (result == TimerRecordResult.failed) return false;
+    if (result == TimerRecordResult.accepted && completion.recovered == true) {
+      _showRecovered(completion.duration ~/ Duration.millisecondsPerMinute);
+    }
+    final ended = completion.timerEnded;
+    if (ended != null && _sentEvents.add('run:$runId')) {
+      await _logEnded({
+        AnalyticsEventConstants.paramTimerMode: ended.mode,
+        AnalyticsEventConstants.paramElapsedSeconds: ended.elapsedSeconds,
+        AnalyticsEventConstants.paramRecorded: ended.recorded ? 1 : 0,
+      });
+    }
+    return true;
+  }
+
+  static void _showRecoveredSnackBar(int minutes) {
+    scaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Text(currentLocalizations().timerRecoveredSession(minutes)),
+      ),
+    );
+  }
 
   Future<bool> handle(CompletionData completion) {
     final key =

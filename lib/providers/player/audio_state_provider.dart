@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:medito/providers/player/player_provider.dart';
@@ -11,6 +12,10 @@ import '../../utils/audio_session_tracker.dart';
 import '../../utils/stats_updater.dart';
 import '../../utils/stats_updater.dart' as stats_updater;
 import '../timer/native_timer_close_recovery.dart';
+
+/// `runId` de cada error del reproductor de Android (null si no es de un
+/// temporizador). PlayerProvider lo usa para detectar un inicio fallido.
+final timerPlayerErrors = StreamController<String?>.broadcast(sync: true);
 
 class AudioStateProvider implements MeditoAudioServiceCallbackApi {
   final AudioStateNotifier notifier;
@@ -47,14 +52,20 @@ class AudioStateProvider implements MeditoAudioServiceCallbackApi {
         'errorCode=$errorCode',
         'positionMs=$positionMs',
         'durationMs=$durationMs',
+        'runId=$runId',
       ],
     );
+    timerPlayerErrors.add(runId);
   }
 
   // only used on Android
   @override
   Future<bool> handleCompletedTrack(CompletionData completionData) async {
     try {
+      // Sesiones del temporizador del registro nativo: una sola vez por runId.
+      if (completionData.runId != null) {
+        return await _timerRecovery.handleRun(completionData);
+      }
       if (completionData.timerEnded != null) {
         return await _timerRecovery.handle(completionData);
       }
@@ -119,6 +130,7 @@ class AudioStateNotifier extends Notifier<PlaybackState> {
           isCompleted: isCompleted,
           position: event.position.inMilliseconds,
           duration: event.duration.inMilliseconds,
+          runId: iosAudioHandler.timerRunId,
         );
         // iOS position feed for session analytics.
         AudioSessionTracker.instance.onPositionUpdate(
@@ -167,6 +179,8 @@ final audioStateProvider = NotifierProvider<AudioStateNotifier, PlaybackState>(
   },
 );
 
+const _keepRunId = Object();
+
 extension PlaybackStateExt on PlaybackState {
   PlaybackState copyWith({
     int? position,
@@ -178,8 +192,12 @@ extension PlaybackStateExt on PlaybackState {
     Speed? speed,
     int? volume,
     Track? track,
+    Object? runId = _keepRunId,
   }) {
     return PlaybackState(
+      backgroundSound: backgroundSound,
+      endCueRang: endCueRang,
+      runId: identical(runId, _keepRunId) ? this.runId : runId as String?,
       position: position ?? this.position,
       isPlaying: isPlaying ?? this.isPlaying,
       isBuffering: isBuffering ?? this.isBuffering,

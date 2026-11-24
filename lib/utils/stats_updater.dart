@@ -133,10 +133,56 @@ Future<void> _rescheduleReminders({
 // retry of a genuinely failed completion still goes through.
 final Set<String> _recordedCompletions = {};
 
+/// Guarda una sesión del temporizador por su `runId` (una sola vez, en el
+/// historial de su dueño) y devuelve el resultado completo.
+Future<TimerRecordResult> handleTimerRun(
+  Map<String, dynamic> payload, {
+  StatsManager? statsManager, // For testing
+}) async {
+  statsManager ??= StatsManager();
+  final result = await statsManager.recordTimerRun(payload);
+  if (result != TimerRecordResult.accepted) return result;
+  try {
+    final duration = payload[TypeConstants.durationIdKey] as int;
+    await FirebaseAnalyticsService().logEvent(
+      name: AnalyticsEventConstants.audioSessionCompleted,
+      parameters: {
+        AnalyticsEventConstants.paramAudioFileId:
+            payload[TypeConstants.fileIdKey] as String? ?? 'unknown',
+        AnalyticsEventConstants.paramAudioFileGuide:
+            AnalyticsEventConstants.timerGuide,
+        AnalyticsEventConstants.paramAudioFileDuration: duration,
+      },
+    );
+  } catch (analyticsError) {
+    AppLogger.e('STATS', 'Failed to log analytics event', analyticsError);
+  }
+  try {
+    await AudioSessionTracker.instance.onCompleted(
+      fileId: payload[TypeConstants.fileIdKey] as String?,
+    );
+    await _refreshStatsAndUpNext();
+    await _rescheduleReminders(
+      endMs: payload[TypeConstants.timestampIdKey] as int,
+      durationMs: payload[TypeConstants.durationIdKey] as int,
+    );
+  } catch (error) {
+    AppLogger.e('STATS', 'Failed to refresh after timer session', error);
+  }
+  // Salud: la marca quedó en la misma escritura; W2-HEALTH la exporta.
+  return result;
+}
+
 Future<bool> handleStats(
   Map<String, dynamic> payload, {
   StatsManager? statsManager, // For testing
 }) async {
+  // Las sesiones del temporizador se guardan por su runId; solo un error de
+  // escritura pide reintentar.
+  if (payload[TypeConstants.runIdKey] is String) {
+    final result = await handleTimerRun(payload, statsManager: statsManager);
+    return result != TimerRecordResult.failed;
+  }
   final completionKey =
       '${payload[TypeConstants.trackIdKey]}@${payload[TypeConstants.timestampIdKey]}';
   if (!_recordedCompletions.add(completionKey)) {

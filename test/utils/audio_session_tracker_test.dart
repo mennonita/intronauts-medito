@@ -67,6 +67,76 @@ void main() {
     });
   });
 
+  group('temporizador', () {
+    test(
+      'el tiempo extra explícito no se deduce del archivo con cola',
+      () async {
+        await tracker.onStarted(
+          fileId: 'timer-countdown-180000',
+          durationMs: 190000,
+          plannedDurationMs: 180000,
+          extraTime: false,
+        );
+        expect(await persisted(), contains('"extraTime":false'));
+        tracker.onPositionUpdate(
+          positionMs: 185000,
+          durationMs: 190000,
+          isPlaying: false,
+          isCompleted: false,
+        );
+        await tracker.onStopped();
+        expect(
+          of(
+            AnalyticsEventConstants.audioSessionAbandoned,
+          ).single.params[AnalyticsEventConstants.paramPercentCompleted],
+          90,
+        );
+      },
+    );
+
+    test('la preparación no cuenta como tiempo meditado', () async {
+      await tracker.onStarted(
+        fileId: 'timer-countdown-600000',
+        durationMs: 640000,
+        plannedDurationMs: 600000,
+        extraTime: false,
+        prepMs: 120000,
+      );
+      tracker.onPositionUpdate(
+        positionMs: 180000,
+        durationMs: 640000,
+        isPlaying: false,
+        isCompleted: false,
+      );
+      await tracker.onStopped();
+      expect(
+        of(
+          AnalyticsEventConstants.audioSessionAbandoned,
+        ).single.params[AnalyticsEventConstants.paramElapsedSeconds],
+        60,
+      );
+    });
+
+    test('un temporizador no escribe el registro en curso', () async {
+      await tracker.onStarted(
+        fileId: 'timer-countdown-600000',
+        durationMs: 600000,
+        plannedDurationMs: 600000,
+        persist: false,
+      );
+      expect(await persisted(), isNull);
+      expect(of(AnalyticsEventConstants.audioSessionStarted), hasLength(1));
+    });
+
+    test('el cierre tardío de otra sesión no borra la actual', () async {
+      await tracker.onStarted(fileId: 'nueva', guide: 'g', durationMs: 60000);
+      await tracker.onCompleted(fileId: 'vieja');
+      expect(await persisted(), contains('"fileId":"nueva"'));
+      await tracker.onStopped();
+      expect(of(AnalyticsEventConstants.audioSessionAbandoned), hasLength(1));
+    });
+  });
+
   group('completed', () {
     test('clears the record and suppresses a later abandon', () async {
       await tracker.onStarted(fileId: 'f1', guide: 'g', durationMs: 1000);

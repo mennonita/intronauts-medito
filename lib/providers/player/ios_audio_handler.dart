@@ -1,7 +1,14 @@
 import 'dart:async';
+import 'dart:math';
 import '../../services/audio/ios_session_bells.dart';
+import 'package:flutter/foundation.dart';
 import 'package:medito/models/models.dart' show PlaybackRequest;
 import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/models/timer/timer_timeline.dart';
+import 'package:medito/services/timer/ios_timer_run_store.dart';
+import 'package:medito/services/timer/timer_end_backup.dart';
+import 'package:medito/services/timer/timer_notices.dart';
+import 'package:medito/utils/current_localizations.dart';
 import 'package:medito/services/account/playback_account.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:audio_service/audio_service.dart';
@@ -15,9 +22,134 @@ import '../../src/audio_pigeon.g.dart';
 import '../../utils/stats_updater.dart';
 import '../../utils/logger.dart';
 
+/// Único responsable de las interrupciones de audio en iOS (llamadas, otras
+/// apps, audífonos) para cualquier sesión. Pausa juntos el reloj, las
+/// campanas y el sonido de fondo, y solo reanuda la misma sesión que sonaba.
+class TimerInterruptionController {
+  TimerInterruptionController({
+    required this.isPlaying,
+    required this.currentRunId,
+    required this.pauseAll,
+    required this.resumeAll,
+    required this.duck,
+    this.onBecomingNoisy,
+  });
+
+  final bool Function() isPlaying;
+  final String? Function() currentRunId;
+  final Future<void> Function() pauseAll;
+  final Future<void> Function() resumeAll;
+  final void Function(bool ducked) duck;
+  final Future<void> Function()? onBecomingNoisy;
+
+  bool _interrupted = false;
+  bool _wasPlaying = false;
+  String? _runId;
+  StreamSubscription<AudioInterruptionEvent>? _interruptions;
+  StreamSubscription<void>? _noisy;
+
+  void attach(
+    Stream<AudioInterruptionEvent> interruptions,
+    Stream<void> becomingNoisy,
+  ) {
+    _interruptions?.cancel();
+    _noisy?.cancel();
+    _interruptions = interruptions.listen(
+      (event) => unawaited(handleInterruption(event)),
+    );
+    _noisy = becomingNoisy.listen((_) => unawaited(handleBecomingNoisy()));
+  }
+
+  Future<void> handleInterruption(AudioInterruptionEvent event) async {
+    if (event.begin) {
+      switch (event.type) {
+        case AudioInterruptionType.duck:
+          duck(true);
+        case AudioInterruptionType.pause:
+        case AudioInterruptionType.unknown:
+          // Lee el estado ANTES de pausar; una segunda interrupción no lo pisa.
+          if (!_interrupted) {
+            _wasPlaying = isPlaying();
+            _runId = currentRunId();
+            _interrupted = true;
+          }
+          await pauseAll();
+      }
+      return;
+    }
+    switch (event.type) {
+      case AudioInterruptionType.duck:
+        duck(false);
+      case AudioInterruptionType.pause:
+        final resume = _interrupted && _wasPlaying && _runId == currentRunId();
+        _reset();
+        if (resume) await resumeAll();
+      case AudioInterruptionType.unknown:
+        // El sistema no permite reanudar: queda en pausa.
+        _reset();
+    }
+  }
+
+  Future<void> handleBecomingNoisy() async {
+    _reset();
+    await (onBecomingNoisy ?? pauseAll)();
+  }
+
+  void _reset() {
+    _interrupted = false;
+    _wasPlaying = false;
+    _runId = null;
+  }
+}
+
 class IosAudioHandler extends BaseAudioHandler {
   final AudioPlayer _player;
   late final sessionBells = IosSessionBells(_player);
+  final IosTimerRunStore? _runStore;
+  final TimerEndBackup? _endBackup;
+  IosTimerRunStore get runStore => _runStore ?? IosTimerRunStore.instance;
+  TimerEndBackup get endBackup => _endBackup ?? TimerEndBackup.instance;
+  late final interruptions = TimerInterruptionController(
+    isPlaying: () => _player.playing,
+    currentRunId: () => _sessionKey,
+    pauseAll: _pauseForInterruption,
+    resumeAll: play,
+    duck: (ducked) {
+      sessionBells.duck(ducked);
+      duckAmbient?.call(ducked);
+    },
+    onBecomingNoisy: () async {
+      final isTimer = _isTimer;
+      await pause();
+      await sessionBells.pauseForInterruption();
+      if (isTimer) {
+        unawaited(
+          TimerNotices.showPaused(currentLocalizations().timerHeadphonesPaused),
+        );
+      }
+    },
+  );
+
+  /// Pausa, reanuda y baja el sonido de fondo; los conecta PlayerProvider con
+  /// el notificador de sonidos de fondo.
+  void Function()? pauseAmbient;
+  void Function()? resumeAmbient;
+  void Function(bool ducked)? duckAmbient;
+
+  PlaybackRequest? _timerRequest;
+  bool _timerCompleting = false;
+  bool _endPassedSeen = false;
+
+  /// La solicitud del temporizador en curso, si hay una.
+  PlaybackRequest? get timerRequest => _isTimer ? _timerRequest : null;
+
+  /// El `runId` del temporizador en curso, o null en una meditación guiada.
+  String? get timerRunId => timerRequest?.timerRunId;
+
+  /// Verdadero mientras el final natural del temporizador suelta el audio.
+  bool get timerCompleting => _timerCompleting;
+
+  String get _sessionKey => timerRunId ?? 'guided-$_startGeneration';
   // Distinguish a repeat boundary from terminal completion; never wait for bells.
   final _sessionCompleted = BehaviorSubject<bool>.seeded(false);
   bool _isInitialized = false;
@@ -43,7 +175,42 @@ class IosAudioHandler extends BaseAudioHandler {
   static const _pauseGracePeriod = Duration(minutes: 3);
   Timer? _pauseDeactivationTimer;
 
-  IosAudioHandler({AudioPlayer? player}) : _player = player ?? AudioPlayer();
+  IosAudioHandler({
+    AudioPlayer? player,
+    IosTimerRunStore? runStore,
+    TimerEndBackup? endBackup,
+  }) : _player = player ?? AudioPlayer(handleInterruptions: false),
+       _runStore = runStore,
+       _endBackup = endBackup;
+
+  /// Configuración de la sesión: con «Música de otras apps» activado se
+  /// mezcla con ellas; si no, la otra app se pausa (decisión 2).
+  static AudioSessionConfiguration sessionConfiguration({
+    required bool mixWithOthers,
+  }) => AudioSessionConfiguration(
+    avAudioSessionCategory: AVAudioSessionCategory.playback,
+    avAudioSessionCategoryOptions: mixWithOthers
+        ? AVAudioSessionCategoryOptions.mixWithOthers
+        : AVAudioSessionCategoryOptions.none,
+    avAudioSessionMode: AVAudioSessionMode.defaultMode,
+    avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+  );
+
+  /// Se llama antes de cada inicio (temporizador: preferencia; guiada: no).
+  Future<void> configureSession({required bool mixWithOthers}) async {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(
+        sessionConfiguration(mixWithOthers: mixWithOthers),
+      );
+    } catch (e) {
+      AppLogger.e('IOS', 'No se pudo configurar la sesión de audio: $e');
+    }
+  }
+
+  Future<void> _pauseForInterruption() async {
+    await Future.wait([pause(), sessionBells.pauseForInterruption()]);
+  }
 
   Future<void> ensureInitialized() async {
     if (_isInitialized) return;
@@ -51,48 +218,13 @@ class IosAudioHandler extends BaseAudioHandler {
     try {
       final session = await AudioSession.instance;
 
-      // Configure interruption handling
-      session.interruptionEventStream.listen((event) {
-        if (event.begin) {
-          switch (event.type) {
-            case AudioInterruptionType.duck:
-              _player.setVolume(_player.volume * 0.5);
-              break;
-            case AudioInterruptionType.pause:
-            case AudioInterruptionType.unknown:
-              _player.pause();
-              break;
-          }
-        } else {
-          switch (event.type) {
-            case AudioInterruptionType.duck:
-              _player.setVolume(_player.volume * 2.0);
-              break;
-            case AudioInterruptionType.pause:
-              if (_player.playing &&
-                  !_timerPlayBlocked &&
-                  _timerReady == null) {
-                _player.play();
-              }
-              break;
-            case AudioInterruptionType.unknown:
-              break;
-          }
-        }
-      });
-
-      session.becomingNoisyEventStream.listen((_) {
-        _player.pause();
-      });
-
-      await session.configure(
-        const AudioSessionConfiguration(
-          avAudioSessionCategory: AVAudioSessionCategory.playback,
-          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.none,
-          avAudioSessionMode: AVAudioSessionMode.defaultMode,
-          avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
-        ),
+      // Un solo controlador para llamadas, otras apps y audífonos.
+      interruptions.attach(
+        session.interruptionEventStream,
+        session.becomingNoisyEventStream,
       );
+
+      await session.configure(sessionConfiguration(mixWithOthers: false));
 
       _setupPlaybackState();
       _setupEventListeners();
@@ -156,8 +288,21 @@ class IosAudioHandler extends BaseAudioHandler {
       );
     });
 
+    _player.positionStream.listen((_) => _trackTimerPosition());
+    _player.playingStream.listen((playing) {
+      // Una pausa (manual o por interrupción) guarda la posición de inmediato.
+      if (!playing) _trackTimerPosition(force: true);
+    });
+
     _player.processingStateStream.listen((state) async {
       if (state != ProcessingState.completed) _sessionCompleted.add(false);
+      if (state == ProcessingState.completed &&
+          !_discarded &&
+          _isTimer &&
+          _timerRequest != null) {
+        await completeTimer();
+        return;
+      }
       if (state == ProcessingState.completed && !_discarded) {
         final accountGeneration = PlaybackAccount.generation;
         // Handle repeat once mode
@@ -221,13 +366,14 @@ class IosAudioHandler extends BaseAudioHandler {
       playbackState.add(
         playbackState.value.copyWith(
           controls: [
-            if (!_hasExtraTime) MediaControl.rewind,
+            if (!_isTimer) MediaControl.rewind,
             if (playing) MediaControl.pause else MediaControl.play,
-            if (!_hasExtraTime) MediaControl.fastForward,
+            if (!_isTimer) MediaControl.fastForward,
             if (_isTimer) MediaControl.stop,
           ],
           systemActions: {
-            if (!_hasExtraTime) ...const {
+            // Un temporizador nunca se adelanta ni se regresa.
+            if (!_isTimer) ...const {
               MediaAction.seek,
               MediaAction.seekForward,
               MediaAction.seekBackward,
@@ -251,6 +397,80 @@ class IosAudioHandler extends BaseAudioHandler {
         ),
       );
     });
+  }
+
+  /// Guarda la posición del temporizador (cada 3 s, o ya con [force]) y
+  /// marca el final cuando la posición lo pasa (R79).
+  void _trackTimerPosition({bool force = false}) {
+    final request = timerRequest;
+    if (request == null || _discarded || _timerCompleting) return;
+    final position = _player.position.inMilliseconds;
+    final untilEnd = TimerTimeline.fromRequest(request).untilEndCueMs(position);
+    final passed = untilEnd != null && untilEnd <= 0;
+    if (passed && !_endPassedSeen) {
+      _endPassedSeen = true;
+      unawaited(endBackup.cancel());
+    }
+    unawaited(
+      runStore.updatePosition(
+        request.timerRunId,
+        position,
+        force: force,
+        endPassed: passed ? true : null,
+      ),
+    );
+  }
+
+  /// Final natural del temporizador: guarda el cierre con el tiempo planeado
+  /// ANTES de soltar el audio, deja sonar completas las campanas pendientes
+  /// (máximo 60 s) y luego entrega la sesión a las estadísticas.
+  @visibleForTesting
+  Future<void> completeTimer() async {
+    final request = _timerRequest;
+    if (request == null || _timerCompleting) return;
+    _timerCompleting = true;
+    final generation = _startGeneration;
+    final accountGeneration = PlaybackAccount.generation;
+    try {
+      final timeline = TimerTimeline.fromRequest(request);
+      final durationMs = max(
+        request.plannedDurationMs,
+        timeline.elapsedMs(_player.position.inMilliseconds),
+      );
+      // Si el guardado falla, el registro conserva el tiempo final en memoria
+      // y lo guarda en la siguiente escritura.
+      await runStore.finish(
+        runId: request.timerRunId,
+        durationMs: durationMs,
+        fallback: TimerRunStart.fromRequest(request),
+        generation: accountGeneration,
+        keepForRetry: true,
+      );
+      unawaited(endBackup.cancel());
+      _cancelPauseDeactivationTimer();
+      await sessionBells.waitTimerBells();
+      if (generation != _startGeneration) return;
+      // El final se publica cuando ya sonaron las campanas: la pantalla apaga
+      // las campanas al verlo y no debe cortar una atrasada.
+      _sessionCompleted.add(true);
+      await Future.wait([sessionBells.disable(), _pauseAmbient()]);
+      if (generation != _startGeneration) return;
+      await _deactivateSession();
+    } finally {
+      _timerCompleting = false;
+      if (PlaybackAccount.isCurrent(accountGeneration)) {
+        unawaited(runStore.deliver());
+      }
+    }
+  }
+
+  Future<void> _pauseAmbient() async {
+    final pause = pauseAmbient;
+    if (pause != null) {
+      pause();
+    } else {
+      await iosBackgroundPlayer.pause();
+    }
   }
 
   Duration get position => _player.position;
@@ -396,8 +616,7 @@ class IosAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> seek(Duration position) async {
-    if (_hasExtraTime) return;
-    if (_isTimer) sessionBells.seekTimer(position);
+    if (_isTimer) return;
     return _player.seek(position);
   }
 
@@ -449,14 +668,21 @@ class IosAudioHandler extends BaseAudioHandler {
 
     unawaited(_player.play());
     // Bells follow _player on their own; resume the ambient sound if any.
-    if (iosAmbientActive) unawaited(iosBackgroundPlayer.play());
+    if (iosAmbientActive) {
+      final resume = resumeAmbient;
+      if (resume != null) {
+        resume();
+      } else {
+        unawaited(iosBackgroundPlayer.play());
+      }
+    }
   }
 
   @override
   Future<void> pause() async {
     _playGeneration++;
     unawaited(_player.pause());
-    unawaited(iosBackgroundPlayer.pause());
+    unawaited(_pauseAmbient());
 
     // Keep the session active for a quick resume, but release it if the pause
     // is prolonged so iOS stops keeping the app alive in the background.
@@ -473,35 +699,62 @@ class IosAudioHandler extends BaseAudioHandler {
     await stopPlayback();
   }
 
-  Future<void> discardPlayback() {
+  Future<void> discardPlayback() async {
     _discarded = true;
     onTimerStop = null;
+    // Primero se detiene el fondo y se espera: con la marca apagada, la
+    // función conectada ya no lo pausaría (R38).
+    try {
+      await (stopAmbientPlayer ?? iosBackgroundPlayer.pause)();
+    } catch (error) {
+      AppLogger.e('IOS', 'No se pudo detener el sonido de fondo: $error');
+    }
     iosAmbientActive = false;
-    return stopPlayback();
+    await stopPlayback();
   }
 
-  Future<void> stopPlayback() async {
+  /// Detiene el reproductor de fondo; se reemplaza en pruebas.
+  @visibleForTesting
+  Future<void> Function()? stopAmbientPlayer;
+
+  /// Detiene solo si [runId] sigue siendo la sesión cargada: una parada que
+  /// llega tarde nunca corta una sesión nueva.
+  Future<void> stopRun(String runId, {bool full = true}) async {
+    if (timerRunId != runId) return;
+    await stopPlayback(full: full);
+  }
+
+  /// Detiene la sesión. Con [full] (por omisión, también al descartar por un
+  /// cambio de cuenta, R38) para todo de inmediato: reloj, campanas, sonido de
+  /// fondo y sesión de audio. El cierre propio de PlayerProvider usa
+  /// `full: false` en un temporizador: solo para el reloj y las campanas, y
+  /// después apaga el fondo con desvanecido y desactiva la sesión.
+  Future<void> stopPlayback({bool full = true}) async {
     if (_isTimer) _timerPlayBlocked = true;
     _cancelTimerStart();
     final generation = ++_startGeneration;
     _cancelPauseDeactivationTimer();
+    unawaited(endBackup.cancel());
     if (_isTimer) {
       await Future.wait([
         sessionBells.disable(),
         _player.stop(),
-        iosBackgroundPlayer.pause(),
+        if (full) _pauseAmbient(),
       ]);
     } else {
       await sessionBells.disable();
       // iOS solo desactiva la sesión cuando los reproductores se detienen.
       await _player.stop();
-      await iosBackgroundPlayer.pause();
+      await _pauseAmbient();
     }
     if (generation == _startGeneration) {
       unawaited(super.stop());
-      await _deactivateSession();
+      if (full || !_isTimer) await _deactivateSession();
     }
   }
+
+  /// Desactiva la sesión de audio al final del cierre propio del temporizador.
+  Future<void> deactivateSession() => _deactivateSession();
 
   /// Schedules release of the audio session after [_pauseGracePeriod] if the
   /// player is still paused, so an abandoned pause does not keep the app in
@@ -564,6 +817,12 @@ class IosAudioHandler extends BaseAudioHandler {
     final wasTimer = _isTimer;
     _isTimer = request.isTimer;
     _hasExtraTime = request.hasExtraTime;
+    _timerRequest = request.isTimer ? request : null;
+    _timerCompleting = false;
+    _endPassedSeen = false;
+    sessionBells.onEndCueStarted = request.isTimer
+        ? () => unawaited(runStore.markEndPassed(request.timerRunId))
+        : null;
     _cancelTimerStart();
     final ready = request.isTimer ? Completer<bool>() : null;
     _timerReady = ready;
@@ -589,6 +848,7 @@ class IosAudioHandler extends BaseAudioHandler {
         cues: request.isTimer ? request.timerBellCues ?? const [] : null,
         enabled: timerBells?.enabled ?? false,
         volume: timerBells?.volume ?? 0,
+        output: request.timerBellOutput,
       );
       if (generation != _startGeneration) return;
 

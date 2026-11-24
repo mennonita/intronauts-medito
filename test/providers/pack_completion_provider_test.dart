@@ -99,19 +99,15 @@ void main() {
     });
 
     test('never ticks a pack with no tracks', () async {
-      final container = _container(
-        _FakeRepo(packTracks: {'empty': []}),
-        ['a'],
-      );
+      final container = _container(_FakeRepo(packTracks: {'empty': []}), ['a']);
 
       expect(await _completed(container), isEmpty);
     });
 
     test('shows no ticks when the endpoint fails', () async {
-      final container = _container(
-        _FakeRepo(error: Exception('offline')),
-        ['a'],
-      );
+      final container = _container(_FakeRepo(error: Exception('offline')), [
+        'a',
+      ]);
 
       expect(await _completed(container), isEmpty);
     });
