@@ -11,6 +11,8 @@ import 'package:medito/models/me/me_model.dart';
 import 'package:medito/models/player/playback_request.dart';
 import 'package:medito/models/stripe/paywall_config_model.dart';
 import 'package:medito/models/timer/timer_session.dart';
+import 'package:medito/providers/timer/timer_session_closer.dart';
+import 'package:medito/services/timer/timer_device_channel.dart';
 import 'package:medito/providers/background_sounds/background_sounds_notifier.dart';
 import 'package:medito/providers/donation/donation_page_provider.dart';
 import 'package:medito/providers/providers.dart';
@@ -19,6 +21,7 @@ import 'package:medito/providers/stats_provider.dart';
 import 'package:medito/providers/stripe/payment_service_provider.dart';
 import 'package:medito/services/review_service.dart';
 import 'package:medito/src/audio_pigeon.g.dart' show Track;
+import 'package:medito/views/timer/session/timer_exit_dialogs.dart';
 import 'package:medito/views/background_sound/background_sound_view.dart';
 import 'package:medito/views/end_screen/end_screen_view.dart';
 import 'package:medito/views/home/previews/home_previews.dart';
@@ -37,43 +40,95 @@ final _request = timerPlaybackRequest(
   filePath: '/tmp/timer.wav',
   title: 'Temporizador',
 );
+final _long = timerPlaybackRequest(
+  mode: TimerMode.countdown,
+  duration: const Duration(minutes: 10),
+  filePath: '/tmp/timer.wav',
+  title: 'Temporizador',
+);
+final _stopwatch = timerPlaybackRequest(
+  mode: TimerMode.stopwatch,
+  duration: kStopwatchMaxDuration,
+  filePath: '/tmp/timer.wav',
+  title: 'Temporizador',
+);
 const _home = Key('home');
 
+/// Proveedor falso: registra cada cierre y emite los cierres guardados como
+/// el proveedor real.
 class _Player extends PlayerProvider {
+  _Player([PlaybackRequest? request]) : request = request ?? _request;
+
+  final PlaybackRequest request;
   int stops = 0;
   VoidCallback? onStop;
+  Object? playError;
+  final saves = <bool>[];
+  VoidCallback? onClose;
+  Completer<void>? closeGate;
+  Duration closeElapsed = const Duration(seconds: 90);
+  bool discardFails = false;
+  final _closes = StreamController<TimerCloseResult>.broadcast();
 
   @override
-  PlaybackRequest build() => _request;
+  PlaybackRequest build() => request;
 
   @override
-  Future<void> play(PlaybackRequest request) async {}
+  Future<void> play(PlaybackRequest request) async {
+    final error = playError;
+    if (error != null) throw error;
+  }
 
   @override
   void stop() {
     stops++;
     onStop?.call();
   }
+
+  @override
+  Stream<TimerCloseResult> get timerCloses => _closes.stream;
+
+  @override
+  Future<TimerCloseResult?> closeTimer({bool save = true}) async {
+    saves.add(save);
+    onClose?.call();
+    await closeGate?.future;
+    if (!save && discardFails) {
+      return TimerCloseResult(closeElapsed, stopped: false, saved: false);
+    }
+    final result = TimerCloseResult(closeElapsed, saved: save);
+    if (result.saved) _closes.add(result);
+    return result;
+  }
+
+  /// Cierre que llega sin diálogo (por ejemplo, desde la notificación).
+  void systemClose(Duration elapsed) => _closes.add(TimerCloseResult(elapsed));
 }
 
 class _Sounds extends BackgroundSoundsNotifier {
+  int stopCalls = 0;
+  int ambientStops = 0;
+
   @override
-  void stopBackgroundSound() {}
+  void stopBackgroundSound() => stopCalls++;
+
+  @override
+  Future<void> stopTimerAmbient({
+    required bool transportAlreadyStopped,
+    Duration fade = Duration.zero,
+  }) async {
+    ambientStops++;
+  }
 
   @override
   void restoreTimerBackgroundSound(PlaybackRequest request) {}
 }
 
 class _Dnd extends DndNotifier {
-  Completer<void>? pending;
-  int disableCalls = 0;
+  int calls = 0;
 
   @override
-  Future<void> setDndMode(bool enable) async {
-    if (enable) return;
-    disableCalls++;
-    await pending?.future;
-  }
+  Future<void> setDndMode(bool enable) async => calls++;
 }
 
 class _Stats extends StatsNotifier {
@@ -86,24 +141,37 @@ class _Review implements ReviewService {
   Future<void> checkAndRequestReview() async {}
 }
 
-Future<ProviderContainer> _openPlayer(
-  WidgetTester tester,
-  _Player player,
-  _Dnd dnd,
-) async {
+class _Harness {
+  _Harness(this.player, this.sounds, this.dnd, this.container);
+
+  final _Player player;
+  final _Sounds sounds;
+  final _Dnd dnd;
+  final ProviderContainer container;
+}
+
+Future<_Harness> _openPlayer(
+  WidgetTester tester, {
+  _Player? player,
+  Map<String, Object> prefs = const {},
+}) async {
+  final fake = player ?? _Player();
+  final sounds = _Sounds();
+  final dnd = _Dnd();
   await tester.pumpWidget(
     PreviewShell(
       locale: const Locale('es'),
       prefs: {
         ...prefsDark,
         SharedPreferenceConstants.timerBackground: 'black:negro',
+        ...prefs,
       },
       overrides: [
-        playerProvider.overrideWith(() => player),
+        playerProvider.overrideWith(() => fake),
         dndProvider.overrideWith(() => dnd),
         audioStateProvider.overrideWith(AudioStateNotifier.new),
         backgroundSoundsProvider.overrideWith((ref) async => []),
-        backgroundSoundsNotifierProvider.overrideWith(_Sounds.new),
+        backgroundSoundsNotifierProvider.overrideWith(() => sounds),
         statsProvider.overrideWith(_Stats.new),
         endScreenPaywallConfigProvider.overrideWith(
           (_) => Completer<PaywallConfigModel>().future,
@@ -129,31 +197,49 @@ Future<ProviderContainer> _openPlayer(
     ).push<void>(MaterialPageRoute(builder: (_) => const PlayerView())),
   );
   await tester.pumpAndSettle();
-  expect(find.byType(TimerSessionLayout), findsOneWidget);
-  expect(find.byType(PlayerScreenLayout), findsNothing);
-  return container;
+  return _Harness(fake, sounds, dnd, container);
 }
 
-void _update(ProviderContainer container, {required bool completed}) {
+void _update(
+  ProviderContainer container,
+  PlaybackRequest request, {
+  required int positionMs,
+  bool completed = false,
+  bool playing = true,
+  String? runId,
+}) {
   container
       .read(audioStateProvider.notifier)
       .updatePlaybackState(
         container
             .read(audioStateProvider)
             .copyWith(
-              position: completed ? _request.duration : 6000,
-              duration: _request.duration,
-              isPlaying: !completed,
+              position: positionMs,
+              duration: request.duration,
+              isPlaying: playing && !completed,
               isCompleted: completed,
+              runId: runId ?? request.timerRunId,
               track: Track(
-                id: _request.trackId,
-                fileId: _request.fileId,
+                id: request.trackId,
+                fileId: request.fileId,
                 title: '',
                 description: '',
                 imageUrl: '',
               ),
             ),
       );
+}
+
+Future<void> _systemBack(WidgetTester tester) async {
+  final navigator = tester.state<NavigatorState>(find.byType(Navigator).first);
+  await navigator.maybePop();
+  await tester.pump();
+}
+
+Future<void> _disposeEndScreen(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 3));
+  await tester.pumpWidget(const SizedBox());
+  await tester.pump(const Duration(seconds: 1));
 }
 
 void main() {
@@ -175,47 +261,156 @@ void main() {
     FirebaseAnalyticsTestHelper.setupFirebaseAnalyticsMocks();
   });
 
-  testWidgets(
-    'Cerrar quita la hoja antes de detener y salir del temporizador',
-    (tester) async {
-      final player = _Player();
-      final dnd = _Dnd();
-      final container = await _openPlayer(tester, player, dnd);
-      _update(container, completed: false);
-      await tester.pumpAndSettle();
-
-      final session = find.byType(TimerSessionLayout);
-      final route = ModalRoute.of(tester.element(session))!;
-      var playerWasCurrentAtStop = false;
-      player.onStop = () => playerWasCurrentAtStop = route.isCurrent;
-      await tester.tap(find.text('Pantalla'));
-      await tester.pumpAndSettle();
-      expect(find.byType(TimerBackgroundPicker), findsOneWidget);
-
-      tester.widget<TimerSessionLayout>(session).onClosePressed();
-      expect(playerWasCurrentAtStop, isTrue);
-      await tester.pumpAndSettle();
-      expect(find.byType(TimerBackgroundPicker), findsNothing);
-      expect(find.byType(PlayerView), findsNothing);
-      expect(find.byKey(_home), findsOneWidget);
-      expect(player.stops, 1);
-      expect(dnd.disableCalls, 1);
-    },
-  );
-
-  testWidgets('Cerrar bloquea hojas mientras espera a No molestar', (
+  testWidgets('✕ con menos de un minuto sale sin preguntar y sin guardar', (
     tester,
   ) async {
-    final player = _Player();
-    final dnd = _Dnd()..pending = Completer<void>();
-    final container = await _openPlayer(tester, player, dnd);
-    _update(container, completed: false);
+    final h = await _openPlayer(tester);
+    expect(find.byType(TimerSessionLayout), findsOneWidget);
+    _update(h.container, _request, positionMs: 30000);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Cerrar'));
+    final session = find.byType(TimerSessionLayout);
+    final route = ModalRoute.of(tester.element(session))!;
+    var playerWasCurrentAtClose = false;
+    h.player.onClose = () => playerWasCurrentAtClose = route.isCurrent;
+    await tester.tap(find.text('Pantalla'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TimerBackgroundPicker), findsOneWidget);
+
+    tester.widget<TimerSessionLayout>(session).onClosePressed();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(playerWasCurrentAtClose, isTrue);
+    expect(find.byType(TimerBackgroundPicker), findsNothing);
+    expect(find.byType(PlayerView), findsNothing);
+    expect(find.byKey(_home), findsOneWidget);
+    // Descarta en el servicio (R102), nunca con la parada simple.
+    expect(h.player.saves, [false]);
+    expect(h.player.stops, 0);
+    // No molestar lo restaura el servicio nativo: Dart ya no lo toca.
+    expect(h.dnd.calls, 0);
+  });
+
+  testWidgets('«atrás» con menos de un minuto también sale sin preguntar', (
+    tester,
+  ) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 30000);
+    await tester.pump();
+    await _systemBack(tester);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(PlayerView), findsNothing);
+    expect(h.player.saves, [false]);
+  });
+
+  for (final viaBack in [false, true]) {
+    final how = viaBack ? '«atrás»' : '✕';
+    testWidgets('$how a los 90 s pregunta con tres opciones', (tester) async {
+      final h = await _openPlayer(tester);
+      _update(h.container, _request, positionMs: 90000);
+      await tester.pump();
+      if (viaBack) {
+        await _systemBack(tester);
+      } else {
+        await tester.tap(find.byTooltip('Salir'));
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('¿Salir de la sesión?'), findsOneWidget);
+      expect(find.text('Llevas 1 min. ¿Quieres guardarlos?'), findsOneWidget);
+      for (final label in [
+        'Seguir meditando',
+        'Salir sin guardar',
+        'Guardar y salir',
+      ]) {
+        expect(find.text(label), findsOneWidget);
+      }
+
+      await tester.tap(find.text('Seguir meditando'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(TimerSessionLayout), findsOneWidget);
+      expect(h.player.saves, isEmpty);
+      expect(h.player.stops, 0);
+    });
+  }
+
+  testWidgets('«Guardar y salir» guarda y abre el resumen', (tester) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 90000);
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Guardar y salir'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(h.player.saves, [true]);
+    expect(find.byType(PlayerView), findsNothing);
+    final end = tester.widget<EndScreenView>(find.byType(EndScreenView));
+    expect(end.timerElapsed, const Duration(seconds: 90));
+    expect(end.request.timerRunId, _request.timerRunId);
+    await _disposeEndScreen(tester);
+  });
+
+  testWidgets('«Salir sin guardar» descarta, no guarda y vuelve', (
+    tester,
+  ) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 90000);
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Salir sin guardar'));
+    await tester.pumpAndSettle();
+    expect(h.player.saves, [false]);
+    expect(h.player.stops, 0);
+    expect(find.byType(EndScreenView), findsNothing);
+    expect(find.byType(PlayerView), findsNothing);
+    expect(find.byKey(_home), findsOneWidget);
+    expect(
+      find.text('Las sesiones de menos de un minuto no se guardan'),
+      findsNothing,
+    );
+  });
+
+  testWidgets('si no se pudo descartar, la sesión sigue y se avisa', (
+    tester,
+  ) async {
+    final player = _Player()..discardFails = true;
+    final h = await _openPlayer(tester, player: player);
+    _update(h.container, _request, positionMs: 90000);
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Salir sin guardar'));
+    await tester.pump();
+    await tester.pump();
+    expect(h.player.saves, [false]);
+    expect(h.player.stops, 0);
+    expect(find.byType(TimerSessionLayout), findsOneWidget);
+    expect(find.text('No se pudo salir. Inténtalo de nuevo.'), findsOneWidget);
+    // Los controles vuelven a responder.
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Pantalla'))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('mientras se descarta, las hojas quedan bloqueadas', (
+    tester,
+  ) async {
+    final player = _Player()..closeGate = Completer<void>();
+    final h = await _openPlayer(tester, player: player);
+    _update(h.container, _request, positionMs: 30000);
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Salir'));
     await tester.tap(find.text('Pantalla'));
     await tester.pump();
-    expect(dnd.disableCalls, 1);
+    expect(h.player.saves, [false]);
     expect(find.byType(TimerBackgroundPicker), findsNothing);
     for (final label in ['Pantalla', 'Sonido de fondo']) {
       expect(
@@ -224,58 +419,310 @@ void main() {
             .onPressed,
         isNull,
       );
-      await tester.tap(find.text(label));
     }
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Terminar'),
+          )
+          .onPressed,
+      isNull,
+    );
     expect(find.byType(BackgroundSoundView), findsNothing);
-
-    final sessionContext = tester.element(find.byType(TimerSessionLayout));
-    unawaited(showTimerBackgroundPicker(sessionContext));
+    player.closeGate!.complete();
     await tester.pumpAndSettle();
-    expect(find.byType(TimerBackgroundPicker), findsOneWidget);
-    dnd.pending!.complete();
-    await tester.pumpAndSettle();
-    expect(find.byType(TimerBackgroundPicker), findsNothing);
     expect(find.byType(PlayerView), findsNothing);
     expect(find.byKey(_home), findsOneWidget);
-    expect(player.stops, 1);
   });
 
-  testWidgets('el fin natural quita la hoja y abre el resumen de la sesión', (
+  group('«Terminar»', () {
+    testWidgets('con tiempo por delante pregunta antes de terminar', (
+      tester,
+    ) async {
+      final h = await _openPlayer(tester);
+      _update(h.container, _request, positionMs: 50000);
+      await tester.pump();
+      await tester.tap(find.text('Terminar'));
+      await tester.pumpAndSettle();
+      expect(find.text('¿Terminar la sesión?'), findsOneWidget);
+      // Menos de un minuto: avisa que no se guardará.
+      expect(
+        find.text(
+          'Llevas menos de un minuto. Las sesiones de menos de un minuto no se guardan.',
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Seguir meditando'));
+      await tester.pumpAndSettle();
+      expect(h.player.saves, isEmpty);
+      expect(find.byType(TimerSessionLayout), findsOneWidget);
+    });
+
+    testWidgets('confirmar una sesión corta no repite el aviso al salir', (
+      tester,
+    ) async {
+      final player = _Player()..closeElapsed = const Duration(seconds: 50);
+      final h = await _openPlayer(tester, player: player);
+      _update(h.container, _request, positionMs: 50000);
+      await tester.pump();
+      await tester.tap(find.text('Terminar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Terminar'));
+      await tester.pumpAndSettle();
+      expect(h.player.saves, [true]);
+      expect(find.byType(PlayerView), findsNothing);
+      expect(find.byType(EndScreenView), findsNothing);
+      expect(
+        find.text('Las sesiones de menos de un minuto no se guardan'),
+        findsNothing,
+      );
+    });
+
+    testWidgets('con un minuto o más por delante dice lo que llevas', (
+      tester,
+    ) async {
+      final h = await _openPlayer(tester, player: _Player(_long));
+      _update(h.container, _long, positionMs: 61000);
+      await tester.pump();
+      await tester.tap(find.text('Terminar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Llevas 1 min.'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Terminar'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(h.player.saves, [true]);
+      expect(find.byType(EndScreenView), findsOneWidget);
+      await _disposeEndScreen(tester);
+    });
+
+    testWidgets('con menos de un minuto por delante termina sin preguntar', (
+      tester,
+    ) async {
+      final h = await _openPlayer(tester);
+      _update(h.container, _request, positionMs: 61000);
+      await tester.pump();
+      await tester.tap(find.text('Terminar'));
+      await tester.pump();
+      expect(find.byType(AlertDialog), findsNothing);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(h.player.saves, [true]);
+      expect(find.byType(EndScreenView), findsOneWidget);
+      await _disposeEndScreen(tester);
+    });
+
+    testWidgets('el cronómetro con más de un minuto termina sin preguntar', (
+      tester,
+    ) async {
+      final player = _Player(_stopwatch)
+        ..closeElapsed = const Duration(minutes: 3);
+      final h = await _openPlayer(tester, player: player);
+      _update(h.container, _stopwatch, positionMs: 180000);
+      await tester.pump();
+      await tester.tap(find.text('Terminar'));
+      await tester.pump();
+      expect(find.byType(AlertDialog), findsNothing);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(h.player.saves, [true]);
+      final end = tester.widget<EndScreenView>(find.byType(EndScreenView));
+      expect(end.timerElapsed, const Duration(minutes: 3));
+      await _disposeEndScreen(tester);
+    });
+  });
+
+  testWidgets('un cierre corto sin diálogo avisa que no se guardó', (
     tester,
   ) async {
-    final player = _Player();
-    final dnd = _Dnd();
-    final container = await _openPlayer(tester, player, dnd);
-    _update(container, completed: false);
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 30000);
+    await tester.pump();
+    h.player.systemClose(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Las sesiones de menos de un minuto no se guardan'),
+      findsOneWidget,
+    );
+    expect(find.byType(PlayerView), findsNothing);
+  });
+
+  testWidgets('el fin natural deja las campanas al audio y abre el resumen', (
+    tester,
+  ) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 6000);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Pantalla'));
     await tester.pumpAndSettle();
     expect(find.byType(TimerBackgroundPicker), findsOneWidget);
 
-    _update(container, completed: true);
+    _update(
+      h.container,
+      _request,
+      positionMs: _request.duration,
+      completed: true,
+    );
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     expect(find.byType(TimerBackgroundPicker), findsNothing);
     expect(find.byType(PlayerView), findsNothing);
-    expect(find.byType(EndScreenView), findsOneWidget);
-    expect(player.stops, 1);
-    expect(dnd.disableCalls, 1);
+    final end = tester.widget<EndScreenView>(find.byType(EndScreenView));
+    expect(end.timerElapsed, const Duration(minutes: 2));
+    // SES-06: la pantalla no apaga campanas ni fondo; solo cierra su estado.
+    expect(h.sounds.stopCalls, 0);
+    expect(h.sounds.ambientStops, 1);
+    expect(h.player.stops, 1);
+    expect(h.dnd.calls, 0);
+    await _disposeEndScreen(tester);
+  });
 
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpWidget(const SizedBox());
+  testWidgets('el final de otra corrida no abre el resumen de esta', (
+    tester,
+  ) async {
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 6000);
+    await tester.pump();
+    _update(
+      h.container,
+      _request,
+      positionMs: _request.duration,
+      completed: true,
+      runId: 'otra-corrida',
+    );
+    await tester.pump();
+    await tester.pump();
     await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(EndScreenView), findsNothing);
+    expect(find.byType(TimerSessionLayout), findsOneWidget);
+    expect(h.player.stops, 0);
+
+    _update(h.container, _request, positionMs: 7000);
+    await tester.pump();
+    _update(
+      h.container,
+      _request,
+      positionMs: _request.duration,
+      completed: true,
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(EndScreenView), findsOneWidget);
+    await _disposeEndScreen(tester);
+  });
+
+  testWidgets('un error al cargar el temporizador vuelve a preparar', (
+    tester,
+  ) async {
+    final player = _Player()..playError = Exception('sin audio');
+    final h = await _openPlayer(tester, player: player);
+    await tester.pumpAndSettle();
+    expect(find.byType(PlayerView), findsNothing);
+    expect(find.byKey(_home), findsOneWidget);
+    expect(
+      find.text('No se pudo iniciar el temporizador. Inténtalo de nuevo.'),
+      findsOneWidget,
+    );
+    expect(h.player.stops, 0);
+  });
+
+  testWidgets('timerStartFailed de esta corrida vuelve; el de otra no', (
+    tester,
+  ) async {
+    final h = await _openPlayer(tester);
+    h.player.timerStartFailed.value = 'otra-corrida';
+    await tester.pumpAndSettle();
+    expect(find.byType(TimerSessionLayout), findsOneWidget);
+
+    h.player.timerStartFailed.value = _request.timerRunId;
+    await tester.pumpAndSettle();
+    expect(find.byType(PlayerView), findsNothing);
+    expect(find.byKey(_home), findsOneWidget);
+    expect(
+      find.text('No se pudo iniciar el temporizador. Inténtalo de nuevo.'),
+      findsOneWidget,
+    );
+    expect(h.player.saves, isEmpty);
+  });
+
+  testWidgets('con «Pantalla encendida» la mantiene y la suelta al salir', (
+    tester,
+  ) async {
+    final calls = <Object?>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    TimerDeviceChannel.debugIsAndroid = true;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('intronauts/timer_device'),
+      (call) async {
+        if (call.method == 'keepScreenOn') {
+          calls.add((call.arguments as Map)['on']);
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      TimerDeviceChannel.debugIsAndroid = null;
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('intronauts/timer_device'),
+        null,
+      );
+    });
+    final h = await _openPlayer(
+      tester,
+      prefs: {SharedPreferenceConstants.timerKeepScreenOn: true},
+    );
+    expect(calls, [true]);
+    _update(h.container, _request, positionMs: 30000);
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PlayerView), findsNothing);
+    expect(calls, [true, false]);
+  });
+
+  testWidgets('sin «Pantalla encendida» no toca la pantalla', (tester) async {
+    final calls = <Object?>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    TimerDeviceChannel.debugIsAndroid = true;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('intronauts/timer_device'),
+      (call) async {
+        calls.add(call.method);
+        return null;
+      },
+    );
+    addTearDown(() {
+      TimerDeviceChannel.debugIsAndroid = null;
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('intronauts/timer_device'),
+        null,
+      );
+    });
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 30000);
+    await tester.pump();
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.pumpAndSettle();
+    expect(calls, isEmpty);
   });
 
   testWidgets('Sonido de fondo abre la hoja de sonido existente', (
     tester,
   ) async {
-    final container = await _openPlayer(tester, _Player(), _Dnd());
-    _update(container, completed: false);
+    final h = await _openPlayer(tester);
+    _update(h.container, _request, positionMs: 6000);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sonido de fondo'));
     await tester.pumpAndSettle();
     expect(find.byType(BackgroundSoundView), findsOneWidget);
     expect(find.byType(TimerBackgroundPicker), findsNothing);
+  });
+
+  test('el umbral de salir sin preguntar es un minuto', () {
+    expect(kTimerExitConfirmMinMs, kMinRecordedTimerSession.inMilliseconds);
   });
 }

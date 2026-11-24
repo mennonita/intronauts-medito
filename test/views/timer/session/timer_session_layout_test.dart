@@ -23,12 +23,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 PlaybackRequest _request({
   TimerMode mode = TimerMode.countdown,
   bool extraTime = false,
+  int prepMs = 0,
 }) => timerPlaybackRequest(
   mode: mode,
   duration: mode == TimerMode.stopwatch
       ? kStopwatchMaxDuration
       : const Duration(minutes: 2),
   extraTime: extraTime,
+  prepMs: prepMs,
   filePath: '/tmp/timer.wav',
   title: 'Título de audio',
 );
@@ -143,6 +145,7 @@ void main() {
         container,
         _layout(
           _request(),
+          playing: true,
           onClose: () => closed++,
           onEnd: () => ended++,
           onPlayPause: () => toggled++,
@@ -162,9 +165,13 @@ void main() {
     expect(find.byType(PlayerButtonsWidget), findsNothing);
     expect(find.text('Título de audio'), findsNothing);
     expect(find.text('Sonido de fondo'), findsOneWidget);
-    await tester.tap(find.byTooltip('Continuar'));
-    await tester.tap(find.byTooltip('Cerrar'));
-    await tester.tap(find.text('Terminar'));
+    final end = find.widgetWithText(OutlinedButton, 'Terminar');
+    expect(end, findsOneWidget);
+    expect(tester.getSize(end).height, greaterThanOrEqualTo(48));
+    expect(tester.getSize(end).width, greaterThanOrEqualTo(120));
+    await tester.tap(find.byTooltip('Pausar'));
+    await tester.tap(find.byTooltip('Salir'));
+    await tester.tap(end);
     expect(toggled, 1);
     expect(closed, 1);
     expect(ended, 1);
@@ -284,7 +291,7 @@ void main() {
   ) async {
     final request = _request(mode: TimerMode.stopwatch);
     _audioUpdate(container, request, position: 78241, playing: true);
-    await tester.pumpWidget(_app(container, _layout(request)));
+    await tester.pumpWidget(_app(container, _layout(request, playing: true)));
     expect(find.text('Cronómetro'), findsOneWidget);
     expect(find.text('0:00'), findsOneWidget);
     _audioUpdate(container, request, position: 1999, playing: true);
@@ -298,7 +305,7 @@ void main() {
     await tester.pumpWidget(
       _app(container, _layout(_request(), playing: true), reduceMotion: false),
     );
-    final button = find.text('Fondo');
+    final button = find.text('Pantalla');
     final backgroundButton = tester.getCenter(button);
     await tester.pump(const Duration(milliseconds: 5999));
     expect(_controlOpacities(tester), [1, 1]);
@@ -383,7 +390,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(_app(container, _layout(_request())));
-    await tester.tap(find.text('Fondo'));
+    await tester.tap(find.text('Pantalla'));
     await tester.pumpAndSettle();
     final picker = find.byType(TimerBackgroundPicker);
     final waves = find.widgetWithText(TextButton, 'Ondas');
@@ -405,7 +412,48 @@ void main() {
         .singleWhere((canvas) => canvas.withScrim);
     expect(sessionCanvas.background, TimerBackground.waves);
     expect(picker, findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Listo'));
+    await tester.pumpAndSettle();
+    expect(picker, findsNothing);
   });
+
+  testWidgets(
+    'la hoja agrupa Animación, Degradados y Colores con Negro primero',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        _app(container, const Scaffold(body: TimerBackgroundPicker())),
+      );
+      expect(find.text('Pantalla'), findsOneWidget);
+      final groupTops = [
+        for (final title in ['Animación', 'Degradados', 'Colores'])
+          tester.getTopLeft(find.text(title)).dy,
+      ];
+      expect(groupTops, orderedEquals([...groupTops]..sort()));
+      // Negro ya no es un grupo aparte: abre «Colores».
+      expect(find.text('Negro'), findsOneWidget);
+      Offset tile(String label) =>
+          tester.getTopLeft(find.widgetWithText(TextButton, label));
+      final black = tile('Negro');
+      expect(black.dy, greaterThan(groupTops[2]));
+      for (final color in ['Pizarra', 'Bosque', 'Lavanda']) {
+        final other = tile(color);
+        expect(
+          black.dy < other.dy || (black.dy == other.dy && black.dx < other.dx),
+          isTrue,
+          reason: color,
+        );
+      }
+      for (final image in ['Amanecer', 'Noche']) {
+        expect(tile(image).dy, greaterThan(groupTops[1]));
+        expect(tile(image).dy, lessThan(groupTops[2]));
+      }
+      expect(find.widgetWithText(TextButton, 'Listo'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'la hoja al 45 % deja el texto visible en horizontal a escala 1.5',
@@ -417,7 +465,7 @@ void main() {
       await tester.pumpWidget(
         _app(container, _layout(_request()), textScale: 1.5),
       );
-      await tester.tap(find.text('Fondo'));
+      await tester.tap(find.text('Pantalla'));
       await tester.pumpAndSettle();
       final sheet = tester.getRect(find.byType(BottomSheet));
       expect(sheet.height, closeTo(117, 0.1));
@@ -425,7 +473,8 @@ void main() {
         tester.element(find.byType(TimerBackgroundPicker)),
       )!;
       expect(route.barrierColor, Colors.black.withValues(alpha: 0.2));
-      for (final item in [find.text('Temporizador'), find.text('2:00')]) {
+      expect(find.text('Listo'), findsOneWidget);
+      for (final item in [find.text('En pausa'), find.text('2:00')]) {
         final visible = tester.getRect(item);
         expect(visible.top, greaterThanOrEqualTo(0));
         expect(visible.bottom, lessThanOrEqualTo(sheet.top));
@@ -435,6 +484,82 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('los controles no se ocultan en tiempo extra ni en preparación', (
+    tester,
+  ) async {
+    final extra = _request(extraTime: true);
+    await tester.pumpWidget(_app(container, _layout(extra, playing: true)));
+    _audioUpdate(container, extra, position: 125000, playing: true);
+    await tester.pump();
+    expect(find.text('Tiempo extra'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 7));
+    expect(_controlOpacities(tester), [1, 1]);
+    expect(find.text('Terminar').hitTestable(), findsOneWidget);
+
+    // Con preparación los controles siguen a la vista y luego se ocultan.
+    final prep = _request(prepMs: 10000);
+    container.read(audioStateProvider.notifier).resetState();
+    await tester.pumpWidget(_app(container, _layout(prep, playing: true)));
+    _audioUpdate(container, prep, position: 2000, playing: true);
+    await tester.pump();
+    expect(find.text('Prepárate'), findsOneWidget);
+    expect(find.text('0:08'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 7));
+    expect(_controlOpacities(tester), [1, 1]);
+    _audioUpdate(container, prep, position: 10500, playing: true);
+    await tester.pump();
+    expect(find.text('Temporizador'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 7));
+    expect(_controlOpacities(tester), [0, 0]);
+  });
+
+  testWidgets('en pausa dice «En pausa» y no oculta los controles', (
+    tester,
+  ) async {
+    final request = _request();
+    await tester.pumpWidget(_app(container, _layout(request)));
+    _audioUpdate(container, request, position: 30000);
+    await tester.pump();
+    expect(find.text('En pausa'), findsOneWidget);
+    expect(find.text('1:30'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 7));
+    expect(_controlOpacities(tester), [1, 1]);
+    expect(find.text('Terminar').hitTestable(), findsOneWidget);
+  });
+
+  for (final size in [const Size(360, 640), const Size(800, 360)]) {
+    testWidgets(
+      'con letra al 200 % los controles no se reducen ni se desbordan '
+      '(${size.width.toInt()}x${size.height.toInt()})',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(
+          _app(container, _layout(_request()), textScale: 2),
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        for (final control in [
+          find.widgetWithText(OutlinedButton, 'Terminar'),
+          find.widgetWithText(TextButton, 'Pantalla'),
+          find.widgetWithText(TextButton, 'Sonido de fondo'),
+          find.byTooltip('Continuar'),
+        ]) {
+          expect(control, findsOneWidget);
+          expect(
+            find.ancestor(of: control, matching: find.byType(FittedBox)),
+            findsNothing,
+          );
+          final box = tester.getSize(control);
+          expect(box.height, greaterThanOrEqualTo(48));
+          expect(box.width, greaterThanOrEqualTo(48));
+        }
+      },
+    );
+  }
 
   testWidgets('los iconos del sistema cambian con fondos oscuros y claros', (
     tester,
@@ -526,7 +651,7 @@ void main() {
           );
         }
 
-        await tester.tap(find.byTooltip('Cerrar'));
+        await tester.tap(find.byTooltip('Salir'));
         await tester.pumpAndSettle();
         expect(find.byType(TimerSessionLayout), findsNothing);
         if (changeBrightness) {
