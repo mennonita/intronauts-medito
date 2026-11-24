@@ -195,8 +195,6 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Intronauts no graba audio. El sistema de reproducción de audio de la app requiere este permiso.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
@@ -245,9 +243,9 @@
 	<key>LSApplicationCategoryType</key>
 	<string></string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>We do not ever download or store your health data. The app requires this permission to sync your mindfulness minutes.</string>
+	<string>Esta app no lee tus datos de Salud; solo guarda tus minutos de meditación.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>We need permission to write mindfulness data to Apple Health to record your meditation sessions.</string>
+	<string>Esta app guarda tus minutos de meditación en Salud como minutos de atención plena.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>medito_stats_thread_identifier</string>
@@ -426,7 +424,7 @@
 		<string>applinks:medito.app</string>
 	</array>
 	<key>NSSiriUsageDescription</key>
-	<string>Add voice shortcuts to quickly play your favourite meditations</string>
+	<string>Usa Siri para empezar una meditación o un temporizador.</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>Este permiso nos ayuda a entender cómo se usan las meditaciones. Así podemos mejorarlas.</string>
 </dict>

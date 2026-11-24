@@ -58,6 +58,8 @@ post_install do |installer|
         '$(inherited)',
         # dart: PermissionGroup.notification
         'PERMISSION_NOTIFICATIONS=1',
+        # audio_session: sin APIs de micrófono (la app no graba)
+        'AUDIO_SESSION_MICROPHONE=0',
       ]
       
       # Add app tracking transparency framework
