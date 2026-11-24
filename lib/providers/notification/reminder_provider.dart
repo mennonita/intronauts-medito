@@ -1,41 +1,119 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timezone/data/latest.dart' as tz;
-import 'package:timezone/timezone.dart' as tz;
+import 'package:medito/services/reminders/reminder_launch_action.dart';
+import 'package:medito/utils/current_localizations.dart';
 import 'package:medito/utils/local_time_zone.dart';
 import 'package:medito/utils/logger.dart';
 import 'package:medito/services/analytics/crashlytics_service.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 final reminderProvider = Provider<ReminderProvider>((ref) {
   return ReminderProvider();
 });
 
+/// Botón «Sentarme 3 min» del aviso diario.
+const kReminderActionSit3 = 'reminder_sit3';
+
+/// Botón «Hoy no» del aviso diario.
+const kReminderActionNotToday = 'reminder_not_today';
+
+/// Categoría de iOS que agrupa los dos botones del aviso diario.
+const kReminderCategoryId = 'intronauts_reminder';
+
+/// Categoría de iOS con los botones del aviso. El plugin es uno solo y el
+/// último `initialize` reemplaza las categorías, así que todos los
+/// `initialize` de la app deben pasar esta misma categoría.
+DarwinNotificationCategory reminderNotificationCategory({
+  required String sitLabel,
+  required String notTodayLabel,
+}) => DarwinNotificationCategory(
+  kReminderCategoryId,
+  actions: [
+    DarwinNotificationAction.plain(
+      kReminderActionSit3,
+      sitLabel,
+      options: const {DarwinNotificationActionOption.foreground},
+    ),
+    // Sin opción de primer plano: solo quita el aviso, no abre la app.
+    DarwinNotificationAction.plain(kReminderActionNotToday, notTodayLabel),
+  ],
+);
+
+/// La categoría con los textos del idioma actual del teléfono.
+List<DarwinNotificationCategory> currentReminderCategories() {
+  final l10n = currentLocalizations();
+  return [
+    reminderNotificationCategory(
+      sitLabel: l10n.reminderActionSit3,
+      notTodayLabel: l10n.reminderActionNotToday,
+    ),
+  ];
+}
+
 class ReminderProvider {
-  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin;
   late final Future<void> _initFuture;
 
-  ReminderProvider() {
-    _initFuture = _initializeNotifications();
+  ReminderProvider() : _flutterLocalNotificationsPlugin = pluginFactory() {
+    _initFuture = ensurePluginInitialized();
   }
 
-  Future<void> _initializeNotifications() async {
+  /// Plugin que usan los avisos; las pruebas lo cambian por uno falso.
+  @visibleForTesting
+  static FlutterLocalNotificationsPlugin Function() pluginFactory =
+      FlutterLocalNotificationsPlugin.new;
+
+  /// Prepara la zona horaria antes de programar; las pruebas la cambian.
+  @visibleForTesting
+  static Future<void> Function() timeZoneSetup = _defaultTimeZoneSetup;
+
+  /// El plugin compartido de avisos locales.
+  static FlutterLocalNotificationsPlugin get sharedPlugin => pluginFactory();
+
+  static Future<void>? _pluginInit;
+
+  /// Inicializa el plugin una sola vez por proceso. Corre en cada arranque
+  /// (proveedor de avisos o decisión de inicio) y registra el manejador de
+  /// los botones del aviso, aunque Firebase no se haya inicializado.
+  static Future<void> ensurePluginInitialized() =>
+      _pluginInit ??= _initializeNotifications(pluginFactory());
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _pluginInit = null;
+    pluginFactory = FlutterLocalNotificationsPlugin.new;
+    timeZoneSetup = _defaultTimeZoneSetup;
+  }
+
+  static Future<void> _defaultTimeZoneSetup() async {
     tz.initializeTimeZones();
     // Usa la zona horaria del teléfono; sin esto tz.local queda en UTC.
     await ensureLocalTimeZone();
+  }
+
+  static Future<void> _initializeNotifications(
+    FlutterLocalNotificationsPlugin plugin,
+  ) async {
+    await timeZoneSetup();
     const initializationSettingsAndroid = AndroidInitializationSettings('logo');
-    const initializationSettingsIOS = DarwinInitializationSettings(
+    final initializationSettingsIOS = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
+      notificationCategories: currentReminderCategories(),
     );
-    const initializationSettings = InitializationSettings(
+    final initializationSettings = InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
-    await _flutterLocalNotificationsPlugin.initialize(
+    // Si Firebase inicializa después, su manejador reenvía los botones aquí;
+    // si inicializa antes, este manejador le pasa los toques al cuerpo.
+    await plugin.initialize(
       settings: initializationSettings,
+      onDidReceiveNotificationResponse: ReminderLaunchAction.handleResponse,
     );
   }
 
@@ -110,16 +188,7 @@ class ReminderProvider {
             body: item.body,
             androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
             scheduledDate: item.scheduledDate,
-            notificationDetails: const NotificationDetails(
-              android: AndroidNotificationDetails(
-                androidNotificationChannelId,
-                androidNotificationChannelName,
-                channelDescription: androidNotificationChannelDescription,
-                icon: androidNotificationIcon,
-                importance: Importance.max,
-                priority: Priority.high,
-              ),
-            ),
+            notificationDetails: reminderNotificationDetails(item),
             // Was omitted entirely: the payload was built and logged but never
             // attached, so every tap arrived with null and the handler's
             // null-guard skipped navigation and analytics alike.
@@ -234,7 +303,11 @@ class ReminderProvider {
     }
   }
 
-  Future<List<PendingNotificationRequest>> getPendingNotifications() async {
+  /// Con [rethrowErrors] el error sale al que llama en vez de volver vacío,
+  /// para no confundir «no hay avisos» con «no se pudieron leer».
+  Future<List<PendingNotificationRequest>> getPendingNotifications({
+    bool rethrowErrors = false,
+  }) async {
     await _initFuture;
     AppLogger.d('REMINDER', 'Getting pending notifications...');
     try {
@@ -258,6 +331,7 @@ class ReminderProvider {
         s,
         reason: 'Failed to get pending notifications',
       );
+      if (rethrowErrors) rethrow;
       return [];
     }
   }
@@ -273,6 +347,37 @@ const dailyNotificationId = 10101024;
 const reminderSeriesBaseId = 10102000;
 const reminderSeriesCount = 15;
 
+/// Detalles de cada aviso de la serie: mismo canal, importancia e ícono de
+/// siempre, más los botones «Sentarme 3 min» y «Hoy no».
+NotificationDetails reminderNotificationDetails(ScheduledReminder item) =>
+    NotificationDetails(
+      android: AndroidNotificationDetails(
+        androidNotificationChannelId,
+        androidNotificationChannelName,
+        channelDescription: androidNotificationChannelDescription,
+        icon: androidNotificationIcon,
+        importance: Importance.max,
+        priority: Priority.high,
+        actions: [
+          AndroidNotificationAction(
+            kReminderActionSit3,
+            item.sitLabel,
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+          // Sin interfaz: Android quita el aviso y no abre la app.
+          AndroidNotificationAction(
+            kReminderActionNotToday,
+            item.notTodayLabel,
+            cancelNotification: true,
+          ),
+        ],
+      ),
+      iOS: const DarwinNotificationDetails(
+        categoryIdentifier: kReminderCategoryId,
+      ),
+    );
+
 class ScheduledReminder {
   final int id;
   final tz.TZDateTime scheduledDate;
@@ -283,11 +388,17 @@ class ScheduledReminder {
   /// Must be valid JSON: the handler decodes it.
   final String payload;
 
+  /// Textos de los botones, en el idioma actual del teléfono.
+  final String sitLabel;
+  final String notTodayLabel;
+
   ScheduledReminder({
     required this.id,
     required this.scheduledDate,
     required this.title,
     required this.body,
     required this.payload,
+    required this.sitLabel,
+    required this.notTodayLabel,
   });
 }
