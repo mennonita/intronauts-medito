@@ -16,6 +16,7 @@ import 'stats_manager_test.mocks.dart';
 void main() {
   late StatsManager statsManager;
   late MockStatsService mockStatsService;
+  final streakTestToday = DateTime(2025, 1, 15);
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -44,8 +45,7 @@ void main() {
 
     test('calculateStreak - single day activity sets streak to 1', () {
       // Arrange
-      var now = DateTime.now();
-      var today = DateTime(now.year, now.month, now.day);
+      final today = streakTestToday;
       statsManager.setCurrentDateForTesting(today);
 
       var stats = LocalAllStats.empty().copyWith(
@@ -64,8 +64,7 @@ void main() {
 
     test('calculateStreak - two consecutive days sets streak to 2', () {
       // Arrange
-      var now = DateTime.now();
-      var today = DateTime(now.year, now.month, now.day);
+      final today = streakTestToday;
       var yesterday = today.subtract(const Duration(days: 1));
       statsManager.setCurrentDateForTesting(today);
 
@@ -89,8 +88,7 @@ void main() {
 
     test('calculateStreak - missing day resets streak', () {
       // Arrange
-      var now = DateTime.now();
-      var today = DateTime(now.year, now.month, now.day);
+      final today = streakTestToday;
       var twoDaysAgo = today.subtract(const Duration(days: 2));
       statsManager.setCurrentDateForTesting(today);
 
@@ -114,8 +112,7 @@ void main() {
 
     test('calculateStreak - streak freeze prevents streak reset', () {
       // Arrange
-      var now = DateTime.now();
-      var today = DateTime(now.year, now.month, now.day);
+      final today = streakTestToday;
       var yesterday = today.subtract(const Duration(days: 1));
       var twoDaysAgo = today.subtract(const Duration(days: 2));
       statsManager.setCurrentDateForTesting(today);
@@ -143,8 +140,7 @@ void main() {
       'calculateStreak - updates longest streak when current exceeds it',
       () {
         // Arrange
-        var now = DateTime.now();
-        var today = DateTime(now.year, now.month, now.day);
+        final today = streakTestToday;
         var yesterday = today.subtract(const Duration(days: 1));
         var twoDaysAgo = today.subtract(const Duration(days: 2));
         statsManager.setCurrentDateForTesting(today);
@@ -182,8 +178,7 @@ void main() {
       'calculateStreak - multiple activities in same day only count as one day in streak',
       () {
         // Arrange
-        var now = DateTime.now();
-        var today = DateTime(now.year, now.month, now.day);
+        final today = streakTestToday;
         statsManager.setCurrentDateForTesting(today);
 
         var stats = LocalAllStats.empty().copyWith(
@@ -212,8 +207,7 @@ void main() {
       'calculateStreak - maintains longest streak when current streak is reset',
       () {
         // Arrange
-        var now = DateTime.now();
-        var today = DateTime(now.year, now.month, now.day);
+        final today = streakTestToday;
         var fiveDaysAgo = today.subtract(const Duration(days: 5));
         var sixDaysAgo = today.subtract(const Duration(days: 6));
         var sevenDaysAgo = today.subtract(const Duration(days: 7));
@@ -253,8 +247,7 @@ void main() {
 
     test('calculateStreak - handles multiple consecutive streak freezes', () {
       // Arrange
-      var now = DateTime.now();
-      var today = DateTime(now.year, now.month, now.day);
+      final today = streakTestToday;
       // DST-safe date arithmetic.
       var yesterday = DateTime(today.year, today.month, today.day - 1);
       var twoDaysAgo = DateTime(today.year, today.month, today.day - 2);
@@ -287,8 +280,7 @@ void main() {
       'calculateStreak - activity with future date does not affect streak',
       () {
         // Arrange
-        var now = DateTime.now();
-        var today = DateTime(now.year, now.month, now.day);
+        final today = streakTestToday;
         var yesterday = today.subtract(const Duration(days: 1));
         var tomorrow = today.add(const Duration(days: 1));
         statsManager.setCurrentDateForTesting(today);
@@ -1257,32 +1249,62 @@ void main() {
     });
 
     group('StatsManager with Specific Timestamps Tests', () {
+      // Use local calendar times for both activity and freezes. The sessions
+      // leave gaps on February 21 and 26 in every test runner's time zone.
+      final audioCompleted = [
+        LocalAudioCompleted(
+          id: '7',
+          timestamp: DateTime(
+            2025,
+            2,
+            28,
+            8,
+            27,
+            46,
+            284,
+          ).millisecondsSinceEpoch,
+        ),
+        LocalAudioCompleted(
+          id: '6',
+          timestamp: DateTime(
+            2025,
+            2,
+            27,
+            17,
+            3,
+            35,
+            221,
+          ).millisecondsSinceEpoch,
+        ),
+        LocalAudioCompleted(
+          id: '5',
+          timestamp: DateTime(2025, 2, 25).millisecondsSinceEpoch,
+        ),
+        LocalAudioCompleted(
+          id: '4',
+          timestamp: DateTime(2025, 2, 24).millisecondsSinceEpoch,
+        ),
+        LocalAudioCompleted(
+          id: '3',
+          timestamp: DateTime(2025, 2, 23).millisecondsSinceEpoch,
+        ),
+        LocalAudioCompleted(
+          id: '2',
+          timestamp: DateTime(2025, 2, 22).millisecondsSinceEpoch,
+        ),
+        LocalAudioCompleted(
+          id: '1',
+          timestamp: DateTime(2025, 2, 20).millisecondsSinceEpoch,
+        ),
+      ];
+
       test('calculateStreak - specific timestamp sequence with gaps', () {
         // Set "today" as March 1
         final testDate = DateTime(2025, 3, 1);
         statsManager.setCurrentDateForTesting(testDate);
 
-        // Create activity with the specific timestamps provided
-        // Notice gaps on Feb 21 and Feb 26
         var stats = LocalAllStats.empty().copyWith(
-          audioCompleted: [
-            // Feb 28 - Today
-            LocalAudioCompleted(id: '7', timestamp: 1740731266284),
-            // Feb 27
-            LocalAudioCompleted(id: '6', timestamp: 1740675815221),
-            // GAP on Feb 26
-            // Feb 25
-            LocalAudioCompleted(id: '5', timestamp: 1740441600000),
-            // Feb 24
-            LocalAudioCompleted(id: '4', timestamp: 1740355200000),
-            // Feb 23
-            LocalAudioCompleted(id: '3', timestamp: 1740268800000),
-            // Feb 22
-            LocalAudioCompleted(id: '2', timestamp: 1740182400000),
-            // GAP on Feb 21
-            // Feb 20
-            LocalAudioCompleted(id: '1', timestamp: 1740009600000),
-          ],
+          audioCompleted: audioCompleted,
         );
 
         // Act - Calculate streak with no freezes
@@ -1302,27 +1324,9 @@ void main() {
         // Date for Feb 26 (the gap day)
         final feb26 = DateTime(2025, 2, 26);
 
-        // Create activity with the specific timestamps provided
         // Apply a streak freeze for Feb 26
         var stats = LocalAllStats.empty().copyWith(
-          audioCompleted: [
-            // Feb 28 - Today
-            LocalAudioCompleted(id: '7', timestamp: 1740731266284),
-            // Feb 27
-            LocalAudioCompleted(id: '6', timestamp: 1740675815221),
-            // GAP on Feb 26 (with freeze)
-            // Feb 25
-            LocalAudioCompleted(id: '5', timestamp: 1740441600000),
-            // Feb 24
-            LocalAudioCompleted(id: '4', timestamp: 1740355200000),
-            // Feb 23
-            LocalAudioCompleted(id: '3', timestamp: 1740268800000),
-            // Feb 22
-            LocalAudioCompleted(id: '2', timestamp: 1740182400000),
-            // GAP on Feb 21
-            // Feb 20
-            LocalAudioCompleted(id: '1', timestamp: 1740009600000),
-          ],
+          audioCompleted: audioCompleted,
           freezeUsageDates: [feb26.millisecondsSinceEpoch],
           streakFreezes: 0,
           maxStreakFreezes: 1,
@@ -1346,27 +1350,9 @@ void main() {
         final feb21 = DateTime(2025, 2, 21);
         final feb26 = DateTime(2025, 2, 26);
 
-        // Create activity with the specific timestamps provided
         // Apply streak freezes for both gap days
         var stats = LocalAllStats.empty().copyWith(
-          audioCompleted: [
-            // Feb 28 - Today
-            LocalAudioCompleted(id: '7', timestamp: 1740731266284),
-            // Feb 27
-            LocalAudioCompleted(id: '6', timestamp: 1740675815221),
-            // GAP on Feb 26 (with freeze)
-            // Feb 25
-            LocalAudioCompleted(id: '5', timestamp: 1740441600000),
-            // Feb 24
-            LocalAudioCompleted(id: '4', timestamp: 1740355200000),
-            // Feb 23
-            LocalAudioCompleted(id: '3', timestamp: 1740268800000),
-            // Feb 22
-            LocalAudioCompleted(id: '2', timestamp: 1740182400000),
-            // GAP on Feb 21 (with freeze)
-            // Feb 20
-            LocalAudioCompleted(id: '1', timestamp: 1740009600000),
-          ],
+          audioCompleted: audioCompleted,
           freezeUsageDates: [
             feb21.millisecondsSinceEpoch,
             feb26.millisecondsSinceEpoch,

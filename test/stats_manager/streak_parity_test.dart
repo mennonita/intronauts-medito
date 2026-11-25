@@ -29,9 +29,25 @@ void main() {
   );
   final cases = fixture['cases'] as List<dynamic>;
 
-  DateTime atHourOffset(num offsetHours) => referenceInstant.add(
-    Duration(milliseconds: (offsetHours * 3600000).round()),
-  );
+  DateTime atHourOffset(num offsetHours) {
+    final fixtureTime = referenceInstant.add(
+      Duration(
+        milliseconds: (offsetHours * Duration.millisecondsPerHour).round(),
+      ),
+    );
+    // The fixture describes calendar times. Use the same local clock for the
+    // injected date and the persisted timestamps StatsManager reads as local.
+    return DateTime(
+      fixtureTime.year,
+      fixtureTime.month,
+      fixtureTime.day,
+      fixtureTime.hour,
+      fixtureTime.minute,
+      fixtureTime.second,
+      fixtureTime.millisecond,
+      fixtureTime.microsecond,
+    );
+  }
 
   group('Streak parity fixture', () {
     for (final rawCase in cases) {
